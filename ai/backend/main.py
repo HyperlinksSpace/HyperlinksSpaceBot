@@ -56,7 +56,7 @@ async def chat(request: ChatRequest):
                         "prompt": request.message,
                         "stream": True,  # Enable streaming
                         "options": {
-                            "num_predict": 100,  # Limit response length
+                            "num_predict": 1000,  # Allow longer responses (increased from 100)
                             "temperature": 0.7,
                             "num_thread": 2,
                         }

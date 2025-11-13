@@ -23,19 +23,9 @@ flutter:
   
   # Assets folder (for images used in Flutter code)
   assets:
-    - assets/images/logo.svg
-    - assets/icons/apply.svg
-    - assets/icons/connect.svg
-    - assets/icons/create.svg
-    - assets/icons/import.svg
-    - assets/icons/select.svg
-    - assets/sample/1.png
-    - assets/sample/2.png
-    - assets/sample/3.png
-    - assets/sample/4.png
-    - assets/sample/5.png
-    - assets/sample/usdt.png
-    - assets/sample/ton.png
+    - assets/images/
+    - assets/icons/
+    - assets/sample/
   
   # Fonts configuration
   fonts:

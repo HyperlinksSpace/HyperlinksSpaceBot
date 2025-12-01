@@ -631,7 +631,7 @@ class _SimpleMainPageState extends State<SimpleMainPage>
                       const SizedBox(height: 15),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         textBaseline: TextBaseline.alphabetic,
                         children: [
                           Text(

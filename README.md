@@ -1,5 +1,7 @@
 # bc1qbot
 
+![lead picture](https://raw.githubusercontent.com/bc1qa5pw/bc1qbot/refs/heads/main/Frame%202608961%20(1).png)
+
 This is a monorepo containing multiple services.
 
 ## Repository Structure

@@ -1,4 +1,4 @@
-![Prospectus](https://raw.githubusercontent.com/TECHSYMBAL/bot/refs/heads/main/TECHSYMBAL_COVER.png)
+![Prospectus](https://raw.githubusercontent.com/TECHSYMBAL/Bot/refs/heads/main/Frame%2026%20(3).png)
 
 This is a monorepo containing multiple services.
 

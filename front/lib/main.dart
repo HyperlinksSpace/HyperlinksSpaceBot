@@ -199,7 +199,7 @@ class DiagonalLinePainter extends CustomPainter {
 class TelegramBackButton {
   // Store callback references so offClick can properly remove them
   static final Map<Function(), dynamic> _callbackMap = {};
-  
+
   // CRITICAL: Store callbacks globally to prevent garbage collection
   static final List<dynamic> _globalCallbacks = [];
   
@@ -326,8 +326,8 @@ class TelegramBackButton {
       }
 
       // Method 1: Try using BackButton.show() directly (primary method)
-      final backButton = _getBackButton();
-      if (backButton != null) {
+    final backButton = _getBackButton();
+    if (backButton != null) {
         final showMethod = backButton['show'];
         if (showMethod != null && showMethod is js.JsFunction) {
           try {
@@ -351,9 +351,9 @@ class TelegramBackButton {
           ]);
           _addLog('[BackButton] ✓ Show command sent via postEvent (fallback)');
           return;
-        } catch (e) {
+      } catch (e) {
           _addLog('[BackButton] postEvent failed: $e');
-        }
+      }
       }
 
       _addLog('[BackButton] ✗ Could not show back button - no methods available');
@@ -373,8 +373,8 @@ class TelegramBackButton {
       }
 
       // Method 1: Try using BackButton.hide() directly (primary method)
-      final backButton = _getBackButton();
-      if (backButton != null) {
+    final backButton = _getBackButton();
+    if (backButton != null) {
         final hideMethod = backButton['hide'];
         if (hideMethod != null && hideMethod is js.JsFunction) {
           try {
@@ -398,7 +398,7 @@ class TelegramBackButton {
           ]);
           _addLog('[BackButton] ✓ Hide command sent via postEvent (fallback)');
           return;
-        } catch (e) {
+      } catch (e) {
           _addLog('[BackButton] postEvent failed: $e');
         }
       }
@@ -431,7 +431,7 @@ class TelegramBackButton {
         _addLog('[BackButton] Event: $event');
         _addLog('[BackButton] Executing handler...');
         try {
-          callback();
+            callback();
           _addLog('[BackButton] ✓ Handler executed successfully');
         } catch (e, stackTrace) {
           _addLog('[BackButton] ✗ Error in handler: $e');
@@ -503,7 +503,7 @@ class TelegramBackButton {
       final webApp = _getWebApp();
       if (webApp == null) {
         _addLog('[BackButton] WebApp not found - cannot register onClick');
-        return;
+            return;
       }
 
       // Callback is already stored on window via eval above
@@ -536,7 +536,7 @@ class TelegramBackButton {
               _callbackMap[callback] = callbackToUse;
               _globalCallbacks.add(callbackToUse);
               _addLog('[BackButton] ✓ Handler registered via BackButton.onClick() (METHOD 1 - PRIMARY)');
-            } catch (e) {
+          } catch (e) {
               _addLog('[BackButton] ✗ onClick.apply() failed: $e');
               // Try alternative - use dartCallback directly
               try {
@@ -547,9 +547,9 @@ class TelegramBackButton {
               } catch (e2) {
                 _addLog('[BackButton] ✗ All registration methods failed: $e2');
                 throw e;
-              }
-            }
-            
+        }
+      }
+
             _addLog('[BackButton] ✓ Handler registered via BackButton.onClick() (METHOD 1 - PRIMARY)');
             _addLog('[BackButton] Callback stored globally (size: ${_globalCallbacks.length})');
             
@@ -636,9 +636,9 @@ class TelegramBackButton {
             } catch (e) {
               // Ignore
             }
-          }
         }
-      } catch (e) {
+      }
+    } catch (e) {
         _addLog('[BackButton] Could not set up debug event listeners: $e');
       }
 
@@ -706,7 +706,7 @@ class TelegramBackButton {
       }
 
       // Use offEvent('back_button_pressed') - matches tma.js SDK
-      final offEvent = webApp['offEvent'];
+        final offEvent = webApp['offEvent'];
       if (offEvent != null && offEvent is js.JsFunction) {
         try {
           offEvent.apply(['back_button_pressed', jsCallback]);
@@ -893,9 +893,9 @@ class _SimpleMainPageState extends State<SimpleMainPage>
     final safeAreaInset = service.getSafeAreaInset();
     final contentSafeAreaInset = service.getContentSafeAreaInset();
 
-    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 15
-    // This centers the 30px logo in the content safe area zone, respecting the upper inset
-    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 15;
+    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 16
+    // This centers the 32px logo in the content safe area zone, respecting the upper inset
+    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 16;
     return topPadding;
   }
 
@@ -1156,8 +1156,8 @@ class _SimpleMainPageState extends State<SimpleMainPage>
                             AppTheme.isLightTheme
                                 ? 'assets/images/logo_light.svg'
                                 : 'assets/images/logo_dark.svg',
-                            width: 30,
-                            height: 30,
+                            width: 32,
+                            height: 32,
                           ),
                           const SizedBox(height: 15),
                           Row(
@@ -1804,9 +1804,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final safeAreaInset = service.getSafeAreaInset();
     final contentSafeAreaInset = service.getContentSafeAreaInset();
 
-    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 15
-    // This centers the 30px logo in the content safe area zone, respecting the upper inset
-    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 15;
+    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 16
+    // This centers the 32px logo in the content safe area zone, respecting the upper inset
+    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 16;
     return topPadding;
   }
 
@@ -4391,9 +4391,9 @@ class _NewPageState extends State<NewPage> with TickerProviderStateMixin {
     final safeAreaInset = service.getSafeAreaInset();
     final contentSafeAreaInset = service.getContentSafeAreaInset();
 
-    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 15
-    // This centers the 30px logo in the content safe area zone, respecting the upper inset
-    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 15;
+    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 16
+    // This centers the 32px logo in the content safe area zone, respecting the upper inset
+    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 16;
     return topPadding;
   }
 
@@ -5278,172 +5278,245 @@ class TradePage extends StatefulWidget {
   State<TradePage> createState() => _TradePageState();
 }
 
-class _TradePageState extends State<TradePage> {
+class _TradePageState extends State<TradePage> with TickerProviderStateMixin {
   void _handleBackButton() {
     Navigator.of(context).pop();
   }
   
-  List<String> _logs = [];
-  StreamSubscription<String>? _logSubscription;
   StreamSubscription<tma.BackButton>? _backButtonSubscription;
+
+  // Helper method to calculate logo top padding
+  double _getLogoTopPadding() {
+    final service = TelegramSafeAreaService();
+    final safeAreaInset = service.getSafeAreaInset();
+    final contentSafeAreaInset = service.getContentSafeAreaInset();
+
+    // Formula: top SafeAreaInset + (top ContentSafeAreaInset / 2) - 16
+    // This centers the 32px logo in the content safe area zone, respecting the upper inset
+    final topPadding = safeAreaInset.top + (contentSafeAreaInset.top / 2) - 16;
+    return topPadding;
+  }
+
+  // Helper method to calculate adaptive bottom padding
+  double _getAdaptiveBottomPadding() {
+    final service = TelegramSafeAreaService();
+    final safeAreaInset = service.getSafeAreaInset();
+
+    // Formula: bottom SafeAreaInset + 30px
+    final bottomPadding = safeAreaInset.bottom + 30;
+    return bottomPadding;
+  }
+
+  late final AnimationController _bgController;
+  late final Animation<double> _bgAnimation;
+  late final double _bgSeed;
+  late final AnimationController _noiseController;
+  late final Animation<double> _noiseAnimation;
 
   @override
   void initState() {
     super.initState();
     
-    // Subscribe to log stream for debugging
-    _logSubscription = TelegramBackButton.logStream.listen((log) {
-      if (mounted) {
-        setState(() {
-          _logs.add(log);
-          if (_logs.length > 30) {
-            _logs.removeAt(0);
-          }
-        });
-      }
-    });
+    // Initialize background animations (same as main page)
+    final random = math.Random();
+    final durationMs = 20000 + random.nextInt(14000);
+    _bgController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: durationMs),
+    )..repeat(reverse: true);
+    _bgAnimation =
+        CurvedAnimation(parent: _bgController, curve: Curves.easeInOut);
+    _bgSeed = random.nextDouble();
+    _noiseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 24),
+    )..repeat(reverse: true);
+    _noiseAnimation =
+        Tween<double>(begin: -0.2, end: 0.2).animate(CurvedAnimation(
+      parent: _noiseController,
+      curve: Curves.easeInOut,
+    ));
     
-    // Load existing logs
-    _logs = List.from(TelegramBackButton.recentLogs);
-    
-    // Set up back button using flutter_telegram_miniapp package EXACTLY as documented
+    // Set up back button using flutter_telegram_miniapp package
     WidgetsBinding.instance.addPostFrameCallback((_) {
       try {
-        _logs.add('[${DateTime.now().toString().substring(11, 19)}] ========================================');
-        _logs.add('[${DateTime.now().toString().substring(11, 19)}] Setting up back button using package...');
-        
         final webApp = tma.WebApp();
         final eventHandler = webApp.eventHandler;
         
-        // STEP 1: Listen to backButtonClicked event (package handles this via EventHandler.init())
-        _logs.add('[${DateTime.now().toString().substring(11, 19)}] STEP 1: Listening to eventHandler.backButtonClicked...');
+        // Listen to backButtonClicked event
         _backButtonSubscription = eventHandler.backButtonClicked.listen((backButton) {
-          _logs.add('[${DateTime.now().toString().substring(11, 19)}] 🔔🔔🔔🔔🔔 BACK BUTTON CLICKED! 🔔🔔🔔🔔🔔');
-          _logs.add('[${DateTime.now().toString().substring(11, 19)}] Executing navigation...');
           _handleBackButton();
-          setState(() {});
         });
-        _logs.add('[${DateTime.now().toString().substring(11, 19)}] ✓ Listener registered via eventHandler.backButtonClicked');
         
-        // STEP 2: Show the back button
+        // Show the back button
         Future.delayed(const Duration(milliseconds: 200), () {
           try {
-            _logs.add('[${DateTime.now().toString().substring(11, 19)}] STEP 2: Showing back button...');
             webApp.backButton.show();
-            _logs.add('[${DateTime.now().toString().substring(11, 19)}] ✓ Back button show() called');
-            
-            setState(() {});
-            
-            // STEP 3: Final verification
-            Future.delayed(const Duration(milliseconds: 500), () {
-              _logs.add('[${DateTime.now().toString().substring(11, 19)}] ========================================');
-              _logs.add('[${DateTime.now().toString().substring(11, 19)}] SETUP COMPLETE');
-              _logs.add('[${DateTime.now().toString().substring(11, 19)}] Back button should be visible');
-              _logs.add('[${DateTime.now().toString().substring(11, 19)}] Click it now - look for 🔔🔔🔔');
-              _logs.add('[${DateTime.now().toString().substring(11, 19)}] ========================================');
-              setState(() {});
-            });
-          } catch (e, stackTrace) {
-            _logs.add('[${DateTime.now().toString().substring(11, 19)}] ✗ Error showing button: $e');
-            _logs.add('[${DateTime.now().toString().substring(11, 19)}] Stack: $stackTrace');
-            setState(() {});
+          } catch (e) {
+            // Ignore errors
           }
         });
-        
-        setState(() {}); // Update UI with logs
-      } catch (e, stackTrace) {
-        _logs.add('[${DateTime.now().toString().substring(11, 19)}] ✗ CRITICAL ERROR: $e');
-        _logs.add('[${DateTime.now().toString().substring(11, 19)}] Stack: $stackTrace');
-        setState(() {});
+      } catch (e) {
+        // Ignore errors
       }
     });
   }
-  
+
   @override
   void dispose() {
-    _logSubscription?.cancel();
     _backButtonSubscription?.cancel();
+    _bgController.dispose();
+    _noiseController.dispose();
     
     // Hide back button when leaving swap page
     try {
       tma.WebApp().backButton.hide();
     } catch (e) {
-      _logs.add('[${DateTime.now().toString().substring(11, 19)}] Error hiding button: $e');
+      // Ignore errors
     }
     
     super.dispose();
   }
 
+  Color _shiftColor(Color base, double shift) {
+    final hsl = HSLColor.fromColor(base);
+    final newLightness = (hsl.lightness + shift).clamp(0.0, 1.0);
+    final newHue = (hsl.hue + shift * 10) % 360;
+    final newSaturation = (hsl.saturation + shift * 0.1).clamp(0.0, 1.0);
+    return hsl
+        .withLightness(newLightness)
+        .withHue(newHue)
+        .withSaturation(newSaturation)
+        .toColor();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      body: Container(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Back Button Debug Logs',
-              style: TextStyle(
-                color: AppTheme.textColor,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'Aeroport',
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(12.0),
+      backgroundColor: Colors.transparent,
+      body: AnimatedBuilder(
+        animation: _bgAnimation,
+        builder: (context, child) {
+          final baseShimmer =
+              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed));
+          final shimmer = 0.007 * baseShimmer;
+          final baseColors = AppTheme.baseColors;
+          const stopsCount = 28;
+          final colors = List.generate(stopsCount, (index) {
+            final progress = index / (stopsCount - 1);
+            final scaled = progress * (baseColors.length - 1);
+            final lowerIndex = scaled.floor();
+            final upperIndex = scaled.ceil();
+            final frac = scaled - lowerIndex;
+            final lower =
+                baseColors[lowerIndex.clamp(0, baseColors.length - 1)];
+            final upper =
+                baseColors[upperIndex.clamp(0, baseColors.length - 1)];
+            final blended = Color.lerp(lower, upper, frac)!;
+            final offset = index * 0.0015;
+            return _shiftColor(blended, shimmer * (0.035 + offset));
+          });
+          final stops = List.generate(
+              colors.length, (index) => index / (colors.length - 1));
+          final rotation =
+              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed)) * 0.35;
+          final begin = Alignment(-0.8 + rotation, -0.7 - rotation * 0.2);
+          final end = Alignment(0.9 - rotation, 0.8 + rotation * 0.2);
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(
                 decoration: BoxDecoration(
-                  color: AppTheme.isLightTheme 
-                      ? Colors.grey[200] 
-                      : Colors.grey[900],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppTheme.textColor.withOpacity(0.3),
+                  gradient: LinearGradient(
+                    begin: begin,
+                    end: end,
+                    colors: colors,
+                    stops: stops,
                   ),
                 ),
-                child: _logs.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No logs yet...',
-                          style: TextStyle(
-                            color: AppTheme.textColor.withOpacity(0.5),
-                            fontFamily: 'Aeroport',
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _logs.length,
-                        itemBuilder: (context, index) {
-                          final log = _logs[index];
-                          final isError = log.contains('✗') || log.contains('Error');
-                          final isSuccess = log.contains('✓');
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 4.0),
-                            child: Text(
-                              log,
-                              style: TextStyle(
-                                color: isError
-                                    ? Colors.red
-                                    : isSuccess
-                                        ? Colors.green
-                                        : AppTheme.textColor,
-                                fontSize: 11,
-                                fontFamily: 'Aeroport',
-                                fontFeatures: [
-                                  const FontFeature.tabularFigures(),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
+              ),
+              AnimatedBuilder(
+                animation: _noiseAnimation,
+                builder: (context, _) {
+                  final alignment = Alignment(
+                    0.2 + _noiseAnimation.value,
+                    -0.4 + _noiseAnimation.value * 0.5,
+                  );
+                  return Container(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: alignment,
+                        radius: 0.75,
+                        colors: [
+                          Colors.white.withOpacity(0.01),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.0, 1.0],
                       ),
+                    ),
+                  );
+                },
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0.7, -0.6),
+                    radius: 0.8,
+                    colors: [
+                      _shiftColor(AppTheme.radialGradientColor, shimmer * 0.4),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.0, 1.0],
+                  ),
+                  color: AppTheme.overlayColor.withOpacity(0.02),
+                ),
+              ),
+              IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withOpacity(0.01),
+                        Colors.transparent,
+                        Colors.white.withOpacity(0.005),
+                      ],
+                      stops: const [0.0, 0.5, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              child!,
+            ],
+          );
+        },
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: _getAdaptiveBottomPadding()),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.only(
+                    top: _getLogoTopPadding(),
+                    bottom: 15,
+                    left: 15,
+                    right: 15,
+                  ),
+                  child: SvgPicture.asset(
+                    AppTheme.isLightTheme
+                        ? 'assets/images/logo_light.svg'
+                        : 'assets/images/logo_dark.svg',
+                    width: 30,
+                    height: 30,
+                  ),
+                ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

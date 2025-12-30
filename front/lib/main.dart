@@ -18,54 +18,247 @@ class AppTheme {
   
   static ValueNotifier<String?> get colorSchemeNotifier => _colorSchemeNotifier;
   
-  /// Initialize theme from Telegram WebApp
+  /// Initialize theme from Telegram WebApp or browser/system preference
   static void initialize() {
     final telegramWebApp = TelegramWebApp();
     
-    // Get initial theme
-    final colorScheme = telegramWebApp.colorScheme;
-    _colorSchemeNotifier.value = colorScheme;
-    print('AppTheme initialized with colorScheme: $colorScheme');
+    // Use console.log directly for browser console visibility
+    final console = js.context['console'];
+    final log = console != null ? console['log'] : null;
     
-    // Listen for theme changes in real-time
-    // According to Telegram docs: when themeChanged event fires,
-    // the WebApp object already has updated colorScheme and themeParams
-    telegramWebApp.onThemeChanged(() {
-      // Immediately read the new colorScheme from Telegram WebApp
-      // The WebApp object (this) already contains the updated values
-      final newColorScheme = telegramWebApp.colorScheme;
-      print('Theme changed event received! New colorScheme: $newColorScheme');
-      
-      // Update the notifier immediately to trigger UI rebuild
-      final oldColorScheme = _colorSchemeNotifier.value;
-      if (oldColorScheme != newColorScheme) {
-        _colorSchemeNotifier.value = newColorScheme;
-        print('Theme updated from "$oldColorScheme" to "$newColorScheme"');
-      } else {
-        print('Theme value unchanged: $newColorScheme');
+    void consoleLog(String message) {
+      print(message);
+      if (log is js.JsFunction) {
+        log.apply([message]);
       }
-    });
-    print('Theme change listener registered');
+    }
+    
+    // Check if we're actually running in Telegram (not just that the script is loaded)
+    // The Telegram WebApp script is loaded in HTML, but we need to verify we're actually in Telegram
+    final platform = telegramWebApp.platform;
+    final initData = telegramWebApp.initData;
+    final hasValidInitData = initData != null && initData.isNotEmpty;
+    
+    // In browser: platform is explicitly "unknown" and initData is empty
+    // In Telegram: platform is valid (ios/android/web/etc) OR initData has content
+    // Strategy: Trust isAvailable, but exclude browser if platform is "unknown" AND no initData
+    final isDefinitelyBrowser = platform == 'unknown' && !hasValidInitData;
+    final isActuallyInTelegram = telegramWebApp.isAvailable && !isDefinitelyBrowser;
+    
+    if (isActuallyInTelegram) {
+      // Use Telegram WebApp theme
+      final colorScheme = telegramWebApp.colorScheme;
+      _colorSchemeNotifier.value = colorScheme;
+      consoleLog('[AppTheme] ✓ Initialized with Telegram WebApp colorScheme: $colorScheme');
+      
+      // Listen for theme changes in real-time
+      // According to Telegram docs: when themeChanged event fires,
+      // the WebApp object already has updated colorScheme and themeParams
+      telegramWebApp.onThemeChanged(() {
+        // Immediately read the new colorScheme from Telegram WebApp
+        // The WebApp object (this) already contains the updated values
+        final newColorScheme = telegramWebApp.colorScheme;
+        print('Theme changed event received! New colorScheme: $newColorScheme');
+        
+        // Update the notifier immediately to trigger UI rebuild
+        final oldColorScheme = _colorSchemeNotifier.value;
+        if (oldColorScheme != newColorScheme) {
+          _colorSchemeNotifier.value = newColorScheme;
+          print('Theme updated from "$oldColorScheme" to "$newColorScheme"');
+        } else {
+          print('Theme value unchanged: $newColorScheme');
+        }
+      });
+      consoleLog('[AppTheme] ✓ Theme change listener registered');
+    } else {
+      // Not in Telegram Mini App - use browser/system theme
+      // Wrap in try-catch to prevent errors from breaking app initialization
+      try {
+        consoleLog('[AppTheme] Not in Telegram, initializing browser theme...');
+        _initializeBrowserTheme();
+      } catch (e) {
+        // If browser theme detection fails, use default theme
+        print('[AppTheme] Error initializing browser theme: $e');
+        _colorSchemeNotifier.value = 'light'; // Default fallback
+      }
+    }
   }
   
-  /// Manually refresh theme from Telegram WebApp (useful for debugging or manual refresh)
+  /// Initialize theme from browser/system preference
+  static void _initializeBrowserTheme() {
+    try {
+      // Use console.log directly for browser console visibility
+      final console = js.context['console'];
+      final log = console != null ? console['log'] : null;
+      
+      void consoleLog(String message) {
+        print(message);
+        if (log is js.JsFunction) {
+          log.apply([message]);
+        }
+      }
+      
+      consoleLog('[AppTheme] Initializing browser theme detection...');
+      // Use JavaScript to detect browser/system theme preference
+      // Priority: browser prefers-color-scheme > system
+      final window = js.context['window'];
+      consoleLog('[AppTheme] Window available: ${window != null}');
+      
+      if (window != null) {
+        final matchMedia = window['matchMedia'];
+        consoleLog('[AppTheme] matchMedia available: ${matchMedia != null}');
+        if (matchMedia != null) {
+          consoleLog('[AppTheme] matchMedia type: ${matchMedia.runtimeType}');
+        }
+        
+        if (matchMedia is js.JsFunction) {
+          // Check for prefers-color-scheme media query
+          consoleLog('[AppTheme] Calling matchMedia for dark mode...');
+          final darkModeQuery = matchMedia.apply(['(prefers-color-scheme: dark)']);
+          consoleLog('[AppTheme] Dark mode query result: $darkModeQuery');
+          
+          if (darkModeQuery != null) {
+            final isDark = darkModeQuery['matches'];
+            consoleLog('[AppTheme] Dark mode matches: $isDark');
+            
+            String detectedTheme;
+            if (isDark == true) {
+              detectedTheme = 'dark';
+            } else {
+              // Check light mode explicitly
+              consoleLog('[AppTheme] Calling matchMedia for light mode...');
+              final lightModeQuery = matchMedia.apply(['(prefers-color-scheme: light)']);
+              consoleLog('[AppTheme] Light mode query result: $lightModeQuery');
+              
+              if (lightModeQuery != null && lightModeQuery['matches'] == true) {
+                detectedTheme = 'light';
+              } else {
+                // Default to dark if no preference
+                detectedTheme = 'dark';
+              }
+            }
+            
+            _colorSchemeNotifier.value = detectedTheme;
+            consoleLog('[AppTheme] ✓ Theme set to: $detectedTheme');
+            
+            // Listen for theme changes using addEventListener (modern approach)
+            if (darkModeQuery is js.JsObject) {
+              // Try addEventListener first (modern browsers)
+              final addEventListener = darkModeQuery['addEventListener'];
+              if (addEventListener is js.JsFunction) {
+                addEventListener.apply([
+                  'change',
+                  js.allowInterop((js.JsObject e) {
+                    final target = e['target'];
+                    final isDark = target != null && target is js.JsObject
+                        ? target['matches'] == true
+                        : (darkModeQuery['matches'] == true);
+                    final newTheme = isDark ? 'dark' : 'light';
+                    consoleLog('[AppTheme] 🔄 Browser theme changed to: $newTheme');
+                    _colorSchemeNotifier.value = newTheme;
+                  })
+                ]);
+                consoleLog('[AppTheme] ✓ Theme change listener registered (addEventListener)');
+              } else {
+                // Fallback to addListener (older browsers)
+                final addListener = darkModeQuery['addListener'];
+                if (addListener is js.JsFunction) {
+                  addListener.apply([
+                    js.allowInterop((js.JsObject e) {
+                      final isDark = e['matches'] == true;
+                      final newTheme = isDark ? 'dark' : 'light';
+                      consoleLog('[AppTheme] 🔄 Browser theme changed to: $newTheme');
+                      _colorSchemeNotifier.value = newTheme;
+                    })
+                  ]);
+                  consoleLog('[AppTheme] ✓ Theme change listener registered (addListener)');
+                } else {
+                  consoleLog('[AppTheme] ⚠ Could not register theme change listener');
+                }
+              }
+            }
+          } else {
+            // Fallback: default to dark theme
+            _colorSchemeNotifier.value = 'dark';
+            consoleLog('[AppTheme] ⚠ Dark mode query is null, defaulting to dark');
+          }
+        } else {
+          // Fallback: default to dark theme
+          _colorSchemeNotifier.value = 'dark';
+          consoleLog('[AppTheme] ⚠ matchMedia is not a function, defaulting to dark');
+        }
+      } else {
+        // Fallback: default to dark theme
+        _colorSchemeNotifier.value = 'dark';
+        consoleLog('[AppTheme] ⚠ Window is not available, defaulting to dark');
+      }
+    } catch (e, stackTrace) {
+      // Fallback: default to dark theme
+      _colorSchemeNotifier.value = 'dark';
+      final console = js.context['console'];
+      final log = console != null ? console['log'] : null;
+      if (log is js.JsFunction) {
+        log.apply(['[AppTheme] ❌ Error initializing theme: $e']);
+        log.apply(['[AppTheme] Stack trace: $stackTrace']);
+      }
+      print('[AppTheme] ❌ Error initializing theme: $e');
+      print('[AppTheme] Stack trace: $stackTrace');
+    }
+  }
+  
+  /// Manually refresh theme from Telegram WebApp or browser/system (useful for debugging or manual refresh)
   static void refreshTheme() {
     final telegramWebApp = TelegramWebApp();
-    final colorScheme = telegramWebApp.colorScheme;
-    if (_colorSchemeNotifier.value != colorScheme) {
-      print('Manually refreshing theme to: $colorScheme');
-      _colorSchemeNotifier.value = colorScheme;
+    if (telegramWebApp.isAvailable) {
+      final colorScheme = telegramWebApp.colorScheme;
+      if (_colorSchemeNotifier.value != colorScheme) {
+        print('Manually refreshing theme to: $colorScheme');
+        _colorSchemeNotifier.value = colorScheme;
+      }
+    } else {
+      // Refresh browser theme
+      _initializeBrowserTheme();
     }
   }
   
-  /// Get current color scheme from Telegram, fallback to env variable if not available
+  /// Get current color scheme from Telegram, browser/system, or env variable
   static String? get _currentColorScheme {
     final telegramWebApp = TelegramWebApp();
-    final colorScheme = telegramWebApp.colorScheme;
-    if (colorScheme != null) {
-      return colorScheme;
+    
+    // Priority 1: Telegram WebApp theme
+    if (telegramWebApp.isAvailable) {
+      final colorScheme = telegramWebApp.colorScheme;
+      if (colorScheme != null) {
+        return colorScheme;
+      }
     }
-    // Fallback to env variable for local development
+    
+    // Priority 2: Browser/system theme (if notifier already has a value)
+    if (_colorSchemeNotifier.value != null) {
+      return _colorSchemeNotifier.value;
+    }
+    
+    // Priority 3: Detect browser/system theme on the fly
+    try {
+      final window = js.context['window'];
+      if (window != null) {
+        final matchMedia = window['matchMedia'];
+        if (matchMedia is js.JsFunction) {
+          final darkModeQuery = matchMedia.apply(['(prefers-color-scheme: dark)']);
+          if (darkModeQuery != null && darkModeQuery['matches'] == true) {
+            return 'dark';
+          }
+          final lightModeQuery = matchMedia.apply(['(prefers-color-scheme: light)']);
+          if (lightModeQuery != null && lightModeQuery['matches'] == true) {
+            return 'light';
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+    
+    // Priority 4: Fallback to env variable for local development
     return dotenv.env['THEME'];
   }
   

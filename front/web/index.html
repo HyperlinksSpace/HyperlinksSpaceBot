@@ -6,6 +6,7 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="HYPE AND LINKS TELEGRAM MINI APP">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Telegram Mini App">
@@ -52,56 +53,130 @@
       height: calc(100% + 1px) !important;
     }
   </style>
-  <link rel="stylesheet" href="styles.css">
+  <!-- styles.css removed - not needed or create empty file if required -->
   <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
   <script src="https://unpkg.com/@tma.js/sdk@2.5.0/dist/index.iife.js"></script>
   <!-- Vercel Analytics -->
-  <!-- This script is automatically provided by Vercel when deployed -->
-  <script defer src="/_vercel/insights/script.js"></script>
+  <!-- Vercel automatically injects the analytics script in production -->
+  <!-- If not injected, we'll try to load it manually -->
   <script>
-    // Wait for Vercel Analytics to load and expose functions for Dart interop
     (function() {
+      var analyticsLoaded = false;
+      
+      // Function to load Vercel Analytics script manually (if not auto-injected)
+      function loadVercelAnalyticsScript() {
+        if (analyticsLoaded || window.va) return;
+        
+        // Check if script already exists
+        var existingScript = document.querySelector('script[src*="insights/script.js"]');
+        if (existingScript) {
+          console.log('Vercel Analytics script tag found, waiting for load...');
+          return;
+        }
+        
+        // Try to load the script manually
+        var script = document.createElement('script');
+        script.src = '/_vercel/insights/script.js';
+        script.async = true;
+        script.onload = function() {
+          console.log('✓ Vercel Analytics script loaded manually');
+          analyticsLoaded = true;
+          setTimeout(setupVercelAnalytics, 100);
+        };
+        script.onerror = function() {
+          console.warn('⚠ Could not load Vercel Analytics script (may not be enabled in Vercel)');
+          // Don't retry - script doesn't exist
+        };
+        document.head.appendChild(script);
+      }
+      
+      // Setup Vercel Analytics functions
       function setupVercelAnalytics() {
         // Check if va (Vercel Analytics) is available
         if (window.va) {
+          console.log('✓ Vercel Analytics (va) detected:', typeof window.va, window.va);
+          
           // Expose analytics functions globally for Dart interop
           window.vercelAnalytics = {
             track: function(name, options) {
-              // Track custom events
-              if (window.va && window.va.track) {
-                if (typeof name === 'string' && options) {
-                  // Custom event with properties
-                  window.va.track(name, options);
-                } else if (typeof name === 'object') {
-                  // Event object passed directly
-                  window.va.track(name);
-                } else if (typeof name === 'string') {
-                  // Just event name
-                  window.va.track(name);
+              try {
+                if (window.va && window.va.track) {
+                  if (typeof name === 'string' && options) {
+                    window.va.track(name, options);
+                    console.log('✓ Vercel Analytics: Tracked event', name, options);
+                  } else if (typeof name === 'object') {
+                    window.va.track(name);
+                    console.log('✓ Vercel Analytics: Tracked event object', name);
+                  } else if (typeof name === 'string') {
+                    window.va.track(name);
+                    console.log('✓ Vercel Analytics: Tracked event', name);
+                  }
+                  return true;
+                } else if (window.va && typeof window.va === 'function') {
+                  // va is a function, call it
+                  window.va();
+                  console.log('✓ Vercel Analytics: Tracked via va()');
+                  return true;
                 }
+              } catch (e) {
+                console.error('Error tracking Vercel Analytics event:', e);
               }
+              return false;
+            },
+            pageview: function() {
+              try {
+                if (window.va && typeof window.va === 'function') {
+                  window.va();
+                  console.log('✓ Vercel Analytics: Page view tracked via va()');
+                } else if (window.va && window.va.track) {
+                  window.va.track('pageview');
+                  console.log('✓ Vercel Analytics: Page view tracked via va.track()');
+                } else {
+                  console.warn('⚠ Vercel Analytics: va object found but no track method');
+                }
+                return true;
+              } catch (e) {
+                console.error('Error tracking Vercel Analytics page view:', e);
+              }
+              return false;
             }
           };
-          console.log('Vercel Analytics initialized');
+          
+          // Trigger initial page view
+          if (window.vercelAnalytics.pageview) {
+            window.vercelAnalytics.pageview();
+          }
+          
+          console.log('✓ Vercel Analytics initialized and ready');
           return true;
         }
         return false;
       }
       
-      // Try immediately
+      // Try to setup immediately (in case Vercel already injected the script)
       if (!setupVercelAnalytics()) {
-        // Retry after script loads (with timeout)
+        // Wait a bit for Vercel to inject, then try manual load
+        setTimeout(function() {
+          if (!window.va) {
+            console.log('Vercel Analytics not auto-injected, trying manual load...');
+            loadVercelAnalyticsScript();
+          }
+        }, 1000);
+        
+        // Also retry setup periodically
         var attempts = 0;
-        var maxAttempts = 50; // 5 seconds max
+        var maxAttempts = 20; // 10 seconds max
         var interval = setInterval(function() {
           attempts++;
           if (setupVercelAnalytics() || attempts >= maxAttempts) {
             clearInterval(interval);
-            if (attempts >= maxAttempts) {
-              console.warn('Vercel Analytics not available (may not be deployed to Vercel)');
+            if (attempts >= maxAttempts && !window.va) {
+              console.warn('⚠ Vercel Analytics not available after ' + maxAttempts + ' attempts');
+              console.warn('⚠ Make sure Analytics is enabled in Vercel project settings');
+              console.warn('⚠ Go to: Project Settings → Analytics → Enable Web Analytics');
             }
           }
-        }, 100);
+        }, 500);
       }
     })();
   </script>
@@ -278,18 +353,20 @@
         }
       }, { passive: false });
       
-      // Also prevent on body and html
-      document.body.addEventListener('touchmove', function(e) {
-        if (touchStartY < 20) {
-          var touchY = e.touches[0].clientY;
-          var deltaY = touchY - touchStartY;
-          if (deltaY > 5) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
+      // Also prevent on body and html (only if body exists)
+      if (document.body) {
+        document.body.addEventListener('touchmove', function(e) {
+          if (touchStartY < 20) {
+            var touchY = e.touches[0].clientY;
+            var deltaY = touchY - touchStartY;
+            if (deltaY > 5) {
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
           }
-        }
-      }, { passive: false });
+        }, { passive: false });
+      }
     })();
   </script>
 </head>

@@ -1,4 +1,3 @@
-logo fix
 AI bd
 AI UI
 Hovers

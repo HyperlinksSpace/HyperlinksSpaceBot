@@ -1,8 +1,8 @@
 <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-<mask id="mask0_1261_297" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
-<rect width="32" height="32" rx="16" fill="white"/>
+<mask id="mask0_1678_113" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+<path d="M32 16C32 24.8366 24.8366 32 16 32C12.4428 32 0.00576889 32 0.00576889 32C0.00576889 32 0 21.2794 0 16C0 7.16345 7.16345 0 16 0C20.8186 0 32 0.00125074 32 0.00125074C32 0.00125074 32 11.982 32 16Z" fill="black"/>
 </mask>
-<g mask="url(#mask0_1261_297)">
+<g mask="url(#mask0_1678_113)">
 <path d="M10 28V19.36L22 4V12.64L10 28Z" fill="#1AFF11"/>
 <path d="M28 4H22V19.3614L10 4H4V28H10V12.6386L21.3684 28H28V4Z" fill="#FAFAFA"/>
 </g>

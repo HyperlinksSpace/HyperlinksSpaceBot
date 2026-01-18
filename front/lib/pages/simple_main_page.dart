@@ -6,7 +6,7 @@ import '../widgets/global/global_logo_bar.dart';
 import '../telegram_safe_area.dart';
 import 'home_page.dart';
 import 'trade_page.dart';
-import 'profile_page.dart';
+import 'wallets_page.dart';
 
 class SimpleMainPage extends StatefulWidget {
   const SimpleMainPage({super.key});
@@ -409,7 +409,7 @@ class _SimpleMainPageState extends State<SimpleMainPage>
                                   Navigator.push(
                                     context,
                                     PageRouteBuilder(
-                                      pageBuilder: (context, animation, secondaryAnimation) => const ProfilePage(),
+                                      pageBuilder: (context, animation, secondaryAnimation) => const WalletsPage(),
                                       transitionDuration: Duration.zero,
                                       reverseTransitionDuration: Duration.zero,
                                     ),

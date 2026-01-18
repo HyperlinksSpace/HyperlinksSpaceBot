@@ -1,23 +1,73 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'dart:async';
+import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../widgets/global/global_logo_bar.dart';
 import '../telegram_safe_area.dart';
 import '../app/theme/app_theme.dart';
 
-class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+class WalletsPage extends StatefulWidget {
+  const WalletsPage({super.key});
 
   @override
-  State<ProfilePage> createState() => _ProfilePageState();
+  State<WalletsPage> createState() => _WalletsPageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _WalletsPageState extends State<WalletsPage> {
+  void _handleBackButton() {
+    Navigator.of(context).pop();
+  }
+  
+  StreamSubscription<tma.BackButton>? _backButtonSubscription;
   // Helper method to calculate adaptive bottom padding
   double _getAdaptiveBottomPadding() {
     final service = TelegramSafeAreaService();
     final safeAreaInset = service.getSafeAreaInset();
     final bottomPadding = safeAreaInset.bottom + 30;
     return bottomPadding;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Set up back button using flutter_telegram_miniapp package
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        final webApp = tma.WebApp();
+        final eventHandler = webApp.eventHandler;
+        
+        // Listen to backButtonClicked event
+        _backButtonSubscription = eventHandler.backButtonClicked.listen((backButton) {
+          _handleBackButton();
+        });
+        
+        // Show the back button
+        Future.delayed(const Duration(milliseconds: 200), () {
+          try {
+            webApp.backButton.show();
+          } catch (e) {
+            // Ignore errors
+          }
+        });
+      } catch (e) {
+        // Ignore errors
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _backButtonSubscription?.cancel();
+    
+    // Hide back button when leaving wallets page
+    try {
+      tma.WebApp().backButton.hide();
+    } catch (e) {
+      // Ignore errors
+    }
+    
+    super.dispose();
   }
 
   @override

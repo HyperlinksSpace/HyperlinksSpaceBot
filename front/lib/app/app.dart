@@ -3,6 +3,7 @@ import 'theme/app_theme.dart';
 import '../utils/page_transitions.dart';
 import '../widgets/global/global_logo_bar.dart';
 import '../widgets/global/global_bottom_bar.dart';
+import '../widgets/global/ai_search_overlay.dart';
 import '../pages/main_page.dart';
 import '../analytics.dart';
 
@@ -54,6 +55,13 @@ class _MyAppState extends State<MyApp> {
                     if (child != null) child,
                     const GlobalLogoBar(),
                     const GlobalBottomBar(),
+                    // Show overlay when input is focused
+                    ValueListenableBuilder<bool>(
+                      valueListenable: GlobalBottomBar.focusNotifier,
+                      builder: (context, isFocused, _) {
+                        return isFocused ? const AiSearchOverlay() : const SizedBox.shrink();
+                      },
+                    ),
                   ],
                 ),
               ),

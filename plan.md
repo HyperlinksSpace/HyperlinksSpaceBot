@@ -1,7 +1,3 @@
-Rename files
-
-Back
-
 AI UI
 
 AI bd

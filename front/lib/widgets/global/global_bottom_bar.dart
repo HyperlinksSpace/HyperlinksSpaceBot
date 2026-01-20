@@ -11,6 +11,29 @@ class GlobalBottomBar extends StatefulWidget {
 
   @override
   State<GlobalBottomBar> createState() => _GlobalBottomBarState();
+
+  // Static notifier to track focus state across the app
+  static final ValueNotifier<bool> _focusNotifier = ValueNotifier<bool>(false);
+  static ValueNotifier<bool> get focusNotifier => _focusNotifier;
+
+  // Static method to unfocus the input (can be called from anywhere)
+  static void unfocusInput() {
+    _focusNotifier.value = false;
+    // The actual unfocus will be handled by the state
+  }
+
+  // Static reference to the controller (set by the state)
+  static TextEditingController? _controllerInstance;
+  
+  // Static method to set input text (can be called from anywhere)
+  static void setInputText(String text) {
+    if (_controllerInstance != null) {
+      _controllerInstance!.text = text;
+      _controllerInstance!.selection = TextSelection.collapsed(
+        offset: text.length,
+      );
+    }
+  }
 }
 
 class _GlobalBottomBarState extends State<GlobalBottomBar> {
@@ -22,11 +45,20 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
   @override
   void initState() {
     super.initState();
+    // Set the static controller reference
+    GlobalBottomBar._controllerInstance = _controller;
+    
     _focusNode.addListener(() {
+      final newFocusState = _focusNode.hasFocus;
       setState(() {
-        _isFocused = _focusNode.hasFocus;
+        _isFocused = newFocusState;
       });
+      // Update the global notifier
+      GlobalBottomBar._focusNotifier.value = newFocusState;
     });
+    
+    // Listen to global unfocus requests
+    GlobalBottomBar._focusNotifier.addListener(_onGlobalFocusChange);
     _controller.addListener(() {
       if (_controller.text.contains('\n')) {
         final textWithoutNewline = _controller.text.replaceAll('\n', '');
@@ -39,8 +71,17 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
     });
   }
 
+  void _onGlobalFocusChange() {
+    if (!GlobalBottomBar._focusNotifier.value && _focusNode.hasFocus) {
+      // Unfocus was requested globally
+      _focusNode.unfocus();
+    }
+  }
+
   @override
   void dispose() {
+    GlobalBottomBar._focusNotifier.removeListener(_onGlobalFocusChange);
+    GlobalBottomBar._controllerInstance = null;
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();

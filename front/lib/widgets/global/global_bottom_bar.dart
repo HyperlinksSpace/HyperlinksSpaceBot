@@ -129,7 +129,7 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
       left: 0,
       right: 0,
       child: Material(
-        color: AppTheme.backgroundColor,
+        color: Colors.transparent,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.only(top: 10, bottom: 15),

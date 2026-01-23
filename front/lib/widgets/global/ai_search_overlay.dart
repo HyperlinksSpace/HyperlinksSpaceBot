@@ -83,8 +83,10 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
     final mediaQuery = MediaQuery.of(context);
     final keyboardHeight = mediaQuery.viewInsets.bottom;
     
+    // Show options when input is focused (check focus state directly)
+    final isFocused = GlobalBottomBar.focusNotifier.value;
+    
     // Update keyboard state when keyboard opens/closes
-    final wasKeyboardOpened = _keyboardOpened;
     if (keyboardHeight > 10) {
       if (!_keyboardOpened) {
         // Use a small delay to ensure layout is stable before showing options
@@ -109,9 +111,8 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
       }
     }
     
-    // Show options after keyboard has been detected as open
-    // Also show if keyboard height is detected (for immediate feedback)
-    final shouldShowOptions = _keyboardOpened || keyboardHeight > 10;
+    // Show options immediately when focused, regardless of keyboard state
+    final shouldShowOptions = isFocused;
 
     return Positioned(
       top: logoBarHeight,

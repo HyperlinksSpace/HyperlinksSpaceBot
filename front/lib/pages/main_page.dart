@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'dart:math' as math;
 import '../app/theme/app_theme.dart';
 import '../widgets/global/global_logo_bar.dart';
 import '../telegram_safe_area.dart';
@@ -16,8 +15,7 @@ class MainPage extends StatefulWidget {
   State<MainPage> createState() => _MainPageState();
 }
 
-class _MainPageState extends State<MainPage>
-    with TickerProviderStateMixin {
+class _MainPageState extends State<MainPage> {
   // Helper method to calculate adaptive bottom padding
   double _getAdaptiveBottomPadding() {
     final service = TelegramSafeAreaService();
@@ -119,12 +117,6 @@ class _MainPageState extends State<MainPage>
     ];
   }
 
-  late final AnimationController _bgController;
-  late final Animation<double> _bgAnimation;
-  late final double _bgSeed;
-  late final AnimationController _noiseController;
-  late final Animation<double> _noiseAnimation;
-  
   // Scroll controller for main content
   final ScrollController _mainScrollController = ScrollController();
   
@@ -132,25 +124,6 @@ class _MainPageState extends State<MainPage>
   void initState() {
     super.initState();
 
-    final random = math.Random();
-    final durationMs = 20000 + random.nextInt(14000);
-    _bgController = AnimationController(
-      vsync: this,
-      duration: Duration(milliseconds: durationMs),
-    )..repeat(reverse: true);
-    _bgAnimation =
-        CurvedAnimation(parent: _bgController, curve: Curves.easeInOut);
-    _bgSeed = random.nextDouble();
-    _noiseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 24),
-    )..repeat(reverse: true);
-    _noiseAnimation =
-        Tween<double>(begin: -0.2, end: 0.2).animate(CurvedAnimation(
-      parent: _noiseController,
-      curve: Curves.easeInOut,
-    ));
-    
     // Listen to scroll changes to update scroll indicator
     _mainScrollController.addListener(_updateScrollIndicator);
     
@@ -172,131 +145,22 @@ class _MainPageState extends State<MainPage>
 
   @override
   void dispose() {
-    _bgController.dispose();
-    _noiseController.dispose();
     _mainScrollController.dispose();
     super.dispose();
-  }
-
-  Color _shiftColor(Color base, double shift) {
-    final hsl = HSLColor.fromColor(base);
-    final newLightness = (hsl.lightness + shift).clamp(0.0, 1.0);
-    final newHue = (hsl.hue + shift * 10) % 360;
-    final newSaturation = (hsl.saturation + shift * 0.1).clamp(0.0, 1.0);
-    return hsl
-        .withLightness(newLightness)
-        .withHue(newHue)
-        .withSaturation(newSaturation)
-        .toColor();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AnimatedBuilder(
-        animation: _bgAnimation,
-        builder: (context, child) {
-          final baseShimmer =
-              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed));
-          final shimmer = 0.007 * baseShimmer;
-          final baseColors = AppTheme.baseColors;
-          const stopsCount = 28;
-          final colors = List.generate(stopsCount, (index) {
-            final progress = index / (stopsCount - 1);
-            final scaled = progress * (baseColors.length - 1);
-            final lowerIndex = scaled.floor();
-            final upperIndex = scaled.ceil();
-            final frac = scaled - lowerIndex;
-            final lower =
-                baseColors[lowerIndex.clamp(0, baseColors.length - 1)];
-            final upper =
-                baseColors[upperIndex.clamp(0, baseColors.length - 1)];
-            final blended = Color.lerp(lower, upper, frac)!;
-            final offset = index * 0.0015;
-            return _shiftColor(blended, shimmer * (0.035 + offset));
-          });
-          final stops = List.generate(
-              colors.length, (index) => index / (colors.length - 1));
-          final rotation =
-              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed)) * 0.35;
-          final begin = Alignment(-0.8 + rotation, -0.7 - rotation * 0.2);
-          final end = Alignment(0.9 - rotation, 0.8 + rotation * 0.2);
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: begin,
-                    end: end,
-                    colors: colors,
-                    stops: stops,
-                  ),
-                ),
-              ),
-              AnimatedBuilder(
-                animation: _noiseAnimation,
-                builder: (context, _) {
-                  final alignment = Alignment(
-                    0.2 + _noiseAnimation.value,
-                    -0.4 + _noiseAnimation.value * 0.5,
-                  );
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: alignment,
-                        radius: 0.75,
-                        colors: [
-                          Colors.white.withValues(alpha: 0.01),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 1.0],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(0.7, -0.6),
-                    radius: 0.8,
-                    colors: [
-                      _shiftColor(AppTheme.radialGradientColor, shimmer * 0.4),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.0, 1.0],
-                  ),
-                  color: AppTheme.overlayColor.withValues(alpha: 0.02),
-                ),
-              ),
-              IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.01),
-                        Colors.transparent,
-                        Colors.white.withValues(alpha: 0.005),
-                      ],
-                      stops: const [0.0, 0.5, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-              child!,
-            ],
-          );
-        },
-        child: SafeArea(
+      backgroundColor: AppTheme.backgroundColor,
+      body: SafeArea(
           bottom: false,
           top: false, // Disable SafeArea top padding - we handle it manually
-          child: ValueListenableBuilder<bool>(
-            valueListenable: GlobalLogoBar.fullscreenNotifier,
-            builder: (context, isFullscreen, child) {
+          child: Builder(
+            builder: (context) {
+              // Calculate padding statically to avoid rebuilds when keyboard opens
+              // The logo visibility doesn't actually change when keyboard opens,
+              // so we don't need to listen to fullscreenNotifier here
               final topPadding = GlobalLogoBar.getContentTopPadding();
               final logoBlockHeight = GlobalLogoBar.getLogoBlockHeight();
               final bottomBarHeight = _getGlobalBottomBarHeight();
@@ -1523,7 +1387,6 @@ class _MainPageState extends State<MainPage>
             },
           ),
         ),
-      ),
     );
   }
 }

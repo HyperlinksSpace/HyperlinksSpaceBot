@@ -105,7 +105,7 @@ class GlobalLogoBar extends StatefulWidget {
 }
 
 class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProviderStateMixin {
-  Timer? _checkTimer;
+  Timer? _viewportDebounceTimer;
   late AnimationController _animationController;
 
   @override
@@ -132,10 +132,8 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
       final shouldShow = isFullscreen ?? true;
       GlobalLogoBar._fullscreenNotifier.value = shouldShow;
       
-      // Also check after 1 second (in case fullscreen status changes)
-      _checkTimer = Timer(const Duration(seconds: 1), () {
-        _updateFullscreenStatus();
-      });
+      // Removed 1-second timer check - it was causing unnecessary rebuilds
+      // The viewport listener will handle real fullscreen status changes
     }
     
     _setupViewportListener();
@@ -143,7 +141,7 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
 
   @override
   void dispose() {
-    _checkTimer?.cancel();
+    _viewportDebounceTimer?.cancel();
     _animationController.dispose();
     super.dispose();
   }
@@ -151,17 +149,25 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
   void _updateFullscreenStatus() {
     final telegramWebApp = TelegramWebApp();
     if (!telegramWebApp.isActuallyInTelegram) {
-      GlobalLogoBar._fullscreenNotifier.value = true;
+      // Only update if value actually changed
+      if (GlobalLogoBar._fullscreenNotifier.value != true) {
+        GlobalLogoBar._fullscreenNotifier.value = true;
+      }
       return;
     }
     
     // Update fullscreen notifier directly based on isFullscreen
     final isFullscreen = telegramWebApp.isFullscreen;
     final shouldShow = isFullscreen ?? true;
-    GlobalLogoBar._fullscreenNotifier.value = shouldShow;
     
-    if (mounted) {
-      setState(() {}); // Force rebuild
+    // Only update notifier and rebuild if value actually changed
+    // This prevents unnecessary rebuilds when viewport changes due to keyboard
+    if (GlobalLogoBar._fullscreenNotifier.value != shouldShow) {
+      GlobalLogoBar._fullscreenNotifier.value = shouldShow;
+      
+      if (mounted) {
+        setState(() {}); // Force rebuild only when value actually changed
+      }
     }
   }
 
@@ -169,7 +175,12 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
     final telegramWebApp = TelegramWebApp();
     if (telegramWebApp.isActuallyInTelegram) {
       telegramWebApp.onViewportChanged((data) {
-        _updateFullscreenStatus();
+        // Debounce viewport changes to prevent rapid-fire updates
+        // This is especially important when keyboard opens/closes
+        _viewportDebounceTimer?.cancel();
+        _viewportDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+          _updateFullscreenStatus();
+        });
       });
     }
   }

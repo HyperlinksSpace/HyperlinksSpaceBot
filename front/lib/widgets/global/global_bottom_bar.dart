@@ -16,6 +16,12 @@ class GlobalBottomBar extends StatefulWidget {
   static final ValueNotifier<bool> _focusNotifier = ValueNotifier<bool>(false);
   static ValueNotifier<bool> get focusNotifier => _focusNotifier;
 
+  // Track whether the AI page is currently visible
+  static bool get isAiPageOpen => _GlobalBottomBarState._isAiPageOpen;
+  static void setAiPageOpen(bool isOpen) {
+    _GlobalBottomBarState._isAiPageOpen = isOpen;
+  }
+
   // Static method to unfocus the input (can be called from anywhere)
   static void unfocusInput() {
     _focusNotifier.value = false;
@@ -33,6 +39,10 @@ class GlobalBottomBar extends StatefulWidget {
         offset: text.length,
       );
     }
+  }
+
+  static String getInputText() {
+    return _controllerInstance?.text ?? '';
   }
 
   // Static method to get the bottom bar height including padding and SafeArea
@@ -54,6 +64,7 @@ class GlobalBottomBar extends StatefulWidget {
 }
 
 class _GlobalBottomBarState extends State<GlobalBottomBar> {
+  static bool _isAiPageOpen = false;
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final GlobalKey _textFieldKey = GlobalKey();
@@ -64,16 +75,15 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
     super.initState();
     // Set the static controller reference
     GlobalBottomBar._controllerInstance = _controller;
-    
+
     _focusNode.addListener(() {
       final newFocusState = _focusNode.hasFocus;
       setState(() {
         _isFocused = newFocusState;
       });
-      // Update the global notifier
       GlobalBottomBar._focusNotifier.value = newFocusState;
     });
-    
+
     // Listen to global unfocus requests
     GlobalBottomBar._focusNotifier.addListener(_onGlobalFocusChange);
     _controller.addListener(() {
@@ -90,7 +100,6 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
 
   void _onGlobalFocusChange() {
     if (!GlobalBottomBar._focusNotifier.value && _focusNode.hasFocus) {
-      // Unfocus was requested globally
       _focusNode.unfocus();
     }
   }
@@ -155,6 +164,8 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                             focusNode: _focusNode,
                             enabled: true,
                             readOnly: false,
+                            showCursor: true,
+                            enableInteractiveSelection: true,
                             cursorColor: AppTheme.textColor,
                             cursorHeight: 15,
                             maxLines: 11,
@@ -203,6 +214,8 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                             focusNode: _focusNode,
                             enabled: true,
                             readOnly: false,
+                            showCursor: true,
+                            enableInteractiveSelection: true,
                             cursorColor: AppTheme.textColor,
                             cursorHeight: 15,
                             maxLines: 11,

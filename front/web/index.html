@@ -12,16 +12,27 @@
   <meta name="apple-mobile-web-app-title" content="Telegram Mini App">
   <meta
     name="viewport"
-    content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0"
+    content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, viewport-fit=cover"
   >
   <style>
     body {
       background-color: #000000 !important;
       margin: 0;
       padding: 0;
+      /* Prevent scroll animation when keyboard appears */
+      scroll-behavior: auto !important;
+      /* Prevent auto-scroll on mobile when keyboard appears */
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
     }
     html {
       background-color: #000000 !important;
+      /* Prevent scroll animation */
+      scroll-behavior: auto !important;
+      height: 100%;
+      overflow: hidden;
     }
     /* Hide browser scrollbars on body/html only */
     body::-webkit-scrollbar,
@@ -295,6 +306,77 @@
         } catch (e) {
           // Ignore errors
         }
+      }
+      
+      // Prevent auto-scroll when keyboard appears on mobile
+      function preventKeyboardScroll() {
+        var lastScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        var isKeyboardOpen = false;
+        var originalScrollTop = 0;
+        
+        // Detect keyboard open/close by viewport height changes
+        function handleResize() {
+          var currentHeight = window.innerHeight;
+          var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          
+          if (isMobile) {
+            // On mobile, keyboard reduces viewport height significantly
+            // If viewport height decreased by more than 150px, keyboard is likely open
+            var heightDiff = window.screen.height - currentHeight;
+            if (heightDiff > 150) {
+              if (!isKeyboardOpen) {
+                isKeyboardOpen = true;
+                originalScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                // Prevent scroll by locking position
+                document.documentElement.style.overflow = 'hidden';
+                document.body.style.overflow = 'hidden';
+              }
+            } else {
+              if (isKeyboardOpen) {
+                isKeyboardOpen = false;
+                // Restore scroll
+                document.documentElement.style.overflow = '';
+                document.body.style.overflow = '';
+              }
+            }
+          }
+        }
+        
+        // Prevent scroll when keyboard is open
+        function preventScroll(e) {
+          if (isKeyboardOpen) {
+            // Allow scrolling within input/textarea elements
+            var target = e.target;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('input') || target.closest('textarea'))) {
+              return true;
+            }
+            // Prevent page scroll
+            window.scrollTo(0, originalScrollTop);
+            return false;
+          }
+        }
+        
+        // Listen for resize (keyboard open/close triggers resize on mobile)
+        window.addEventListener('resize', handleResize, { passive: true });
+        
+        // Prevent scroll events when keyboard is open
+        window.addEventListener('scroll', function(e) {
+          if (isKeyboardOpen) {
+            window.scrollTo(0, originalScrollTop);
+          }
+        }, { passive: false });
+        
+        // Also prevent touchmove scroll when keyboard is open
+        document.addEventListener('touchmove', preventScroll, { passive: false });
+      }
+      
+      // Initialize on DOM ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          preventKeyboardScroll();
+        });
+      } else {
+        preventKeyboardScroll();
       }
       
       // Initialize Telegram WebApp

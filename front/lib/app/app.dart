@@ -10,6 +10,11 @@ import '../analytics.dart';
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
+  static final RouteObserver<PageRoute<dynamic>> routeObserver =
+      RouteObserver<PageRoute<dynamic>>();
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   @override
   State<MyApp> createState() => _MyAppState();
 }
@@ -45,23 +50,21 @@ class _MyAppState extends State<MyApp> {
       builder: (context, colorScheme, child) {
         return MaterialApp(
           title: "Hype N' Links",
+          navigatorKey: MyApp.navigatorKey,
+          navigatorObservers: [MyApp.routeObserver],
           builder: (context, child) {
             return SizedBox.expand(
               child: Container(
                 color: AppTheme.backgroundColor,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (child != null) child,
-                    const GlobalLogoBar(),
-                    const GlobalBottomBar(),
-                    // Show overlay when input is focused
-                    ValueListenableBuilder<bool>(
-                      valueListenable: GlobalBottomBar.focusNotifier,
-                      builder: (context, isFocused, _) {
-                        return isFocused ? const AiSearchOverlay() : const SizedBox.shrink();
-                      },
-                    ),
+                child: Overlay(
+                  initialEntries: [
+                    OverlayEntry(builder: (context) {
+                      return child ?? const SizedBox.shrink();
+                    }),
+                    OverlayEntry(builder: (context) => const GlobalLogoBar()),
+                    OverlayEntry(builder: (context) => const AiSearchOverlay()),
+                    OverlayEntry(
+                        builder: (context) => const GlobalBottomBar()),
                   ],
                 ),
               ),

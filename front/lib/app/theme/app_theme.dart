@@ -6,11 +6,19 @@ import '../../../telegram_webapp.dart';
 // Theme helper class
 class AppTheme {
   static final ValueNotifier<String?> _colorSchemeNotifier = ValueNotifier<String?>(null);
+  static bool _initialized = false;
   
   static ValueNotifier<String?> get colorSchemeNotifier => _colorSchemeNotifier;
   
   /// Initialize theme from Telegram WebApp or browser/system preference
   static void initialize() {
+    // Prevent duplicate initialization to avoid unnecessary rebuilds
+    if (_initialized) {
+      print('[AppTheme] Already initialized, skipping duplicate initialization');
+      return;
+    }
+    _initialized = true;
+    
     final telegramWebApp = TelegramWebApp();
     
     // Use console.log directly for browser console visibility
@@ -31,8 +39,13 @@ class AppTheme {
     if (isActuallyInTelegram) {
       // Use Telegram WebApp theme
       final colorScheme = telegramWebApp.colorScheme;
-      _colorSchemeNotifier.value = colorScheme;
-      consoleLog('[AppTheme] ✓ Initialized with Telegram WebApp colorScheme: $colorScheme');
+      // Only update notifier if value actually changed to prevent unnecessary rebuilds
+      if (_colorSchemeNotifier.value != colorScheme) {
+        _colorSchemeNotifier.value = colorScheme;
+        consoleLog('[AppTheme] ✓ Initialized with Telegram WebApp colorScheme: $colorScheme');
+      } else {
+        consoleLog('[AppTheme] Theme already set to: $colorScheme, skipping update');
+      }
       
       // Listen for theme changes in real-time
       // According to Telegram docs: when themeChanged event fires,
@@ -135,8 +148,13 @@ class AppTheme {
           }
         }
         
-        _colorSchemeNotifier.value = detectedTheme;
-        consoleLog('[AppTheme] ✓ Theme set to: $detectedTheme');
+        // Only update notifier if value actually changed to prevent unnecessary rebuilds
+        if (_colorSchemeNotifier.value != detectedTheme) {
+          _colorSchemeNotifier.value = detectedTheme;
+          consoleLog('[AppTheme] ✓ Theme set to: $detectedTheme');
+        } else {
+          consoleLog('[AppTheme] Theme already set to: $detectedTheme, skipping update');
+        }
         
         // Listen for theme changes using addEventListener (modern approach)
         final addEventListener = darkModeQuery['addEventListener'];
@@ -253,29 +271,6 @@ class AppTheme {
 
   static bool get isDarkTheme => !isLightTheme;
 
-  // Base colors for dark theme (black variations)
-  static const List<Color> darkBaseColors = [
-    Color(0xFF010101),
-    Color(0xFF010102),
-    Color(0xFF010103),
-    Color(0xFF010104),
-    Color(0xFF010105),
-    Color(0xFF010106),
-  ];
-
-  // Base colors for light theme (white variations)
-  static const List<Color> lightBaseColors = [
-    Color(0xFFFFFFFE),
-    Color(0xFFFFFFFD),
-    Color(0xFFFFFFFC),
-    Color(0xFFFFFFFB),
-    Color(0xFFFFFFFA),
-    Color(0xFFFFFFF9),
-  ];
-
-  static List<Color> get baseColors =>
-      isLightTheme ? lightBaseColors : darkBaseColors;
-
   static Color get backgroundColor =>
       isLightTheme ? const Color(0xFFFAFAFA) : const Color(0xFF111111);
 
@@ -293,9 +288,5 @@ class AppTheme {
   static Color get buttonTextColor =>
       isLightTheme ? const Color(0xFFFAFAFA) : const Color(0xFF111111);
 
-  static Color get radialGradientColor =>
-      isLightTheme ? const Color(0xFFFAFAFA) : const Color(0xFF06050A);
-
-  static Color get overlayColor => isLightTheme ? const Color(0xFFFAFAFA) : const Color(0xFF111111);
 }
 

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../widgets/global/global_logo_bar.dart';
 import '../telegram_safe_area.dart';
@@ -16,7 +15,7 @@ class SendPage extends StatefulWidget {
   State<SendPage> createState() => _SendPageState();
 }
 
-class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
+class _SendPageState extends State<SendPage> {
   final TextEditingController _addressController = TextEditingController();
   final FocusNode _addressFocusNode = FocusNode();
   bool _isAddressFocused = false;
@@ -25,12 +24,6 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
   final FocusNode _address2FocusNode = FocusNode();
   bool _isAddress2Focused = false;
 
-  // Background animation controllers
-  late final AnimationController _bgController;
-  late final Animation<double> _bgAnimation;
-  late final AnimationController _noiseController;
-  late final Animation<double> _noiseAnimation;
-  late final double _bgSeed;
 
   void _handleBackButton() {
     if (mounted && Navigator.of(context).canPop()) {
@@ -50,25 +43,6 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-
-    // Initialize background animations
-    final random = math.Random();
-    _bgController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 20),
-    )..repeat(reverse: true);
-    _bgAnimation =
-        CurvedAnimation(parent: _bgController, curve: Curves.easeInOut);
-    _bgSeed = random.nextDouble();
-    _noiseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 24),
-    )..repeat(reverse: true);
-    _noiseAnimation =
-        Tween<double>(begin: -0.2, end: 0.2).animate(CurvedAnimation(
-      parent: _noiseController,
-      curve: Curves.easeInOut,
-    ));
 
     _addressFocusNode.addListener(() {
       setState(() {
@@ -137,8 +111,7 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
     _addressFocusNode.dispose();
     _address2Controller.dispose();
     _address2FocusNode.dispose();
-    _bgController.dispose();
-    _noiseController.dispose();
+    
 
     try {
       tma.WebApp().backButton.hide();
@@ -149,18 +122,6 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  Color _shiftColor(Color base, double shift) {
-    final hsl = HSLColor.fromColor(base);
-    final newLightness = (hsl.lightness + shift).clamp(0.0, 1.0);
-    final newHue = (hsl.hue + shift * 10) % 360;
-    final newSaturation = (hsl.saturation + shift * 0.1).clamp(0.0, 1.0);
-    return hsl
-        .withLightness(newLightness)
-        .withHue(newHue)
-        .withSaturation(newSaturation)
-        .toColor();
-  }
-
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
@@ -168,112 +129,17 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
     final bottomBarHeight = GlobalBottomBar.getBottomBarHeight(context);
     
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AnimatedBuilder(
-        animation: _bgAnimation,
-        builder: (context, child) {
-          final baseShimmer =
-              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed));
-          final shimmer = 0.007 * baseShimmer;
-          final baseColors = AppTheme.baseColors;
-          const stopsCount = 28;
-          final colors = List.generate(stopsCount, (index) {
-            final progress = index / (stopsCount - 1);
-            final scaled = progress * (baseColors.length - 1);
-            final lowerIndex = scaled.floor();
-            final upperIndex = scaled.ceil();
-            final frac = scaled - lowerIndex;
-            final lower =
-                baseColors[lowerIndex.clamp(0, baseColors.length - 1)];
-            final upper =
-                baseColors[upperIndex.clamp(0, baseColors.length - 1)];
-            final blended = Color.lerp(lower, upper, frac)!;
-            final offset = index * 0.0015;
-            return _shiftColor(blended, shimmer * (0.035 + offset));
-          });
-          final stops = List.generate(
-              colors.length, (index) => index / (colors.length - 1));
-          final rotation =
-              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed)) * 0.35;
-          final begin = Alignment(-0.8 + rotation, -0.7 - rotation * 0.2);
-          final end = Alignment(0.9 - rotation, 0.8 + rotation * 0.2);
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: begin,
-                    end: end,
-                    colors: colors,
-                    stops: stops,
-                  ),
-                ),
-              ),
-              AnimatedBuilder(
-                animation: _noiseAnimation,
-                builder: (context, _) {
-                  final alignment = Alignment(
-                    0.2 + _noiseAnimation.value,
-                    -0.4 + _noiseAnimation.value * 0.5,
-                  );
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: alignment,
-                        radius: 0.75,
-                        colors: [
-                          Colors.white.withValues(alpha: 0.01),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 1.0],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(0.7, -0.6),
-                    radius: 0.8,
-                    colors: [
-                      _shiftColor(AppTheme.radialGradientColor, shimmer * 0.4),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.0, 1.0],
-                  ),
-                  color: AppTheme.overlayColor.withValues(alpha: 0.02),
-                ),
-              ),
-              IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.01),
-                        Colors.transparent,
-                        Colors.white.withValues(alpha: 0.005),
-                      ],
-                      stops: const [0.0, 0.5, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-              child!,
-            ],
-          );
-        },
-        child: Stack(
-          children: [
-            SafeArea(
+      backgroundColor: AppTheme.backgroundColor,
+      body: Stack(
+        children: [
+          SafeArea(
               bottom: false,
               top: false,
-              child: ValueListenableBuilder<bool>(
-                valueListenable: GlobalLogoBar.fullscreenNotifier,
-                builder: (context, isFullscreen, child) {
+              child: Builder(
+                builder: (context) {
+                  // Calculate padding statically to avoid rebuilds when keyboard opens
+                  // The logo visibility doesn't actually change when keyboard opens,
+                  // so we don't need to listen to fullscreenNotifier here
                   final topPadding = GlobalLogoBar.getContentTopPadding();
                   return Padding(
                     padding: EdgeInsets.only(
@@ -579,11 +445,11 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
                   ),
                 ),
               ),
-            );
-          },
-        ),
-            ),
-            // Send button positioned at the bottom, above GlobalBottomBar
+                );
+                },
+              ),
+          ),
+          // Send button positioned at the bottom, above GlobalBottomBar
             Positioned(
               bottom: keyboardHeight + bottomBarHeight,
               left: 0,
@@ -625,7 +491,6 @@ class _SendPageState extends State<SendPage> with TickerProviderStateMixin {
             ),
           ],
         ),
-      ),
     );
   }
 }

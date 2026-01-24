@@ -19,7 +19,7 @@ class SwapPage extends StatefulWidget {
   State<SwapPage> createState() => _SwapPageState();
 }
 
-class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
+class _SwapPageState extends State<SwapPage> {
   // Helper method to calculate adaptive bottom padding
   double _getAdaptiveBottomPadding() {
     final service = TelegramSafeAreaService();
@@ -97,11 +97,6 @@ class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
   double? _priceChange1h;
   double? _priceChange6h;
   double? _priceChange24h;
-  late final AnimationController _bgController;
-  late final Animation<double> _bgAnimation;
-  late final double _bgSeed;
-  late final AnimationController _noiseController;
-  late final Animation<double> _noiseAnimation;
 
   // Resolution mapping: button -> API value
   static const Map<String, String> _resolutionMap = {
@@ -976,25 +971,6 @@ class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
-    final random = math.Random();
-    final durationMs = 20000 + random.nextInt(14000);
-    _bgController = AnimationController(
-      vsync: this,
-      duration: Duration(milliseconds: durationMs),
-    )..repeat(reverse: true);
-    _bgAnimation =
-        CurvedAnimation(parent: _bgController, curve: Curves.easeInOut);
-    _bgSeed = random.nextDouble();
-    _noiseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 24),
-    )..repeat(reverse: true);
-    _noiseAnimation =
-        Tween<double>(begin: -0.2, end: 0.2).animate(CurvedAnimation(
-      parent: _noiseController,
-      curve: Curves.easeInOut,
-    ));
-
     // Fetch chart data on page load
     _fetchChartData();
     // Fetch swap amount on page load
@@ -1049,8 +1025,6 @@ class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _backButtonSubscription?.cancel();
-    _bgController.dispose();
-    _noiseController.dispose();
     
     // Hide back button when leaving swap page
     try {
@@ -1382,18 +1356,6 @@ class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
     return '$sign${value.toStringAsFixed(2)}%';
   }
 
-  Color _shiftColor(Color base, double shift) {
-    final hsl = HSLColor.fromColor(base);
-    final newLightness = (hsl.lightness + shift).clamp(0.0, 1.0);
-    final newHue = (hsl.hue + shift * 10) % 360;
-    final newSaturation = (hsl.saturation + shift * 0.1).clamp(0.0, 1.0);
-    return hsl
-        .withLightness(newLightness)
-        .withHue(newHue)
-        .withSaturation(newSaturation)
-        .toColor();
-  }
-
   Future<void> _fetchSwapAmount() async {
     setState(() {
       _isLoadingSwapAmount = true;
@@ -1522,117 +1484,20 @@ class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AnimatedBuilder(
-        animation: _bgAnimation,
-        builder: (context, child) {
-          final baseShimmer =
-              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed));
-          final marketFactor =
-              ((_priceChange24h ?? 0).abs() / 100).clamp(0.0, 0.008);
-          final shimmer = (0.007 + marketFactor * 0.4) * baseShimmer;
-          final baseColors = AppTheme.baseColors;
-          const stopsCount = 28;
-          final colors = List.generate(stopsCount, (index) {
-            final progress = index / (stopsCount - 1);
-            final scaled = progress * (baseColors.length - 1);
-            final lowerIndex = scaled.floor();
-            final upperIndex = scaled.ceil();
-            final frac = scaled - lowerIndex;
-            final lower =
-                baseColors[lowerIndex.clamp(0, baseColors.length - 1)];
-            final upper =
-                baseColors[upperIndex.clamp(0, baseColors.length - 1)];
-            final blended = Color.lerp(lower, upper, frac)!;
-            final offset = index * 0.0015;
-            return _shiftColor(blended, shimmer * (0.035 + offset));
-          });
-          final stops = List.generate(
-              colors.length, (index) => index / (colors.length - 1));
-          final rotation =
-              math.sin(2 * math.pi * (_bgAnimation.value + _bgSeed)) * 0.35;
-          final begin = Alignment(-0.8 + rotation, -0.7 - rotation * 0.2);
-          final end = Alignment(0.9 - rotation, 0.8 + rotation * 0.2);
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: begin,
-                    end: end,
-                    colors: colors,
-                    stops: stops,
-                  ),
-                ),
-              ),
-              AnimatedBuilder(
-                animation: _noiseAnimation,
-                builder: (context, _) {
-                  final alignment = Alignment(
-                    0.2 + _noiseAnimation.value,
-                    -0.4 + _noiseAnimation.value * 0.5,
-                  );
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: alignment,
-                        radius: 0.75,
-                        colors: [
-                          Colors.white.withValues(alpha: 0.01),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 1.0],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(0.7, -0.6),
-                    radius: 0.8,
-                    colors: [
-                      _shiftColor(AppTheme.radialGradientColor, shimmer * 0.4),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.0, 1.0],
-                  ),
-                  color: AppTheme.overlayColor.withValues(alpha: 0.02),
-                ),
-              ),
-              IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.01),
-                        Colors.transparent,
-                        Colors.white.withValues(alpha: 0.005),
-                      ],
-                      stops: const [0.0, 0.5, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-              child!,
-            ],
-          );
-        },
-        child: SafeArea(
-          bottom: false,
-          child: ValueListenableBuilder<bool>(
-            valueListenable: GlobalLogoBar.fullscreenNotifier,
-            builder: (context, isFullscreen, child) {
-              return Padding(
-                padding: EdgeInsets.only(
-                    bottom: _getAdaptiveBottomPadding(),
-                    top: GlobalLogoBar.getContentTopPadding()),
-                child: Center(
-              child: ConstrainedBox(
+      backgroundColor: AppTheme.backgroundColor,
+      body: SafeArea(
+        bottom: false,
+        child: Builder(
+          builder: (context) {
+            // Calculate padding statically to avoid rebuilds when keyboard opens
+            // The logo visibility doesn't actually change when keyboard opens,
+            // so we don't need to listen to fullscreenNotifier here
+            return Padding(
+              padding: EdgeInsets.only(
+                  bottom: _getAdaptiveBottomPadding(),
+                  top: GlobalLogoBar.getContentTopPadding()),
+              child: Center(
+            child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -2477,10 +2342,9 @@ class _SwapPageState extends State<SwapPage> with TickerProviderStateMixin {
                   ],
                 ),
               ),
-            ),
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

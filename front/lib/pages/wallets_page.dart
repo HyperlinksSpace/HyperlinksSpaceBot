@@ -99,9 +99,11 @@ class _WalletsPageState extends State<WalletsPage> {
       body: SafeArea(
         bottom: false,
         top: false,
-        child: ValueListenableBuilder<bool>(
-          valueListenable: GlobalLogoBar.fullscreenNotifier,
-          builder: (context, isFullscreen, child) {
+        child: Builder(
+          builder: (context) {
+            // Calculate padding statically to avoid rebuilds when keyboard opens
+            // The logo visibility doesn't actually change when keyboard opens,
+            // so we don't need to listen to fullscreenNotifier here
             final topPadding = GlobalLogoBar.getContentTopPadding();
             return Padding(
               padding: EdgeInsets.only(

@@ -1,29 +1,4 @@
-# smc
-
-## Project structure
-
--   `contracts` - source code of all the smart contracts of the project and their dependencies.
--   `wrappers` - wrapper classes (implementing `Contract` from ton-core) for the contracts, including any [de]serialization primitives and compilation functions.
--   `tests` - tests for the contracts.
--   `scripts` - scripts used by the project, mainly the deployment scripts.
-
-## How to use
-
-### Build
-
-`npx blueprint build` or `yarn blueprint build`
-
-### Test
-
-`npx blueprint test` or `yarn blueprint test`
-
-### Deploy or run another script
-
-`npx blueprint run` or `yarn blueprint run`
-
-### Add a new contract
-
-`npx blueprint create ContractName` or `yarn blueprint create ContractName`
+# Smart Contract Technical Task: Welcome Token & NFT Vesting System
 
 ## Overview
 
@@ -645,3 +620,4 @@ When jettons are locked, transfer attempts should fail **before** processing for
 **Status**: 📋 Technical Task - Ready for Implementation  
 **Last Updated**: 2025-01-XX  
 **Next Steps**: Add TON standard specifications to folder, begin Phase 1 implementation
+

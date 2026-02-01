@@ -195,6 +195,42 @@ class _TradePageState extends State<TradePage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 22),
+                    // Second block: three 11×11 squares (centered)
+                    Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 11,
+                            height: 11,
+                            color: AppTheme.textColor,
+                          ),
+                        const SizedBox(width: 11),
+                        Container(
+                          width: 11,
+                          height: 11,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: const Color(0xFF818181),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 11),
+                        Container(
+                          width: 11,
+                          height: 11,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: const Color(0xFF818181),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

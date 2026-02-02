@@ -244,9 +244,7 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
                     width: 32,
                     height: 32,
                     child: SvgPicture.asset(
-                      AppTheme.isLightTheme
-                          ? 'assets/images/logo_light.svg'
-                          : 'assets/images/logo_dark.svg',
+                      'assets/images/loga.svg',
                       width: 32,
                       height: 32,
                       key: const ValueKey('global_logo'),
@@ -289,9 +287,7 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
                       width: 32,
                       height: 32,
                       child: SvgPicture.asset(
-                        AppTheme.isLightTheme
-                            ? 'assets/images/logo_light.svg'
-                            : 'assets/images/logo_dark.svg',
+                        'assets/images/loga.svg',
                         width: 32,
                         height: 32,
                         key: const ValueKey('global_logo'),

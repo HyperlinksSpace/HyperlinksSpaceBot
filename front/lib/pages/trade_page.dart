@@ -160,18 +160,20 @@ class _TradePageState extends State<TradePage> {
               padding: EdgeInsets.only(
                   bottom: _getAdaptiveBottomPadding(),
                   top: GlobalLogoBar.getContentTopPadding()),
-              child: Center(
-            child: ConstrainedBox(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.only(
-                  top: 30,
+                  top: 15,
                   bottom: 15,
                   left: 15,
                   right: 15,
                 ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // First block: 2 columns with pictures, titles, subtitles
@@ -197,10 +199,12 @@ class _TradePageState extends State<TradePage> {
                     ),
                     const SizedBox(height: 22),
                     // Second block: three 11×11 squares (centered)
-                    Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                    SizedBox(
+                      height: 11,
+                      child: Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                           Container(
                             width: 11,
                             height: 11,
@@ -228,15 +232,53 @@ class _TradePageState extends State<TradePage> {
                             ),
                           ),
                         ),
-                        ],
+                          ],
+                        ),
                       ),
+                    ),
+                    // 33px visual gap; text line height 83/20 adds ~31px above glyphs, so use 2px
+                    const SizedBox(height: 33),
+                    // Third block: two texts
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tranding',
+                          style: TextStyle(
+                            fontSize: 20,
+                            height: 15 / 20,
+                            color: AppTheme.textColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 15),
+                        Text(
+                          'Cap',
+                          style: TextStyle(
+                            fontSize: 20,
+                            height: 15 / 20,
+                            color: const Color(0xFF818181),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 15),
+                        Text(
+                          'Reach',
+                          style: TextStyle(
+                            fontSize: 20,
+                            height: 15 / 20,
+                            color: const Color(0xFF818181),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
           ),
-            );
+          );
           },
         ),
     );

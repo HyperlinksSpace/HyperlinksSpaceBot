@@ -22,6 +22,7 @@ app.add_middleware(
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # Using llama3.2:3b as default - multilingual model optimized for 8GB RAM
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+RAG_URL = os.getenv("RAG_URL")
 
 # API Key for authentication - must be set in environment variables
 API_KEY = os.getenv("API_KEY")
@@ -98,9 +99,34 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     # Use provided model or fall back to environment variable default
     model = request.model or OLLAMA_MODEL
     
+    # Optional RAG grounding (only if RAG_URL is set)
+    rag_context = None
+    rag_sources = None
+    if RAG_URL:
+        try:
+            user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
+            if user_last:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r = await client.post(f"{RAG_URL}/query", json={"query": user_last, "top_k": 5})
+                    if r.status_code == 200:
+                        data = r.json()
+                        rag_context = data.get("context", [])
+                        rag_sources = data.get("sources", [])
+        except:
+            pass
+    
     # Convert ChatMessage objects to dicts for Ollama API
     # According to Ollama API spec, messages must have role and content (both required)
     messages_dict = []
+    if rag_context:
+        context_block = "\n\n---\n\n".join(rag_context)
+        sys_msg = (
+            "You are an AI assistant for TON/token analysis.\n"
+            "Use ONLY the context below. If the context is insufficient, say you don't have enough data.\n"
+            "Avoid hard price predictions; provide scenarios and risks instead.\n\n"
+            f"CONTEXT:\n{context_block}"
+        )
+        messages_dict.append({"role": "system", "content": sys_msg})
     for msg in request.messages:
         msg_dict = {
             "role": msg.role,

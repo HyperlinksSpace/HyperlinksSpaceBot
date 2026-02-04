@@ -44,4 +44,11 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+.venv/
+rag/.venv/
+*_store.json
+rag_store.json
+projects_store.json
+__pycache__/
+
 

@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
 import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../widgets/global/global_logo_bar.dart';
+import '../widgets/common/edge_swipe_back.dart';
 import '../telegram_safe_area.dart';
 import '../app/theme/app_theme.dart';
 import '../telegram_webapp.dart';
@@ -131,9 +132,11 @@ class _SendPageState extends State<SendPage> {
     
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Stack(
-        children: [
-          Builder(
+      body: EdgeSwipeBack(
+        onBack: _handleBackButton,
+        child: Stack(
+          children: [
+            Builder(
                 builder: (context) {
                   // Calculate padding statically to avoid rebuilds when keyboard opens
                   // The logo visibility doesn't actually change when keyboard opens,
@@ -494,6 +497,7 @@ class _SendPageState extends State<SendPage> {
           ),
         ],
       ),
+        ),
     );
   }
 }

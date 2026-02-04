@@ -11,6 +11,11 @@
 migrate_working_dir/
 notes.txt
 
+# Windows reserved device names (avoid Git errors on commit)
+/nul
+front/nul
+**/nul
+
 # IntelliJ related
 *.iml
 *.ipr

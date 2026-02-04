@@ -3,10 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
 import '../../utils/keyboard_height_service.dart';
-import '../../widgets/global/global_bottom_bar.dart';
-import '../../widgets/global/global_logo_bar.dart';
 import '../../utils/telegram_back_button.dart';
 import '../../telegram_webapp.dart';
+import '../../widgets/global/global_bottom_bar.dart';
+import '../common/edge_swipe_back.dart';
 
 /// Overlay widget that appears when AI & Search input is focused
 /// Shows premade input options and overlays page content
@@ -28,10 +28,7 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
   Function()? _backButtonCallback;
   bool _isFocused = false;
   bool _backButtonSetup = false;
-  
-  // Cache logo height only - no MediaQuery reads, no keyboard height tracking
-  double? _cachedLogoBarHeight;
-  
+
   @override
   void initState() {
     super.initState();
@@ -39,13 +36,6 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
     _isFocused = GlobalBottomBar.focusNotifier.value;
     // Listen to focus changes to update state and setup/teardown back button
     GlobalBottomBar.focusNotifier.addListener(_onFocusChanged);
-    
-    // Cache logo height immediately (synchronously) to prevent recalculation
-    // This is critical on mobile where viewport changes can trigger rebuilds
-    // before post-frame callbacks execute
-    _cachedLogoBarHeight = GlobalLogoBar.shouldShowLogo()
-        ? GlobalLogoBar.getLogoBlockHeight()
-        : 0.0;
   }
 
   void _onFocusChanged() {
@@ -61,13 +51,11 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
     });
     
     if (_isFocused) {
-      // TEMPORARILY DISABLED: Delay back button setup to test if it causes reload
-      // TODO: Re-enable after confirming this is not the cause of reload
-      // Future.delayed(const Duration(milliseconds: 500), () {
-      //   if (mounted && GlobalBottomBar.focusNotifier.value && !_backButtonSetup) {
-      //     _setupBackButton();
-      //   }
-      // });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && GlobalBottomBar.focusNotifier.value && !_backButtonSetup) {
+          _setupBackButton();
+        }
+      });
     } else {
       _teardownBackButton();
     }
@@ -147,13 +135,15 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
       offstage: !_isFocused,
       child: IgnorePointer(
         ignoring: !_isFocused,
-        child: GestureDetector(
-          onTap: _onOverlayTap,
-          behavior: HitTestBehavior.translucent,
-          child: Material(
-            color: AppTheme.backgroundColor,
-            child: SizedBox.expand(
-              child: ValueListenableBuilder<double>(
+        child: EdgeSwipeBack(
+          onBack: _onOverlayTap,
+          child: GestureDetector(
+            onTap: _onOverlayTap,
+            behavior: HitTestBehavior.translucent,
+            child: Material(
+              color: AppTheme.backgroundColor,
+              child: SizedBox.expand(
+                child: ValueListenableBuilder<double>(
                 valueListenable: KeyboardHeightService().heightNotifier,
                 builder: (context, serviceKeyboard, _) {
                   final keyboardBottom =
@@ -207,6 +197,7 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../app/theme/app_theme.dart';
 import '../widgets/global/global_logo_bar.dart';
+import '../widgets/common/edge_swipe_back.dart';
 import '../telegram_safe_area.dart';
 import '../telegram_webapp.dart';
 
@@ -200,7 +201,7 @@ class _TradePageState extends State<TradePage> {
         },
         {
           'icon': 'assets/sample/items/3.svg',
-          'primaryText': 'Sty. ker',
+          'primaryText': '4iza',
           'secondaryText': r'$157',
           'timestamp': '3',
           'rightText': r'$7111',
@@ -308,7 +309,9 @@ class _TradePageState extends State<TradePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Builder(
+      body: EdgeSwipeBack(
+        onBack: _handleBackButton,
+        child: Builder(
           builder: (context) {
             final topPadding = GlobalLogoBar.getContentTopPadding();
             final bottomPadding = _getAdaptiveBottomPadding();
@@ -580,6 +583,7 @@ class _TradePageState extends State<TradePage> {
               ],
             );
           },
+        ),
         ),
     );
   }

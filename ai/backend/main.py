@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any, Union, Literal
 import httpx
 import os
 import json
+import re
 
 app = FastAPI()
 
@@ -98,26 +99,65 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     
     # Use provided model or fall back to environment variable default
     model = request.model or OLLAMA_MODEL
+
+    def stream_text_response(text: str):
+        async def _gen():
+            if text:
+                yield json.dumps({"token": text, "done": False}) + "\n"
+            yield json.dumps({"response": text, "done": True}) + "\n"
+        return StreamingResponse(_gen(), media_type="application/x-ndjson")
     
     # Optional RAG grounding (only if RAG_URL is set)
     rag_context = None
     rag_sources = None
+    token_facts = None
+    ticker_mode = False
+    ticker_symbol = None
+
+    user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
+    if user_last:
+        stripped = user_last.strip()
+        if re.fullmatch(r"\$?[A-Z]{2,10}", stripped):
+            ticker_mode = True
+            ticker_symbol = stripped.lstrip("$").upper()
+
     if RAG_URL:
         try:
-            user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
             if user_last:
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    r = await client.post(f"{RAG_URL}/query", json={"query": user_last, "top_k": 5})
-                    if r.status_code == 200:
-                        data = r.json()
-                        rag_context = data.get("context", [])
-                        rag_sources = data.get("sources", [])
+                    if ticker_mode and ticker_symbol:
+                        try:
+                            r = await client.get(f"{RAG_URL}/tokens/{ticker_symbol}", timeout=3.0)
+                            if r.status_code == 200:
+                                data = r.json()
+                                if isinstance(data, dict) and not data.get("error"):
+                                    token_facts = data
+                        except:
+                            pass
+                    else:
+                        r = await client.post(f"{RAG_URL}/query", json={"query": user_last, "top_k": 5})
+                        if r.status_code == 200:
+                            data = r.json()
+                            rag_context = data.get("context", [])
+                            rag_sources = data.get("sources", [])
         except:
             pass
     
     # Convert ChatMessage objects to dicts for Ollama API
     # According to Ollama API spec, messages must have role and content (both required)
     messages_dict = []
+    if ticker_mode:
+        if not token_facts:
+            return stream_text_response(f"I don't have verified data for ${ticker_symbol} yet.")
+        ticker_prompt = (
+            "You are a token information assistant.\n"
+            "Use the provided token facts to summarize what the token is.\n"
+            "Then provide a short speculative narrative guess based only on the token's name and ticker.\n"
+            "Clearly label the narrative as speculative and potentially incorrect.\n"
+            "Do not provide investment advice or price predictions.\n\n"
+            f"VERIFIED_TOKEN_FACTS:\n{json.dumps(token_facts, ensure_ascii=False)}"
+        )
+        messages_dict.append({"role": "system", "content": ticker_prompt})
     if rag_context:
         context_block = "\n\n---\n\n".join(rag_context)
         sys_msg = (

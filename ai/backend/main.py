@@ -7,6 +7,8 @@ import httpx
 import os
 import json
 import re
+import time
+import urllib.parse
 
 app = FastAPI()
 
@@ -106,6 +108,16 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 yield json.dumps({"token": text, "done": False}) + "\n"
             yield json.dumps({"response": text, "done": True}) + "\n"
         return StreamingResponse(_gen(), media_type="application/x-ndjson")
+
+    def sanitize_url(url: str) -> str:
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            netloc = parsed.hostname or ""
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+        except Exception:
+            return url
     
     # Optional RAG grounding (only if RAG_URL is set)
     rag_context = None
@@ -113,6 +125,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     token_facts = None
     ticker_mode = False
     ticker_symbol = None
+    ticker_error_response = None
 
     user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
     if user_last:
@@ -127,13 +140,37 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     if ticker_mode and ticker_symbol:
                         try:
-                            r = await client.get(f"{RAG_URL}/tokens/{ticker_symbol}", timeout=3.0)
-                            if r.status_code == 200:
+                            request_url = f"{RAG_URL}/tokens/{ticker_symbol}"
+                            start = time.monotonic()
+                            r = await client.get(request_url, timeout=3.0)
+                            elapsed_ms = int((time.monotonic() - start) * 1000)
+                            status_code = r.status_code
+                            response_text = r.text[:200]
+                            rag_url_s = sanitize_url(RAG_URL)
+
+                            data = None
+                            try:
                                 data = r.json()
-                                if isinstance(data, dict) and not data.get("error"):
+                            except Exception as e:
+                                print(f"[ticker] parse_error symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} error={type(e).__name__}:{e} response_snippet={response_text}")
+                                ticker_error_response = "provider_unavailable"
+
+                            if isinstance(data, dict):
+                                if data.get("error") == "not_found":
+                                    print(f"[ticker] not_found symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
+                                    ticker_error_response = "not_found"
+                                elif data.get("error"):
+                                    print(f"[ticker] unavailable symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
+                                    ticker_error_response = "provider_unavailable"
+                                else:
                                     token_facts = data
-                        except:
-                            pass
+                            else:
+                                if status_code != 200:
+                                    print(f"[ticker] non_200 symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
+                                    ticker_error_response = "provider_unavailable"
+                        except Exception as e:
+                            print(f"[ticker] exception symbol={ticker_symbol} rag_url={sanitize_url(RAG_URL)} error={type(e).__name__}:{e}")
+                            ticker_error_response = "provider_unavailable"
                     else:
                         r = await client.post(f"{RAG_URL}/query", json={"query": user_last, "top_k": 5})
                         if r.status_code == 200:
@@ -148,7 +185,9 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     messages_dict = []
     if ticker_mode:
         if not token_facts:
-            return stream_text_response(f"I don't have verified data for ${ticker_symbol} yet.")
+            if ticker_error_response == "not_found":
+                return stream_text_response(f"I don't have verified data for ${ticker_symbol} yet.")
+            return stream_text_response("Token provider unavailable, try again.")
         ticker_prompt = (
             "You are a token information assistant.\n"
             "Use the provided token facts to summarize what the token is.\n"

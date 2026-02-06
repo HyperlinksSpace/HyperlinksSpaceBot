@@ -190,7 +190,7 @@ async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"Hello, {update.effective_user.first_name}. That's Hype And Links, tap to enter or write me anything to use AI in bot",
+        f"That's @HyperlinksSpaceBot, you can use AI in bot or explore the app for more features",
         reply_markup=reply_markup
     )
 

@@ -205,6 +205,96 @@ def fetch_token_by_symbol(symbol: str) -> Dict[str, Any]:
             "source": "swap.coffee",
         }
 
+def _normalize_symbol(symbol: str) -> str:
+    if symbol is None:
+        return ""
+    cleaned = symbol.replace("$", "").replace(" ", "").strip()
+    return cleaned.upper()
+
+def _verification_values() -> List[str]:
+    parts = [p.strip() for p in TOKENS_VERIFICATION.split(",")]
+    return [p for p in parts if p]
+
+def fetch_token_by_symbol(symbol: str) -> Dict[str, Any]:
+    params = {
+        "search": symbol,
+        "size": 10,
+        "verification": _verification_values(),
+    }
+    qs = urllib.parse.urlencode(params, doseq=True)
+    url = f"{TOKENS_API_URL}/api/v3/jettons?{qs}"
+    started = time.monotonic()
+    try:
+        req = urllib.request.Request(url)
+        if TOKENS_API_KEY:
+            req.add_header("X-Api-Key", TOKENS_API_KEY)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            status = getattr(resp, "status", 200)
+            body = resp.read().decode("utf-8", errors="ignore")
+            if status != 200:
+                return {
+                    "error": "unavailable",
+                    "reason": "non_200",
+                    "status_code": status,
+                    "response_snippet": body[:200],
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    "source": "swap.coffee",
+                }
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return {
+                    "error": "unavailable",
+                    "reason": "json_parse",
+                    "status_code": status,
+                    "response_snippet": body[:200],
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    "source": "swap.coffee",
+                }
+            if not isinstance(data, list):
+                return {
+                    "error": "unavailable",
+                    "reason": "unexpected_payload",
+                    "status_code": status,
+                    "response_snippet": body[:200],
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    "source": "swap.coffee",
+                }
+            for item in data:
+                if str(item.get("symbol", "")).upper() == symbol:
+                    return {"data": item, "elapsed_ms": int((time.monotonic() - started) * 1000)}
+            if not data:
+                return {
+                    "error": "not_found",
+                    "symbol": symbol,
+                    "source": "swap.coffee",
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                }
+            return {"data": data[0], "elapsed_ms": int((time.monotonic() - started) * 1000)}
+    except urllib.error.HTTPError as e:
+        return {
+            "error": "unavailable",
+            "reason": "http_error",
+            "status_code": e.code,
+            "response_snippet": (e.read().decode("utf-8", errors="ignore")[:200] if hasattr(e, "read") else ""),
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "source": "swap.coffee",
+        }
+    except urllib.error.URLError:
+        return {
+            "error": "unavailable",
+            "reason": "connection",
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "source": "swap.coffee",
+        }
+    except Exception:
+        return {
+            "error": "unavailable",
+            "reason": "unknown",
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "source": "swap.coffee",
+        }
+
 class IngestDoc(BaseModel):
     text: str
     source: Optional[str] = None
@@ -245,6 +335,11 @@ async def get_project(project_id: str):
 async def get_token(symbol: str):
     now = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     normalized = _normalize_symbol(symbol)
+    source_params = {
+        "search": normalized,
+        "verification": _verification_values(),
+    }
+    source_url = f"{TOKENS_API_URL}/api/v3/jettons?{urllib.parse.urlencode(source_params, doseq=True)}"
     source_url = f"{TOKENS_API_URL}/api/v3/jettons?search={urllib.parse.quote(normalized)}"
 
     if not normalized or not (2 <= len(normalized) <= 10):

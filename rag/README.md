@@ -64,3 +64,7 @@ curl -X POST http://localhost:8001/query \
 ```bash
 curl -s -X POST $RAG_URL/ingest/source/allowlist
 ```
+
+```bash
+curl -s $RAG_URL/tokens/DOGS
+```

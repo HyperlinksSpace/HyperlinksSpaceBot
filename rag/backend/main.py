@@ -3,6 +3,11 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os, json
+from datetime import datetime
+import urllib.request
+import urllib.error
+import urllib.parse
+import time
 
 app = FastAPI()
 
@@ -11,6 +16,9 @@ ALLOWLIST_PATH = BASE_DIR.parent / "data" / "projects_allowlist.json"
 
 STORE_PATH = os.getenv("RAG_STORE_PATH", "rag_store.json")
 PROJECTS_STORE_PATH = os.getenv("PROJECTS_STORE_PATH", "projects_store.json")
+TOKENS_API_URL = os.getenv("TOKENS_API_URL", "https://tokens.swap.coffee")
+TOKENS_API_KEY = os.getenv("TOKENS_API_KEY")
+TOKENS_VERIFICATION = os.getenv("TOKENS_VERIFICATION", "WHITELISTED,COMMUNITY,UNKNOWN")
 
 def load_store() -> List[Dict[str, Any]]:
     if not os.path.exists(STORE_PATH):
@@ -35,6 +43,96 @@ def load_projects() -> List[Dict[str, Any]]:
 def save_projects(projects: List[Dict[str, Any]]) -> None:
     with open(PROJECTS_STORE_PATH, "w", encoding="utf-8") as f:
         f.write(json.dumps(projects, ensure_ascii=False, indent=2))
+
+def _normalize_symbol(symbol: str) -> str:
+    if symbol is None:
+        return ""
+    cleaned = symbol.replace("$", "").replace(" ", "").strip()
+    return cleaned.upper()
+
+def _verification_values() -> List[str]:
+    parts = [p.strip() for p in TOKENS_VERIFICATION.split(",")]
+    return [p for p in parts if p]
+
+def fetch_token_by_symbol(symbol: str) -> Dict[str, Any]:
+    params = {
+        "search": symbol,
+        "size": 10,
+        "verification": _verification_values(),
+    }
+    qs = urllib.parse.urlencode(params, doseq=True)
+    url = f"{TOKENS_API_URL}/api/v3/jettons?{qs}"
+    started = time.monotonic()
+    try:
+        req = urllib.request.Request(url)
+        if TOKENS_API_KEY:
+            req.add_header("X-Api-Key", TOKENS_API_KEY)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            status = getattr(resp, "status", 200)
+            body = resp.read().decode("utf-8", errors="ignore")
+            if status != 200:
+                return {
+                    "error": "unavailable",
+                    "reason": "non_200",
+                    "status_code": status,
+                    "response_snippet": body[:200],
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    "source": "swap.coffee",
+                }
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return {
+                    "error": "unavailable",
+                    "reason": "json_parse",
+                    "status_code": status,
+                    "response_snippet": body[:200],
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    "source": "swap.coffee",
+                }
+            if not isinstance(data, list):
+                return {
+                    "error": "unavailable",
+                    "reason": "unexpected_payload",
+                    "status_code": status,
+                    "response_snippet": body[:200],
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    "source": "swap.coffee",
+                }
+            for item in data:
+                if str(item.get("symbol", "")).upper() == symbol:
+                    return {"data": item, "elapsed_ms": int((time.monotonic() - started) * 1000)}
+            if not data:
+                return {
+                    "error": "not_found",
+                    "symbol": symbol,
+                    "source": "swap.coffee",
+                    "elapsed_ms": int((time.monotonic() - started) * 1000),
+                }
+            return {"data": data[0], "elapsed_ms": int((time.monotonic() - started) * 1000)}
+    except urllib.error.HTTPError as e:
+        return {
+            "error": "unavailable",
+            "reason": "http_error",
+            "status_code": e.code,
+            "response_snippet": (e.read().decode("utf-8", errors="ignore")[:200] if hasattr(e, "read") else ""),
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "source": "swap.coffee",
+        }
+    except urllib.error.URLError:
+        return {
+            "error": "unavailable",
+            "reason": "connection",
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "source": "swap.coffee",
+        }
+    except Exception:
+        return {
+            "error": "unavailable",
+            "reason": "unknown",
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "source": "swap.coffee",
+        }
 
 class IngestDoc(BaseModel):
     text: str
@@ -71,6 +169,112 @@ async def get_project(project_id: str):
         if p["id"] == project_id:
             return p
     return {"error": "not found"}
+
+@app.get("/tokens/{symbol}")
+async def get_token(symbol: str):
+    now = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    normalized = _normalize_symbol(symbol)
+    source_params = {
+        "search": normalized,
+        "verification": _verification_values(),
+    }
+    source_url = f"{TOKENS_API_URL}/api/v3/jettons?{urllib.parse.urlencode(source_params, doseq=True)}"
+
+    if not normalized or not (2 <= len(normalized) <= 10):
+        return {
+            "error": "unavailable",
+            "updated_at": now,
+            "sources": [
+                {
+                    "source_name": "tokens.swap.coffee",
+                    "source_url": source_url,
+                    "fetched_at": now,
+                }
+            ],
+        }
+
+    if normalized == "TON":
+        return {
+            "id": "TON",
+            "type": "native",
+            "symbol": "TON",
+            "name": "Toncoin",
+            "decimals": 9,
+            "total_supply": None,
+            "holders": None,
+            "tx_24h": None,
+            "last_activity": None,
+            "sources": [
+                {
+                    "source_name": "ton.org",
+                    "source_url": "https://ton.org",
+                    "fetched_at": now,
+                },
+                {
+                    "source_name": "docs.ton.org",
+                    "source_url": "https://docs.ton.org",
+                    "fetched_at": now,
+                },
+            ],
+            "updated_at": now,
+        }
+
+    result = fetch_token_by_symbol(normalized)
+    if isinstance(result, dict) and result.get("error"):
+        return {
+            "error": result.get("error") or "unavailable",
+            "reason": result.get("reason"),
+            "symbol": normalized,
+            "status_code": result.get("status_code"),
+            "response_snippet": result.get("response_snippet"),
+            "elapsed_ms": result.get("elapsed_ms"),
+            "updated_at": now,
+            "sources": [
+                {
+                    "source_name": "tokens.swap.coffee",
+                    "source_url": source_url,
+                    "fetched_at": now,
+                }
+            ],
+        }
+
+    data = result.get("data") if isinstance(result, dict) else None
+    if not data or not isinstance(data, dict):
+        return {
+            "error": "unavailable",
+            "symbol": normalized,
+            "updated_at": now,
+            "sources": [
+                {
+                    "source_name": "tokens.swap.coffee",
+                    "source_url": source_url,
+                    "fetched_at": now,
+                }
+            ],
+        }
+
+    stats = data.get("market_stats", {}) if isinstance(data.get("market_stats"), dict) else {}
+    token = {
+        "id": data.get("address"),
+        "type": "jetton",
+        "symbol": data.get("symbol") or normalized,
+        "name": data.get("name"),
+        "decimals": None,
+        "total_supply": data.get("total_supply") or data.get("supply") or data.get("totalSupply"),
+        "holders": stats.get("holders_count") or data.get("holders") or data.get("holders_count"),
+        "tx_24h": data.get("tx_24h") or data.get("tx24h") or data.get("transactions_24h"),
+        "last_activity": data.get("last_activity") or data.get("last_trade_at") or data.get("created_at"),
+        "sources": [
+            {
+                "source_name": "tokens.swap.coffee",
+                "source_url": source_url,
+                "fetched_at": now,
+            }
+        ],
+        "updated_at": now,
+    }
+
+    return token
 
 @app.post("/ingest")
 async def ingest(req: IngestRequest):

@@ -21,8 +21,16 @@ BASE_SYSTEM_PROMPT = (
 )
 
 LANGUAGE_SYSTEM_HINT = {
-    "en": "Respond in English.",
-    "ru": "Respond in Russian."
+    "en": (
+        "Respond only in English. Do not output JSON. "
+        "Do not convert supply to USD. Supply is number of tokens. "
+        "If decimals is null or unknown, say 'decimals unknown'."
+    ),
+    "ru": (
+        "Respond only in Russian. Do not output JSON. "
+        "Do not convert supply to USD. Supply is number of tokens. "
+        "If decimals is null or unknown, say 'decimals unknown'."
+    )
 }
 
 
@@ -32,6 +40,74 @@ def build_language_keyboard(message_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton("RU", callback_data=f"lang:ru:{message_id}")
     ]]
     return InlineKeyboardMarkup(keyboard)
+
+
+def _safe_int_like(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def format_token_facts_block(text: str) -> str | None:
+    """Convert raw token JSON text into a compact human-readable facts block."""
+    if not text:
+        return None
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    if isinstance(payload, dict) and isinstance(payload.get("token"), dict):
+        payload = payload["token"]
+
+    if not isinstance(payload, dict):
+        return None
+
+    name = payload.get("name") or "unknown"
+    symbol = payload.get("symbol") or "unknown"
+    token_type = payload.get("type") or payload.get("token_type") or "unknown"
+    total_supply = (
+        payload.get("total_supply")
+        or payload.get("supply")
+        or payload.get("totalSupply")
+        or "unknown"
+    )
+    holders = payload.get("holders") or payload.get("holder_count") or payload.get("holders_count") or "unknown"
+    last_activity = (
+        payload.get("last_activity")
+        or payload.get("lastActivity")
+        or payload.get("updated_at")
+        or payload.get("updatedAt")
+        or "unknown"
+    )
+    sources = payload.get("sources")
+
+    lines = [
+        f"Name: {name}",
+        f"Symbol: {symbol}",
+        f"Type: {token_type}",
+        "",
+        f"Total supply (tokens): {_safe_int_like(total_supply)}",
+        f"Holders: {_safe_int_like(holders)}",
+        f"Last activity: {last_activity}",
+    ]
+
+    if isinstance(sources, list) and sources:
+        source_text = ", ".join(str(item) for item in sources[:3])
+        lines.extend(["", f"Sources: {source_text}"])
+    elif isinstance(sources, str) and sources.strip():
+        lines.extend(["", f"Sources: {sources.strip()}"])
+
+    return "\n".join(lines)
+
+
+def looks_like_json(text: str) -> bool:
+    value = text.strip()
+    return (value.startswith("{") and value.endswith("}")) or (value.startswith("[") and value.endswith("]"))
 
 
 async def get_db_pool():
@@ -271,7 +347,8 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                                         await bot.edit_message_text(
                                             chat_id=chat_id,
                                             message_id=message_id,
-                                            text=error_text
+                                            text=error_text,
+                                            reply_markup=build_language_keyboard(message_id)
                                         )
                                         last_sent_text = error_text
                                     except TelegramError as e:
@@ -301,7 +378,8 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                                         await bot.edit_message_text(
                                             chat_id=chat_id,
                                             message_id=message_id,
-                                            text=display_text
+                                            text=display_text,
+                                            reply_markup=build_language_keyboard(message_id)
                                         )
                                         last_sent_text = display_text
                                         last_edit_time = current_time
@@ -349,7 +427,8 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                             await bot.edit_message_text(
                                 chat_id=chat_id,
                                 message_id=message_id,
-                                text=no_response_text
+                                text=no_response_text,
+                                reply_markup=build_language_keyboard(message_id)
                             )
                             last_sent_text = no_response_text
                         except TelegramError as e:
@@ -361,7 +440,8 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=error_text
+                text=error_text,
+                reply_markup=build_language_keyboard(message_id)
             )
         except TelegramError as e:
             if "not modified" not in str(e).lower():
@@ -372,7 +452,8 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=error_text
+                text=error_text,
+                reply_markup=build_language_keyboard(message_id)
             )
         except TelegramError as e2:
             if "not modified" not in str(e2).lower():
@@ -383,7 +464,8 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=error_text
+                text=error_text,
+                reply_markup=build_language_keyboard(message_id)
             )
         except TelegramError as e2:
             if "not modified" not in str(e2).lower():
@@ -483,12 +565,24 @@ async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT
     if not source_text:
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Sorry, I couldn't find text to regenerate."
+            text="Sorry, I couldn't find text to regenerate.",
+            reply_markup=build_language_keyboard(target_message_id)
         )
         return
 
     if source_role == "assistant":
-        user_content = f"Rewrite the following text in the target language:\n\n{source_text}"
+        facts_block = format_token_facts_block(source_text)
+        if facts_block:
+            assistant_input = facts_block
+            user_content = f"Rewrite the following text in the target language:\n\n{assistant_input}"
+        elif looks_like_json(source_text):
+            user_content = (
+                "Rewrite token facts in the target language using this plain template:\n"
+                "Name, Symbol, Type; Total supply (tokens), Holders, Last activity; Sources (optional). "
+                "No JSON."
+            )
+        else:
+            user_content = f"Rewrite the following text in the target language:\n\n{source_text}"
     else:
         user_content = source_text
 

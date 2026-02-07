@@ -9,6 +9,9 @@ import json
 import re
 import time
 import urllib.parse
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -160,6 +163,19 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                                 ticker_error_response = "provider_unavailable"
 
                             if isinstance(data, dict):
+                                token = data
+                                # HARD GUARD
+                                if not isinstance(token, dict):
+                                    raise ValueError("Invalid token payload")
+                                # SAFE NORMALIZATION
+                                symbol = token.get("symbol") or ticker_symbol
+                                name = token.get("name") or "Unknown token"
+                                address = token.get("address")
+                                description = token.get("description", "")
+                                sources = token.get("sources", [])
+
+                                logger.info("ticker_payload keys=%s", list(token.keys()))
+
                                 if data.get("error") == "not_found":
                                     print(f"[ticker] not_found symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
                                     ticker_error_response = "not_found"
@@ -167,7 +183,13 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                                     print(f"[ticker] unavailable symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
                                     ticker_error_response = "provider_unavailable"
                                 else:
-                                    token_facts = data
+                                    token_facts = {
+                                        "symbol": symbol,
+                                        "name": name,
+                                        "address": address,
+                                        "description": description,
+                                        "sources": sources,
+                                    }
                         except Exception as e:
                             print(f"[ticker] exception symbol={ticker_symbol} rag_url={sanitize_url(RAG_URL)} error={type(e).__name__}:{e}")
                             ticker_error_response = "provider_unavailable"

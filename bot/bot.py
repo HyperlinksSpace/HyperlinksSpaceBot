@@ -440,7 +440,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
     last_sent_text = ""  # Track last sent text to avoid "message not modified" errors
     current_message_id = message_id
 
-    async def edit_or_fallback_send(text: str, with_keyboard: bool = False):
+    async def edit_or_fallback_send(text: str):
         nonlocal current_message_id, last_sent_text
         if not text or text == last_sent_text:
             return
@@ -448,10 +448,9 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             kwargs = {
                 "chat_id": chat_id,
                 "message_id": current_message_id,
-                "text": text
+                "text": text,
+                "reply_markup": build_language_keyboard(current_message_id),
             }
-            if with_keyboard:
-                kwargs["reply_markup"] = build_language_keyboard(current_message_id)
             await bot.edit_message_text(**kwargs)
             last_sent_text = text
             return
@@ -460,17 +459,18 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                 return
             print(f"Warning: Could not edit message {current_message_id}: {e}. Falling back to send_message.")
         try:
-            send_kwargs = {"chat_id": chat_id, "text": text}
-            if with_keyboard:
-                send_kwargs["reply_markup"] = build_language_keyboard(0)
+            send_kwargs = {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_markup": build_language_keyboard(0),
+            }
             sent = await bot.send_message(**send_kwargs)
             current_message_id = sent.message_id
-            if with_keyboard:
-                await bot.edit_message_reply_markup(
-                    chat_id=chat_id,
-                    message_id=current_message_id,
-                    reply_markup=build_language_keyboard(current_message_id)
-                )
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=current_message_id,
+                reply_markup=build_language_keyboard(current_message_id)
+            )
             last_sent_text = text
         except TelegramError as e:
             print(f"Warning: Could not send fallback message: {e}")
@@ -494,7 +494,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                             data = json.loads(line)
                             if "error" in data:
                                 error_text = f"Error: {data['error']}"
-                                await edit_or_fallback_send(error_text, with_keyboard=True)
+                                await edit_or_fallback_send(error_text)
                                 return
                             
                             # Parse streaming response: token field contains partial content
@@ -515,7 +515,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                                 
                                 display_text = response_text + signature
                                 if display_text and display_text != last_sent_text:
-                                    await edit_or_fallback_send(display_text, with_keyboard=False)
+                                    await edit_or_fallback_send(display_text)
                                     last_edit_time = current_time
                             
                             if data.get("done", False):
@@ -534,7 +534,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                 
                 final_text = response_text + signature
                 
-                await edit_or_fallback_send(final_text, with_keyboard=True)
+                await edit_or_fallback_send(final_text)
                 
                 # Save assistant response to conversation history (without signature for context)
                 if accumulated_text:
@@ -542,16 +542,16 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                 
                 if not final_text:
                     no_response_text = "Sorry, I didn't receive a response."
-                    await edit_or_fallback_send(no_response_text, with_keyboard=True)
+                    await edit_or_fallback_send(no_response_text)
     except httpx.TimeoutException:
         error_text = "Sorry, the AI took too long to respond. Please try again."
-        await edit_or_fallback_send(error_text, with_keyboard=True)
+        await edit_or_fallback_send(error_text)
     except httpx.RequestError as e:
         error_text = f"Sorry, I couldn't connect to the AI service. Error: {str(e)}"
-        await edit_or_fallback_send(error_text, with_keyboard=True)
+        await edit_or_fallback_send(error_text)
     except Exception as e:
         error_text = f"Sorry, an error occurred: {str(e)}"
-        await edit_or_fallback_send(error_text, with_keyboard=True)
+        await edit_or_fallback_send(error_text)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -571,8 +571,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history = await get_conversation_history(telegram_id, limit=5)
     last_user_message = get_last_user_message_from_history(history)
 
+    is_ticker_request = is_ticker_like_message(message_text)
     message_lang = detect_language_from_text(message_text)
-    if is_ticker_like_message(message_text) and last_user_message:
+    if is_ticker_request and last_user_message:
         message_lang = detect_language_from_text(last_user_message, default=message_lang)
     
     # Build messages array according to Ollama API spec
@@ -657,15 +658,8 @@ async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT
             print(f"Warning: Could not attach keyboard to fallback message: {e2}")
 
     source_text = _message_prompt_map.get((chat_id, target_message_id))
-    source_role = "user"
-
     if not source_text:
         source_text = await get_last_message_by_role(telegram_id, "user")
-        source_role = "user"
-
-    if not source_text:
-        source_text = await get_last_message_by_role(telegram_id, "assistant")
-        source_role = "assistant"
 
     if not source_text:
         missing_text = "Sorry, I couldn't find text to regenerate."
@@ -689,17 +683,7 @@ async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT
                 print(f"Warning: Could not attach keyboard to missing-source message: {e2}")
         return
 
-    if source_role == "assistant":
-        facts_block = format_token_facts_block(source_text) or format_token_facts_block_from_loose_text(source_text)
-        if facts_block:
-            user_content = (
-                "Rewrite token facts in the target language using plain text only.\n\n"
-                f"{facts_block}"
-            )
-        else:
-            user_content = f"Rewrite the following text in the target language:\n\n{source_text}"
-    else:
-        user_content = source_text
+    user_content = source_text
 
     messages = [
         {"role": "system", "content": build_regen_system_prompt(lang)},

@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import re
+import threading
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
@@ -15,7 +16,8 @@ load_dotenv()
 # Database connection pool
 _db_pool = None
 _message_prompt_map = {}
-_stream_cancel_events = {}
+_stream_cancel_events: dict[tuple[int, int], threading.Event] = {}
+_active_bot_msg_by_chat: dict[int, int] = {}
 
 BASE_SYSTEM_PROMPT = (
     "You are a helpful assistant. Pay attention to the conversation history and respond "
@@ -446,9 +448,10 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
     edit_interval = 1.0  # Edit message every 1 second to avoid rate limits
     last_sent_text = ""  # Track last sent text to avoid "message not modified" errors
     current_message_id = message_id
-    tracked_keys = {(chat_id, message_id)}
-    cancel_event = asyncio.Event()
-    _stream_cancel_events[(chat_id, message_id)] = cancel_event
+    key = (chat_id, message_id)
+    tracked_keys = {key}
+    cancel_event = threading.Event()
+    _stream_cancel_events[key] = cancel_event
 
     async def edit_or_fallback_send(text: str):
         nonlocal current_message_id, last_sent_text, tracked_keys
@@ -480,6 +483,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             current_message_id = sent.message_id
             tracked_keys.add((chat_id, current_message_id))
             _stream_cancel_events[(chat_id, current_message_id)] = cancel_event
+            _active_bot_msg_by_chat[chat_id] = current_message_id
             await bot.edit_message_reply_markup(
                 chat_id=chat_id,
                 message_id=current_message_id,
@@ -575,7 +579,9 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
     finally:
         for key in list(tracked_keys):
             if _stream_cancel_events.get(key) is cancel_event:
-                del _stream_cancel_events[key]
+                _stream_cancel_events.pop(key, None)
+            if _active_bot_msg_by_chat.get(chat_id) == key[1]:
+                _active_bot_msg_by_chat.pop(chat_id, None)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -590,6 +596,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     
     telegram_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    prev_msg_id = _active_bot_msg_by_chat.get(chat_id)
+    if prev_msg_id:
+        cancel_stream(chat_id, prev_msg_id)
     
     # Retrieve conversation history (before saving current message)
     history = await get_conversation_history(telegram_id, limit=5)
@@ -619,6 +629,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Send initial "thinking" message
     sent_message = await update.message.reply_text(THINKING_TEXT.get(message_lang, THINKING_TEXT["en"]))
     _message_prompt_map[(sent_message.chat_id, sent_message.message_id)] = message_text
+    _active_bot_msg_by_chat[sent_message.chat_id] = sent_message.message_id
     
     # Stream AI response and edit the message as chunks arrive
     await stream_ai_response(
@@ -716,6 +727,7 @@ async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT
     ]
 
     _message_prompt_map[(chat_id, active_message_id)] = source_text
+    _active_bot_msg_by_chat[chat_id] = active_message_id
 
     await stream_ai_response(
         messages,

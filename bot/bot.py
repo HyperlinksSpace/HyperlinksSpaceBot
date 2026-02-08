@@ -2,8 +2,8 @@ import os
 import asyncio
 import json
 import re
-import threading
-from dotenv import load_dotenv
+import time
+import importlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
 from telegram.error import Conflict, TelegramError
@@ -11,12 +11,18 @@ import asyncpg
 import httpx
 from datetime import datetime, timezone
 
-load_dotenv()
+try:
+    _dotenv = importlib.import_module("dotenv")
+    _load_dotenv = getattr(_dotenv, "load_dotenv", None)
+    if callable(_load_dotenv):
+        _load_dotenv()
+except ModuleNotFoundError:
+    pass
 
 # Database connection pool
 _db_pool = None
 _message_prompt_map = {}
-_stream_cancel_events: dict[tuple[int, int], threading.Event] = {}
+_stream_cancel_events: dict[tuple[int, int], asyncio.Event] = {}
 _active_bot_msg_by_chat: dict[int, int] = {}
 _active_stream_tasks: dict[tuple[int, int], asyncio.Task] = {}
 
@@ -44,6 +50,13 @@ THINKING_TEXT = {
 }
 
 
+def log_timing(label: str, start_time: float) -> float:
+    """Log elapsed time and return current time for next measurement."""
+    elapsed = time.perf_counter() - start_time
+    print(f"[TIMING] {label}: {elapsed*1000:.1f}ms")
+    return time.perf_counter()
+
+
 def build_language_keyboard(message_id: int) -> InlineKeyboardMarkup:
     keyboard = [[
         InlineKeyboardButton("EN", callback_data=f"lang:en:{message_id}"),
@@ -53,18 +66,16 @@ def build_language_keyboard(message_id: int) -> InlineKeyboardMarkup:
 
 
 async def cancel_stream(chat_id: int, message_id: int) -> None:
-    """Cancel active stream and wait for cleanup to complete."""
+    """Signal cancellation only. Do not await old task cleanup."""
     key = (chat_id, message_id)
+    cancel_start = time.perf_counter()
     event = _stream_cancel_events.get(key)
-    if event:
+    if event and not event.is_set():
         event.set()
     task = _active_stream_tasks.pop(key, None)
     if task and not task.done():
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+    log_timing(f"Cancel stream (signal-only) {message_id}", cancel_start)
 
 
 def _safe_int_like(value):
@@ -88,13 +99,79 @@ def sanitize_fact_value(value):
 
 
 def build_regen_system_prompt(lang: str) -> str:
+    language_instruction = (
+        "Respond only in Russian. Write naturally in Russian prose."
+        if lang == "ru"
+        else "Respond only in English. Write naturally in English prose."
+    )
+
+
+RAW_DUMP_PATTERNS = [
+    re.compile(r"tokens\.swap\.coffee", re.I),
+    re.compile(r";\s*[^;\n]+;\s*[^;\n]+;"),
+]
+
+
+def looks_like_raw_dump(text: str) -> bool:
+    if not text:
+        return False
+    one_line = max(text.splitlines(), key=len, default="")
+    if one_line.count(";") >= 3:
+        return True
+    return any(pattern.search(text) for pattern in RAW_DUMP_PATTERNS)
+
+
+async def rewrite_as_prose(text: str, lang: str) -> str | None:
+    ai_backend_url = os.getenv('AI_BACKEND_URL')
+    api_key = os.getenv('API_KEY')
+    if not ai_backend_url or not api_key:
+        return None
+
+    if lang == "ru":
+        user_prompt = f"Перепиши это в нормальный связный текст:\n\n{text}"
+        extra_instruction = "Ты получил сырой блок данных. Перепиши его в прозе."
+    else:
+        user_prompt = f"Rewrite this as natural prose:\n\n{text}"
+        extra_instruction = "You received a raw data block. Rewrite it as prose."
+
+    payload = {
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": f"{build_regen_system_prompt(lang)} {extra_instruction}"},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{ai_backend_url}/api/chat",
+                json=payload,
+                headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            )
+            r.raise_for_status()
+            try:
+                data = r.json()
+            except ValueError:
+                lines = [line.strip() for line in r.text.splitlines() if line.strip()]
+                if not lines:
+                    return None
+                data = json.loads(lines[-1])
+            if isinstance(data, dict):
+                response_text = (
+                    (data.get("response") or "").strip()
+                    or (data.get("message", {}) or {}).get("content", "").strip()
+                )
+                return response_text or None
+    except Exception as e:
+        print(f"Rewrite failed: {e}")
+    return None
     return (
-        f"{BASE_SYSTEM_PROMPT} {LANGUAGE_SYSTEM_HINT[lang]} "
-        "Output plain text only. Never output JSON, code blocks, or key-value objects. "
-        "Markdown bullet formatting is allowed. "
-        "When token facts are present, keep this format exactly: "
-        "Name, Symbol, Type; Total supply (tokens), Holders, Last activity; Sources (optional). "
-        "Preserve numeric values exactly."
+        f"{BASE_SYSTEM_PROMPT} {language_instruction} "
+        "Do not output JSON, code blocks, or raw data dumps. "
+        "If token information is provided, use it to write a helpful, natural response. "
+        "For example: 'TON Cats (CATS) is a jetton with 6.65 quadrillion tokens in circulation and 9,377 holders.' "
+        "Write complete sentences. Be conversational and informative."
     )
 
 
@@ -449,6 +526,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
     messages: List of message dicts with 'role' and 'content' (Ollama ChatMessage format)
     """
     ai_backend_url = os.getenv('AI_BACKEND_URL')
+    stream_start = time.perf_counter()
     api_key = os.getenv('API_KEY')
     if not api_key:
         raise ValueError("API_KEY environment variable must be set")
@@ -460,11 +538,11 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
     current_message_id = message_id
     key = (chat_id, message_id)
     tracked_keys = {key}
-    cancel_event = threading.Event()
+    cancel_event = asyncio.Event()
     _stream_cancel_events[key] = cancel_event
     current_task = asyncio.current_task()
     if current_task:
-        _active_stream_tasks[key] = current_task
+        _active_stream_tasks.setdefault(key, current_task)
 
     async def edit_or_fallback_send(text: str):
         nonlocal current_message_id, last_sent_text, tracked_keys
@@ -519,6 +597,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                     "X-API-Key": api_key
                 }
             ) as response:
+                log_timing("HTTP stream opened", stream_start)
                 response.raise_for_status()
                 
                 async for line in response.aiter_lines():
@@ -527,6 +606,9 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                     if line:
                         try:
                             data = json.loads(line)
+                            # Log first chunk timing once
+                            if not accumulated_text and "token" in data:
+                                log_timing("First AI chunk received", stream_start)
                             if "error" in data:
                                 error_text = f"Error: {data['error']}"
                                 await edit_or_fallback_send(error_text)
@@ -568,12 +650,20 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                     response_text = accumulated_text[:max_response_length - 3] + "..."
                 else:
                     response_text = accumulated_text
-                
+                if cancel_event.is_set():
+                    return
+                if looks_like_raw_dump(response_text):
+                    primary_system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+                    response_lang = "ru" if "Respond only in Russian" in primary_system else "en"
+                    rewritten_text = await rewrite_as_prose(response_text, response_lang)
+                    if rewritten_text:
+                        response_text = rewritten_text
                 final_text = response_text + signature
                 if cancel_event.is_set():
                     return
                 
                 await edit_or_fallback_send(final_text)
+                log_timing("Stream complete -> final edit sent", stream_start)
                 
                 # Save assistant response to conversation history (without signature for context)
                 if accumulated_text:
@@ -610,6 +700,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     
     message_text = update.message.text.strip()
+    timing_start = time.perf_counter()
+    timing_checkpoint = timing_start
     
     # Skip if message is empty or is a command
     if not message_text or message_text.startswith('/'):
@@ -648,6 +740,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     # Send initial "thinking" message
     sent_message = await update.message.reply_text(THINKING_TEXT.get(message_lang, THINKING_TEXT["en"]))
+    timing_checkpoint = log_timing("Message received -> Thinking sent", timing_start)
     _message_prompt_map[(sent_message.chat_id, sent_message.message_id)] = message_text
     _active_bot_msg_by_chat[sent_message.chat_id] = sent_message.message_id
     
@@ -660,6 +753,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         telegram_id
     ))
     _active_stream_tasks[(sent_message.chat_id, sent_message.message_id)] = stream_task
+    log_timing("Stream task created", timing_checkpoint)
 
 
 async def handle_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

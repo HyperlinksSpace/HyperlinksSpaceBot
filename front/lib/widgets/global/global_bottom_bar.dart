@@ -9,6 +9,9 @@ import '../../app/theme/app_theme.dart';
 class GlobalBottomBar extends StatefulWidget {
   const GlobalBottomBar({super.key});
 
+  /// Total height of the bottom bar in logical pixels.
+  static const double barHeight = 59.0;
+
   @override
   State<GlobalBottomBar> createState() => _GlobalBottomBarState();
 
@@ -45,10 +48,9 @@ class GlobalBottomBar extends StatefulWidget {
     return _controllerInstance?.text ?? '';
   }
 
-  // Static method to get the bottom bar height (full bar undercovered by background)
-  // Bar height: 22 top + 15 line + 22 bottom = 59px
+  /// Bottom bar height (for layout/padding so content is not overlayed).
   static double getBottomBarHeight(BuildContext? context) {
-    return 22.0 + 15.0 + 22.0; // 59px
+    return barHeight;
   }
 }
 
@@ -118,14 +120,12 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
 
   @override
   Widget build(BuildContext context) {
-    // Bar: fixed 59px height (22 top + 15 line + 22 bottom), fully undercovered by background.
-    // Text is 15px line height with 22px top/bottom padding, vertically centered in the bar.
-    const double barHeight = 59.0; // 22 + 15 line + 22
+    // Bar: fixed height (22 top + 15 line + 22 bottom), fully undercovered by background.
     return Material(
       color: Colors.transparent,
       child: Container(
         width: double.infinity,
-        height: barHeight,
+        height: GlobalBottomBar.barHeight,
         color: AppTheme.backgroundColor,
         child: Center(
           child: ConstrainedBox(
@@ -137,7 +137,7 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                 children: [
                   Expanded(
                     child: SizedBox(
-                      height: barHeight,
+                      height: GlobalBottomBar.barHeight,
                       child: Center(
                         child: _controller.text.isEmpty
                           ? TextField(

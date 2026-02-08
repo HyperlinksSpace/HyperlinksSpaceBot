@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
 import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../widgets/global/global_logo_bar.dart';
+import '../widgets/global/global_bottom_bar.dart';
 import '../widgets/common/edge_swipe_back.dart';
 import '../telegram_safe_area.dart';
 import '../app/theme/app_theme.dart';
@@ -126,6 +127,8 @@ class _AppsPageState extends State<AppsPage> {
                             ),
                           ),
                         ],
+                        // Extra scroll space so the last image can be scrolled above the bottom bar (not overlayed)
+                        SizedBox(height: 25),
                       ],
                     ),
                   ),

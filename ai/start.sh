@@ -41,7 +41,7 @@ if [ "$OLLAMA_READY" = false ]; then
 fi
 
 # Check if model exists, if not pull it in background (don't block startup)
-# Using llama3.2:3b as default - multilingual model optimized for 8GB RAM
+# Model can be set via OLLAMA_MODEL env var, defaults to llama3.2:3b
 MODEL=${OLLAMA_MODEL:-llama3.2:3b}
 echo "Checking for model: $MODEL"
 if [ -n "$OLLAMA_BIN" ] && [ -f "$OLLAMA_BIN" ]; then

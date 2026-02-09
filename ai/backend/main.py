@@ -26,7 +26,7 @@ app.add_middleware(
 
 # Ollama API URL - defaults to localhost, can be overridden with env var
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# Using llama3.2:3b as default - multilingual model optimized for 8GB RAM
+# Model can be set via OLLAMA_MODEL env var, defaults to llama3.2:3b
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 RAG_URL = os.getenv("RAG_URL")
 

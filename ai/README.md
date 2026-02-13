@@ -1,47 +1,56 @@
-# AI Chat Backend API - Railway Deployment
+# AI Backend (FastAPI)
 
-FastAPI backend for AI chat using Ollama. This is the backend-only branch for Railway deployment.
+Backend chat API used by the Telegram bot.
 
-**Ollama is installed directly in the Railway container** - no external setup needed!
-
-## Setup
-
-### Deploy to Railway
-
-1. Connect your GitHub repo to Railway
-2. Railway will auto-detect the Dockerfile and build
-3. Optional environment variables:
-   - `OLLAMA_MODEL`: Model name to use (default: "llama3.2:3b" - multilingual model optimized for 8GB RAM)
-   - `API_KEY`: Required - API key for authentication (generate using `python backend/generate_api_key.py`)
-   - `PORT`: Railway sets this automatically
-
-**Note:** 
-- Default model is `llama3.2:3b` (~2GB) - free and open-source multilingual model (Apache 2.0 license)
-- Optimized for 8GB RAM / 8 vCPU Railway services
-- Supports 100+ languages with strong multilingual capabilities
-- The first deployment will take longer as it downloads and installs Ollama and pulls the AI model (~2-3GB download)
-- Alternative models you can use:
-  - `qwen2.5:3b` - Strong multilingual support, especially for Asian languages
-  - `mistral:7b` - Higher quality but requires more RAM (may be tight on 8GB)
-  - `phi3:mini` - Efficient multilingual model
-
-### Local Development
+## Run Locally
 
 ```bash
-cd backend
+cd ai/backend
 pip install -r requirements.txt
-python main.py
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The API will run on http://localhost:8000
+## Environment Variables
 
-## API Endpoints
+Required:
 
-- `GET /` - Health check
-- `POST /api/chat` - Send message, get AI response
-  ```json
-  {
-    "message": "Hello, how are you?"
-  }
-  ```
+- `API_KEY` - shared secret expected in `X-API-Key`.
 
+Optional core wiring:
+
+- `RAG_URL` - RAG service base URL (enables `/query` + `/tokens/{symbol}` grounding).
+
+LLM provider routing:
+
+- `LLM_PROVIDER` - default: `ollama`
+- `OLLAMA_URL` - default: `http://127.0.0.1:11434`
+- `OLLAMA_MODEL` - default: `qwen2.5:1.5b`
+- `OPENAI_API_KEY` - required only when `LLM_PROVIDER=openai`
+- `OPENAI_MODEL` - default: `gpt-4o-mini`
+
+Copy/paste example:
+
+```env
+API_KEY=change-me-shared-secret
+RAG_URL=http://127.0.0.1:8001
+
+LLM_PROVIDER=ollama
+OLLAMA_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen2.5:1.5b
+
+# optional:
+# OPENAI_API_KEY=
+# OPENAI_MODEL=gpt-4o-mini
+```
+
+## Railway
+
+Recommended service root: `ai/backend`
+
+Start command:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+Set `RAG_URL` to the deployed RAG URL and set `API_KEY` to the same value used by the bot.

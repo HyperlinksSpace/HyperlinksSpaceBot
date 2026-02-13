@@ -1,17 +1,22 @@
+from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any, Union, Literal
+from typing import Optional, List, Dict, Any, Union, Literal, Tuple
 import httpx
 import os
 import json
 import re
 import time
+import asyncio
 import urllib.parse
 import logging
+from pathlib import Path
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 app = FastAPI()
 
@@ -24,13 +29,362 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Ollama API URL - defaults to localhost, can be overridden with env var
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# Model can be set via OLLAMA_MODEL env var, defaults to llama3.2:3b
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+# LLM provider routing (default = Ollama)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 RAG_URL = os.getenv("RAG_URL")
 
-# API Key for authentication - must be set in environment variables
+# ============================================================================
+# TICKER DETECTION - PRODUCTION GRADE
+# ============================================================================
+
+# Regex for candidate extraction (alphanumeric 2-10 chars)
+TICKER_RE = re.compile(r"\b[a-zA-Z0-9]{2,10}\b")
+
+# Common non-ticker words to filter out (expand as needed)
+COMMON_WORDS = {
+    "THE", "WHAT", "THIS", "THAT", "HAVE", "WITH", "FROM", "THEY", "BEEN",
+    "WERE", "SAID", "EACH", "WHICH", "THEIR", "ABOUT", "WOULD", "THESE",
+    "OTHER", "COULD", "SOME", "THAN", "THEN", "THEM", "INTO", "ALSO",
+    "YOUR", "JUST", "LIKE", "MORE", "VERY", "WHEN", "MAKE", "TIME",
+    "YEAR", "OVER", "ONLY", "SUCH", "WELL", "BACK", "GOOD", "MUCH",
+    "HTTP", "HTTPS", "WWW", "API", "URL", "COM", "ORG", "NET", "HTML",
+    "JSON", "XML", "JPEG", "PNG", "GIF", "PDF", "DOC", "TXT", "CSV",
+    "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL", "CAN", "HER",
+    "WAS", "ONE", "OUR", "OUT", "DAY", "GET", "HAS", "HIM", "HIS",
+    "HOW", "MAN", "NEW", "NOW", "OLD", "SEE", "TWO", "WAY", "WHO",
+    "BOY", "DID", "ITS", "LET", "PUT", "SAY", "SHE", "TOO", "USE",
+}
+
+# Ticker context keywords (signals this is likely about crypto/tokens)
+TICKER_CONTEXT_EN = {
+    "token", "coin", "crypto", "price", "supply", "market", "cap",
+    "contract", "address", "blockchain", "wallet", "exchange",
+    "trading", "buy", "sell", "hodl", "moon", "lambo", "dip",
+    "pump", "dump", "whale", "airdrop", "mint", "burn", "stake",
+}
+
+TICKER_CONTEXT_RU = {
+    "токен", "монета", "крипто", "цена", "саплай", "капитализация",
+    "контракт", "адрес", "блокчейн", "кошелёк", "биржа", "обмен",
+    "торговля", "купить", "продать", "холдить", "луна", "памп",
+    "дамп", "кит", "аирдроп", "минт", "сжигание", "стейкинг",
+}
+
+# Simple in-memory cache for ticker verification
+# Format: {symbol: (is_valid: bool, data: dict|None, expires_at: float)}
+_ticker_cache: Dict[str, Tuple[bool, Optional[dict], float]] = {}
+CACHE_TTL_SECONDS = 600  # 10 minutes
+
+
+def _is_cache_valid(symbol: str) -> bool:
+    """Check if cached ticker data is still valid"""
+    if symbol not in _ticker_cache:
+        return False
+    _, _, expires = _ticker_cache[symbol]
+    return time.time() < expires
+
+
+def _get_cached_ticker(symbol: str) -> Optional[Tuple[bool, Optional[dict]]]:
+    """Get cached ticker validation result"""
+    if not _is_cache_valid(symbol):
+        return None
+    is_valid, data, _ = _ticker_cache[symbol]
+    return (is_valid, data)
+
+
+def _cache_ticker(symbol: str, is_valid: bool, data: Optional[dict] = None):
+    """Cache ticker validation result"""
+    expires = time.time() + CACHE_TTL_SECONDS
+    _ticker_cache[symbol] = (is_valid, data, expires)
+
+
+def _extract_ticker_candidates(text: str) -> List[str]:
+    """
+    Extract and prioritize potential ticker symbols from text.
+    Returns ordered list: uppercase + context-near candidates first.
+    """
+    if not text:
+        return []
+    
+    # Extract all alphanumeric tokens
+    raw_tokens = TICKER_RE.findall(text)
+    if not raw_tokens:
+        return []
+    
+    text_lower = text.lower()
+    has_ticker_context = any(
+        word in text_lower 
+        for word in (TICKER_CONTEXT_EN | TICKER_CONTEXT_RU)
+    )
+    
+    candidates = []
+    seen = set()
+    
+    # Phase 1: Prioritize obvious ticker patterns
+    for token in raw_tokens:
+        symbol = token.upper()
+        
+        # Skip if already seen
+        if symbol in seen:
+            continue
+        
+        # Filter: Skip all-digit tokens
+        if symbol.isdigit():
+            continue
+        
+        # Filter: Skip common words
+        if symbol in COMMON_WORDS:
+            continue
+        
+        # Filter: Skip mostly lowercase without context
+        if token.islower() and not has_ticker_context:
+            continue
+        
+        # Filter: Skip very short tokens without uppercase or context
+        if len(symbol) < 3 and not (token.isupper() or has_ticker_context):
+            continue
+        
+        seen.add(symbol)
+        
+        # Priority scoring
+        score = 0
+        
+        # +10: Preceded by $ (strong ticker signal)
+        if f"${token}" in text or f"$ {token}" in text:
+            score += 10
+        
+        # +5: All uppercase in original text
+        if token.isupper():
+            score += 5
+        
+        # +3: Has uppercase letter(s)
+        elif any(c.isupper() for c in token):
+            score += 3
+        
+        # +2: Near ticker context words
+        if has_ticker_context:
+            score += 2
+        
+        # +1: Wrapped in punctuation (e.g., "DOGS?" or "(MCOM)")
+        if any(f"{p}{token}{q}" in text for p in "([{\"'" for q in ")]}\"'?!.,;"):
+            score += 1
+        
+        candidates.append((score, symbol))
+    
+    # Sort by score (descending), then alphabetically
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    
+    # Return top 8 candidates max (prevent RAG spam)
+    return [sym for _, sym in candidates[:8]]
+
+
+async def detect_ticker_via_rag(
+    user_text: str, 
+    rag_url: str, 
+    timeout_s: float = 2.0,
+    max_retries: int = 2,
+    retry_delay_s: float = 0.2,
+) -> Tuple[Optional[str], Optional[dict], Optional[str]]:
+    """
+    Detect and verify ticker symbol via RAG service.
+    
+    Returns:
+        (ticker_symbol, ticker_data, error_code)
+        
+        error_code can be:
+        - None: Success, valid ticker found
+        - "not_found": No valid ticker found in RAG
+        - "timeout": RAG service timeout
+        - "unavailable": RAG service error
+    """
+    candidates = _extract_ticker_candidates(user_text)
+    
+    if not candidates:
+        return None, None, "not_found"
+    
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        for symbol in candidates:
+            # Check cache first
+            cached = _get_cached_ticker(symbol)
+            if cached is not None:
+                is_valid, data = cached
+                if is_valid:
+                    return symbol, data, None
+                continue  # Try next candidate if this one is cached as invalid
+            
+            # Verify via RAG
+            last_transport_error = None
+            r = None
+            for attempt in range(max_retries + 1):
+                try:
+                    r = await client.get(f"{rag_url.rstrip('/')}/tokens/{symbol}")
+                    last_transport_error = None
+                    break
+                except (httpx.TimeoutException, httpx.RequestError) as e:
+                    last_transport_error = e
+                    if attempt < max_retries:
+                        await asyncio.sleep(retry_delay_s)
+                        continue
+                    r = None
+                    break
+
+            if r is None:
+                if isinstance(last_transport_error, httpx.TimeoutException):
+                    return None, None, "timeout"
+                return None, None, "unavailable"
+            
+            try:
+                
+                # 404 = not a valid ticker, cache and continue
+                if r.status_code == 404:
+                    _cache_ticker(symbol, False)
+                    continue
+                
+                # 5xx = upstream issue, do not mark ticker invalid
+                if r.status_code >= 500:
+                    logger.warning(f"RAG upstream error for {symbol}: status={r.status_code}")
+                    return None, None, "unavailable"
+                
+                # Success
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                        
+                        # Validate response structure
+                        if not isinstance(data, dict):
+                            logger.warning(f"RAG returned non-dict payload for {symbol}")
+                            return None, None, "unavailable"
+                        
+                        # Check for error field
+                        if data.get("error"):
+                            # Do not negative-cache generic upstream errors
+                            err_text = str(data.get("error", "")).lower()
+                            if "not found" in err_text or "ticker not found" in err_text:
+                                _cache_ticker(symbol, False)
+                            continue
+                        
+                        # Valid ticker found - cache and return
+                        _cache_ticker(symbol, True, data)
+                        return symbol, data, None
+                    
+                    except (json.JSONDecodeError, ValueError):
+                        # Malformed response from upstream - do not mark ticker invalid
+                        logger.warning(f"RAG returned malformed JSON for {symbol}")
+                        return None, None, "unavailable"
+                
+                # Other non-200 codes: try next candidate, no negative cache.
+                
+            except Exception as e:
+                # Other errors - log and continue to next candidate
+                logger.warning(f"RAG verification failed for {symbol}: {e}")
+                continue
+    
+    # No valid ticker found in any candidate
+    return None, None, "not_found"
+
+
+def _detect_language(text: str) -> str:
+    """Detect if text is primarily Russian or English"""
+    if not text:
+        return "en"
+    
+    # Count Cyrillic characters
+    cyrillic_count = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
+    total_alpha = sum(1 for c in text if c.isalpha())
+    
+    if total_alpha == 0:
+        return "en"
+    
+    # If >30% Cyrillic, consider it Russian
+    return "ru" if (cyrillic_count / total_alpha) > 0.3 else "en"
+
+
+def _to_int(value: Any) -> Optional[int]:
+    """Best-effort conversion of ticker numeric fields to int."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        cleaned = re.sub(r"[,_\s]", "", value.strip())
+        if cleaned.isdigit():
+            return int(cleaned)
+    return None
+
+
+def _format_int_with_commas(value: Optional[int]) -> Optional[str]:
+    if value is None:
+        return None
+    return f"{value:,}"
+
+
+def _format_compact_number(value: Optional[int]) -> Optional[str]:
+    """Compact formatter like 545.2T for very large values."""
+    if value is None:
+        return None
+    scales = [
+        (10**15, "Q"),
+        (10**12, "T"),
+        (10**9, "B"),
+        (10**6, "M"),
+        (10**3, "K"),
+    ]
+    for threshold, suffix in scales:
+        if value >= threshold:
+            return f"{value / threshold:.1f}{suffix}"
+    return str(value)
+
+
+def _user_asked_for_source(text: str) -> bool:
+    if not text:
+        return False
+    text_lower = text.lower()
+    source_words = {
+        "source", "data source", "where from", "reference",
+        "источник", "откуда данные", "откуда инфа", "ссылка",
+    }
+    return any(word in text_lower for word in source_words)
+
+
+def _is_ticker_context_strong(text: str) -> bool:
+    """
+    Check if message has strong ticker/crypto context signals.
+    This helps distinguish:
+    - "DOGS token price" (strong) vs "I love dogs" (weak)
+    - "что такое DOGS токен" (strong) vs "что такое dogs" (weak)
+    """
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    
+    # Strong signals
+    if "$" in text:
+        return True
+    
+    # Uppercase ticker-like token is also a strong signal (e.g., "что такое DOGS")
+    if re.search(r"\b[A-Z0-9]{3,10}\b", text):
+        return True
+    
+    # Check for crypto context words
+    has_en_context = any(word in text_lower for word in TICKER_CONTEXT_EN)
+    has_ru_context = any(word in text_lower for word in TICKER_CONTEXT_RU)
+    
+    return has_en_context or has_ru_context
+
+
+# ============================================================================
+# API KEY VERIFICATION
+# ============================================================================
+
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     raise ValueError("API_KEY environment variable must be set for API security")
@@ -52,6 +406,10 @@ def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
         )
     return x_api_key
 
+
+# ============================================================================
+# PYDANTIC MODELS
+# ============================================================================
 
 class ChatMessage(BaseModel):
     """Individual chat message following Ollama ChatMessage format"""
@@ -76,7 +434,7 @@ class ModelOptions(BaseModel):
 
 class ChatRequest(BaseModel):
     """Chat request following Ollama API spec"""
-    model: Optional[str] = Field(default=None, description="Model name (uses OLLAMA_MODEL env var if not provided)")
+    model: Optional[str] = Field(default=None, description="Model name (uses provider default env var if not provided)")
     messages: List[ChatMessage] = Field(..., description="Chat history as an array of message objects")
     tools: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional list of function tools the model may call")
     format: Optional[Union[str, Dict[str, Any]]] = Field(default=None, description="Format to return a response in. Can be 'json' or a JSON schema")
@@ -87,6 +445,10 @@ class ChatRequest(BaseModel):
     logprobs: Optional[bool] = Field(default=None, description="Whether to return log probabilities of the output tokens")
     top_logprobs: Optional[int] = Field(default=None, description="Number of most likely tokens to return at each token position when logprobs are enabled")
 
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
 
 @app.get("/")
 async def root():
@@ -102,8 +464,12 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     if not request.messages or len(request.messages) == 0:
         raise HTTPException(status_code=400, detail="Messages array cannot be empty")
     
-    # Use provided model or fall back to environment variable default
-    model = request.model or OLLAMA_MODEL
+    provider = LLM_PROVIDER
+    if provider == "openai":
+        model = request.model or OPENAI_MODEL
+    else:
+        provider = "ollama"
+        model = request.model or OLLAMA_MODEL
 
     def stream_text_response(text: str):
         async def _gen():
@@ -111,128 +477,149 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 yield json.dumps({"token": text, "done": False}) + "\n"
             yield json.dumps({"response": text, "done": True}) + "\n"
         return StreamingResponse(_gen(), media_type="application/x-ndjson")
-
-    def sanitize_url(url: str) -> str:
-        try:
-            parsed = urllib.parse.urlsplit(url)
-            netloc = parsed.hostname or ""
-            if parsed.port:
-                netloc = f"{netloc}:{parsed.port}"
-            return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
-        except Exception:
-            return url
     
-    # Optional RAG grounding (only if RAG_URL is set)
+    # ========================================================================
+    # TICKER DETECTION + RAG GROUNDING
+    # ========================================================================
+    
     rag_context = None
     rag_sources = None
-    token_facts = None
     ticker_mode = False
     ticker_symbol = None
-    ticker_error_response = None
-
+    ticker_data = None
+    
+    # Get last user message
     user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
-    if user_last:
-        stripped = user_last.strip()
-        if re.fullmatch(r"\$?[A-Z]{2,10}", stripped):
+    
+    # Detect language for response formatting
+    user_lang = _detect_language(user_last)
+    
+    # STEP 1: Try ticker detection if RAG is available
+    if RAG_URL and user_last:
+        ticker_symbol, ticker_data, error_code = await detect_ticker_via_rag(
+            user_last, 
+            RAG_URL, 
+            timeout_s=5.0
+        )
+        
+        if ticker_symbol and ticker_data:
+            # Valid ticker found - enter ticker mode
             ticker_mode = True
-            ticker_symbol = stripped.lstrip("$").upper()
-
-    if RAG_URL:
+            logger.info(f"Ticker mode activated: {ticker_symbol}")
+        
+        elif error_code == "timeout":
+            # RAG timeout - return helpful error
+            msg = (
+                "Не могу проверить тикер — сервис перегружен. Попробуй через минуту."
+                if user_lang == "ru"
+                else "Cannot verify ticker right now — service timeout. Try again in a minute."
+            )
+            return stream_text_response(msg)
+        
+        elif error_code == "not_found" and _is_ticker_context_strong(user_last):
+            # Strong ticker context but no verified ticker found
+            # This is "soft fail" - only trigger if context is strong
+            msg = (
+                "Не нашёл подтверждённых данных по этому тикеру. "
+                "Пришли точный символ (латиницей) или адрес контракта."
+                if user_lang == "ru"
+                else "I couldn't find verified data for that ticker. "
+                "Please send the exact symbol (Latin letters) or contract address."
+            )
+            return stream_text_response(msg)
+        
+        # If error_code == "not_found" but context is NOT strong,
+        # fall through to normal LLM answer (user might be asking about something else)
+    
+    # STEP 2: Try general RAG query if not in ticker mode
+    if RAG_URL and not ticker_mode and user_last:
         try:
-            if user_last:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    if ticker_mode and ticker_symbol:
-                        try:
-                            request_url = f"{RAG_URL}/tokens/{ticker_symbol}"
-                            start = time.monotonic()
-                            r = await client.get(request_url, timeout=3.0)
-                            elapsed_ms = int((time.monotonic() - start) * 1000)
-                            status_code = r.status_code
-                            response_text = r.text[:200]
-                            rag_url_s = sanitize_url(RAG_URL)
-                            if status_code != 200:
-                                print(f"[ticker] non_200 symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
-                                ticker_error_response = "provider_unavailable"
-                                raise RuntimeError("non_200")
-
-                            data = None
-                            try:
-                                data = r.json()
-                            except Exception as e:
-                                print(f"[ticker] parse_error symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} error={type(e).__name__}:{e} response_snippet={response_text}")
-                                ticker_error_response = "provider_unavailable"
-
-                            if isinstance(data, dict):
-                                token = data
-                                # HARD GUARD
-                                if not isinstance(token, dict):
-                                    raise ValueError("Invalid token payload")
-                                # SAFE NORMALIZATION
-                                symbol = token.get("symbol") or ticker_symbol
-                                name = token.get("name") or "Unknown token"
-                                address = token.get("address")
-                                description = token.get("description", "")
-                                sources = token.get("sources", [])
-
-                                logger.info("ticker_payload keys=%s", list(token.keys()))
-
-                                if data.get("error") == "not_found":
-                                    print(f"[ticker] not_found symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
-                                    ticker_error_response = "not_found"
-                                elif data.get("error"):
-                                    print(f"[ticker] unavailable symbol={ticker_symbol} rag_url={rag_url_s} url={request_url} status={status_code} elapsed_ms={elapsed_ms} response_snippet={response_text}")
-                                    ticker_error_response = "provider_unavailable"
-                                else:
-                                    token_facts = {
-                                        "symbol": symbol,
-                                        "name": name,
-                                        "address": address,
-                                        "description": description,
-                                        "sources": sources,
-                                    }
-                        except Exception as e:
-                            print(f"[ticker] exception symbol={ticker_symbol} rag_url={sanitize_url(RAG_URL)} error={type(e).__name__}:{e}")
-                            ticker_error_response = "provider_unavailable"
-                    else:
-                        r = await client.post(f"{RAG_URL}/query", json={"query": user_last, "top_k": 5})
-                        if r.status_code == 200:
-                            data = r.json()
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                rag_start = time.perf_counter()
+                encoded_query = urllib.parse.quote(user_last)
+                r = await client.get(f"{RAG_URL.rstrip('/')}/query?q={encoded_query}")
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                        if isinstance(data, dict):
                             rag_context = data.get("context", [])
                             rag_sources = data.get("sources", [])
+                    except:
+                        pass
+                rag_elapsed_ms = int((time.perf_counter() - rag_start) * 1000)
+                logger.info(f"RAG query: {rag_elapsed_ms}ms, status={r.status_code}")
         except:
             pass
     
-    # Convert ChatMessage objects to dicts for Ollama API
-    # According to Ollama API spec, messages must have role and content (both required)
+    # ========================================================================
+    # BUILD MESSAGES FOR OLLAMA
+    # ========================================================================
+    
     messages_dict = []
-    if ticker_mode:
-        if not token_facts:
-            if ticker_error_response == "not_found":
-                return stream_text_response(f"I don't have verified data for ${ticker_symbol} yet.")
-            return stream_text_response("Token provider unavailable, try again.")
-        reference_facts = (
-            "[REFERENCE FACTS - DO NOT COPY VERBATIM]\n"
-            f"Name: {token_facts.get('name') or 'unknown'}\n"
-            f"Symbol: {token_facts.get('symbol') or ticker_symbol}\n"
-            f"Total supply: {token_facts.get('total_supply') or token_facts.get('supply') or 'unknown'}\n"
-            f"Holders: {token_facts.get('holders') or token_facts.get('holder_count') or 'unknown'}\n"
-            f"Last activity: {token_facts.get('last_activity') or token_facts.get('updated_at') or 'unknown'}\n"
-            f"Sources: {token_facts.get('sources')}\n"
-            "[/REFERENCE FACTS]"
-        )
+    
+    if ticker_mode and ticker_data:
+        # Ticker mode: inject verified facts with strict formatting rules
+
+        include_source = _user_asked_for_source(user_last)
+
+        # Extract and format facts
+        total_supply_raw = _to_int(ticker_data.get("total_supply"))
+        holders_raw = _to_int(ticker_data.get("holders"))
+        tx_24h_raw = _to_int(ticker_data.get("tx_24h"))
+
+        facts = {
+            "symbol": ticker_data.get("symbol") or ticker_symbol,
+            "name": ticker_data.get("name") or "Unknown",
+            "type": ticker_data.get("type") or "Unknown",
+            "total_supply": ticker_data.get("total_supply"),
+            "total_supply_formatted": _format_int_with_commas(total_supply_raw),
+            "total_supply_compact": _format_compact_number(total_supply_raw),
+            "holders": ticker_data.get("holders"),
+            "holders_formatted": _format_int_with_commas(holders_raw),
+            "tx_24h": ticker_data.get("tx_24h"),
+            "tx_24h_formatted": _format_int_with_commas(tx_24h_raw),
+            "decimals": ticker_data.get("decimals"),
+        }
+
+        if include_source:
+            facts["source"] = ticker_data.get("source", "tokens.swap.coffee")
+
+        # Remove None values
+        facts = {k: v for k, v in facts.items() if v is not None}
+
+        lang_lock = "Russian" if user_lang == "ru" else "English"
+
+        # Strict instruction prompt
         ticker_prompt = (
-            "You are a token information assistant.\n"
-            "Use ONLY the reference facts below.\n"
-            "Explain the token briefly in 1-4 natural sentences.\n"
-            "Do not output raw lists, JSON, or field dumps.\n"
-            "Do not invent blockchain, dates, listings, token sales, team, or roadmap.\n"
-            "If a fact is missing, say it is not available.\n"
-            "Do not provide investment advice or price predictions.\n\n"
-            f"{reference_facts}\n\n"
-            "User task: Explain this token briefly."
+            f"Reply ONLY in {lang_lock}.\n"
+            "Reply in the same language as the user's latest message (detect RU/EN from that message).\n"
+            "Use ONLY the facts provided in <REFERENCE_FACTS> below.\n"
+            "Use a detailed style in 3-5 natural sentences.\n"
+            "When available, include: total supply, holders count, and 24h transactions.\n"
+            "If one of those fields is missing, say that specific metric is not available.\n"
+            "For numeric values, prefer human-friendly formatting (e.g., commas: 545,217,356,060,904,508,815).\n"
+            "If both raw and formatted values exist, prefer the formatted values in your answer.\n"
+            "DO NOT output <REFERENCE_FACTS> tags, JSON structure, field names, or labels.\n"
+            "DO NOT quote or copy the XML/JSON structure.\n"
+            "If you are about to output '<REFERENCE_FACTS>' or any tag, STOP and rewrite in plain language.\n"
+            "Do not mention the data source unless the user explicitly asked for it.\n"
+            "In Russian, avoid awkward declensions after huge numbers; use neutral phrasing like 'Общий выпуск: ...'.\n"
+            "If a fact is missing or null, say it's 'unknown' or 'not available' — do not invent data.\n"
+            "Example good answer: 'DOGS is a token on TON with 100M supply and 50K holders. It has been active with 1,200 transactions today.'\n"
+            "Example bad answer: 'TICKER_FACTS\\nType: Token\\nSupply: 100M'"
         )
+        
+        reference_facts = (
+            "<REFERENCE_FACTS>\n"
+            + json.dumps(facts, ensure_ascii=False, indent=2)
+            + "\n</REFERENCE_FACTS>"
+        )
+        
         messages_dict.append({"role": "system", "content": ticker_prompt})
-    if rag_context:
+        messages_dict.append({"role": "system", "content": reference_facts})
+    
+    elif rag_context:
+        # General RAG mode: inject context for broader queries
         context_block = "\n\n---\n\n".join(rag_context)
         sys_msg = (
             "You are an AI assistant for TON/token analysis.\n"
@@ -241,6 +628,8 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
             f"CONTEXT:\n{context_block}"
         )
         messages_dict.append({"role": "system", "content": sys_msg})
+    
+    # Add user messages
     for msg in request.messages:
         msg_dict = {
             "role": msg.role,
@@ -253,31 +642,35 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
             msg_dict["tool_calls"] = msg.tool_calls
         messages_dict.append(msg_dict)
     
-    # Build request body for Ollama API
+    # ========================================================================
+    # BUILD PROVIDER REQUEST
+    # ========================================================================
+
+    if request.options:
+        # Convert ModelOptions to dict, excluding None values
+        options_dict = request.options.model_dump(exclude_none=True)
+    else:
+        # Default options for backward compatibility with existing clients
+        options_dict = {
+            "num_ctx": 2048,
+            "num_predict": 256,
+            "temperature": 0.3,
+            "top_p": 0.9,
+            "repeat_penalty": 1.1,
+            "num_thread": 2,
+        }
+
     ollama_request = {
         "model": model,
         "messages": messages_dict,
         "stream": request.stream,
     }
-    
-    # Add optional fields if present
     if request.tools:
         ollama_request["tools"] = request.tools
     if request.format:
         ollama_request["format"] = request.format
-    # Handle options - use provided options or defaults for backward compatibility
-    if request.options:
-        # Convert ModelOptions to dict, excluding None values
-        options_dict = request.options.model_dump(exclude_none=True)
-        if options_dict:
-            ollama_request["options"] = options_dict
-    else:
-        # Default options for backward compatibility with existing clients
-        ollama_request["options"] = {
-            "num_predict": 1000,
-            "temperature": 0.7,
-            "num_thread": 2,
-        }
+    if options_dict:
+        ollama_request["options"] = options_dict
     if request.think is not None:
         ollama_request["think"] = request.think
     if request.keep_alive is not None:
@@ -286,59 +679,196 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         ollama_request["logprobs"] = request.logprobs
     if request.top_logprobs is not None:
         ollama_request["top_logprobs"] = request.top_logprobs
-    
-    async def generate_response():
-        try:
-            # Call Ollama /api/chat endpoint with messages array (according to API spec)
-            async with httpx.AsyncClient(timeout=60.0) as client:
+
+    # OpenAI request uses the same chat history, but only role/content fields.
+    openai_messages = [
+        {
+            "role": msg["role"],
+            "content": msg.get("content", ""),
+        }
+        for msg in messages_dict
+    ]
+    openai_request = {
+        "model": model,
+        "messages": openai_messages,
+        "stream": request.stream,
+    }
+    # Map compatible sampling options when present.
+    if options_dict.get("temperature") is not None:
+        openai_request["temperature"] = options_dict["temperature"]
+    if options_dict.get("top_p") is not None:
+        openai_request["top_p"] = options_dict["top_p"]
+    if options_dict.get("num_predict") is not None:
+        openai_request["max_tokens"] = options_dict["num_predict"]
+
+    # ========================================================================
+    # STREAM RESPONSE FROM LLM PROVIDER
+    # ========================================================================
+
+    async def generate_ollama_response():
+        inference_start = time.perf_counter()
+        first_token_logged = False
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                f"{OLLAMA_URL}/api/chat",
+                json=ollama_request
+            ) as response:
+                stream_open_ms = int((time.perf_counter() - inference_start) * 1000)
+                logger.info(f"Ollama stream opened: {stream_open_ms}ms, model={model}")
+
+                if response.status_code != 200:
+                    error_detail = "Unknown error"
+                    try:
+                        error_text = await response.aread()
+                        error_data = json.loads(error_text)
+                        error_detail = error_data.get("error", str(error_text))
+                    except Exception:
+                        error_detail = str(response.status_code)
+
+                    yield json.dumps({"error": f"Ollama error: {error_detail}"}) + "\n"
+                    return
+
+                full_response = ""
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+
+                        # Ollama /api/chat streaming format
+                        if "message" in data and isinstance(data["message"], dict):
+                            content = data["message"].get("content", "")
+                            if content:
+                                if not first_token_logged:
+                                    ttft_ms = int((time.perf_counter() - inference_start) * 1000)
+                                    logger.info(f"First token: {ttft_ms}ms, model={model}")
+                                    first_token_logged = True
+
+                                full_response += content
+                                yield json.dumps({"token": content, "done": data.get("done", False)}) + "\n"
+
+                        if data.get("done", False):
+                            total_ms = int((time.perf_counter() - inference_start) * 1000)
+                            logger.info(f"Total time: {total_ms}ms, model={model}")
+                            yield json.dumps({"response": full_response, "done": True}) + "\n"
+                            break
+
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse JSON line: {line[:100]}")
+                        continue
+
+    async def generate_openai_response():
+        if not OPENAI_API_KEY:
+            yield json.dumps({"error": "OPENAI_API_KEY is required when LLM_PROVIDER=openai"}) + "\n"
+            return
+
+        inference_start = time.perf_counter()
+        first_token_logged = False
+        full_response = ""
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            if request.stream:
                 async with client.stream(
                     "POST",
-                    f"{OLLAMA_URL}/api/chat",
-                    json=ollama_request
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=openai_request,
                 ) as response:
+                    stream_open_ms = int((time.perf_counter() - inference_start) * 1000)
+                    logger.info(f"OpenAI stream opened: {stream_open_ms}ms, model={model}")
+
                     if response.status_code != 200:
-                        error_detail = "Unknown error"
+                        error_detail = str(response.status_code)
                         try:
-                            error_text = await response.aread()
-                            error_data = json.loads(error_text)
-                            error_detail = error_data.get("error", str(error_text))
-                        except:
-                            error_detail = str(response.status_code)
-                        
-                        yield json.dumps({"error": f"Ollama error: {error_detail}"}) + "\n"
+                            payload = await response.aread()
+                            error_data = json.loads(payload)
+                            if isinstance(error_data, dict):
+                                error_obj = error_data.get("error", {})
+                                error_detail = error_obj.get("message", error_detail)
+                        except Exception:
+                            pass
+                        yield json.dumps({"error": f"OpenAI error: {error_detail}"}) + "\n"
                         return
-                    
-                    full_response = ""
+
                     async for line in response.aiter_lines():
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                
-                                # Ollama /api/chat streaming format: message.content contains partial text
-                                # According to ChatStreamEvent spec: message.content is "Partial assistant message text"
-                                if "message" in data and isinstance(data["message"], dict):
-                                    content = data["message"].get("content", "")
-                                    if content:
-                                        full_response += content
-                                        # Send each content chunk as it arrives
-                                        yield json.dumps({"token": content, "done": data.get("done", False)}) + "\n"
-                                
-                                # Check if stream is done
-                                if data.get("done", False):
-                                    # Send final complete response
-                                    yield json.dumps({"response": full_response, "done": True}) + "\n"
-                                    break
-                            except json.JSONDecodeError as e:
-                                print(f"Warning: Failed to parse JSON line: {line[:100]}")
-                                continue
-        
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = data.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            if not first_token_logged:
+                                ttft_ms = int((time.perf_counter() - inference_start) * 1000)
+                                logger.info(f"First token: {ttft_ms}ms, model={model}")
+                                first_token_logged = True
+                            full_response += content
+                            yield json.dumps({"token": content, "done": False}) + "\n"
+
+                    total_ms = int((time.perf_counter() - inference_start) * 1000)
+                    logger.info(f"Total time: {total_ms}ms, model={model}")
+                    yield json.dumps({"response": full_response, "done": True}) + "\n"
+                    return
+
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=openai_request,
+            )
+            if response.status_code != 200:
+                error_detail = str(response.status_code)
+                try:
+                    error_data = response.json()
+                    if isinstance(error_data, dict):
+                        error_obj = error_data.get("error", {})
+                        error_detail = error_obj.get("message", error_detail)
+                except Exception:
+                    pass
+                yield json.dumps({"error": f"OpenAI error: {error_detail}"}) + "\n"
+                return
+
+            data = response.json()
+            choices = data.get("choices") or []
+            if choices:
+                message = choices[0].get("message") or {}
+                full_response = message.get("content", "") or ""
+            yield json.dumps({"token": full_response, "done": False}) + "\n"
+            yield json.dumps({"response": full_response, "done": True}) + "\n"
+
+    async def generate_response():
+        try:
+            if provider == "openai":
+                async for chunk in generate_openai_response():
+                    yield chunk
+                return
+            async for chunk in generate_ollama_response():
+                yield chunk
         except httpx.TimeoutException:
             yield json.dumps({"error": "Request timeout - AI model took too long to respond"}) + "\n"
         except httpx.RequestError as e:
-            yield json.dumps({"error": f"Cannot connect to Ollama at {OLLAMA_URL}. Error: {str(e)}"}) + "\n"
+            if provider == "openai":
+                yield json.dumps({"error": f"Cannot connect to OpenAI API. Error: {str(e)}"}) + "\n"
+            else:
+                yield json.dumps({"error": f"Cannot connect to Ollama at {OLLAMA_URL}. Error: {str(e)}"}) + "\n"
         except Exception as e:
+            logger.exception("Unexpected error in generate_response")
             yield json.dumps({"error": f"Internal server error: {str(e)}"}) + "\n"
-    
+
     return StreamingResponse(generate_response(), media_type="application/x-ndjson")
 
 
@@ -346,4 +876,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-

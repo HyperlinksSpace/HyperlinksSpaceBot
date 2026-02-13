@@ -1,7 +1,6 @@
 import os
 import asyncio
 import json
-import re
 import time
 import importlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -21,6 +20,7 @@ except ModuleNotFoundError:
 
 # Database connection pool
 _db_pool = None
+_db_disabled_notice_printed = False
 _message_prompt_map = {}
 _stream_cancel_events: dict[tuple[int, int], asyncio.Event] = {}
 _active_bot_msg_by_chat: dict[int, int] = {}
@@ -78,26 +78,6 @@ async def cancel_stream(chat_id: int, message_id: int) -> None:
     log_timing(f"Cancel stream (signal-only) {message_id}", cancel_start)
 
 
-def _safe_int_like(value):
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return value
-
-
-def sanitize_fact_value(value):
-    if value is None:
-        return "unknown"
-    if isinstance(value, (int, float)):
-        return str(value)
-    text = str(value).strip()
-    text = text.replace("{", "").replace("}", "").replace("[", "").replace("]", "")
-    text = text.replace('"', "").replace("`", "")
-    return text if text else "unknown"
-
-
 def build_regen_system_prompt(lang: str) -> str:
     if lang == "ru":
         return (
@@ -117,91 +97,6 @@ def build_regen_system_prompt(lang: str) -> str:
         "Use provided facts to write 1-4 natural sentences.\n"
         "Do not invent blockchain, dates, listings, token sales, team, or roadmap.\n"
         "If missing, say data is not available.\n"
-    )
-
-
-RAW_DUMP_PATTERNS = [
-    re.compile(r"tokens\.swap\.coffee", re.I),
-    re.compile(r";\s*[^;\n]+;\s*[^;\n]+;"),
-]
-
-
-def looks_like_raw_dump(text: str) -> bool:
-    if not text:
-        return False
-    one_line = max(text.splitlines(), key=len, default="")
-    if one_line.count(";") >= 3:
-        return True
-    return any(pattern.search(text) for pattern in RAW_DUMP_PATTERNS)
-
-
-def normalize_ru_terms(text: str) -> str:
-    replacements = {
-        " circulation ": " в обращении ",
-        " holders ": " владельцев ",
-        " tokens ": " токенов ",
-        " holder ": " владелец ",
-        " token ": " токен ",
-        " decentralized ": " децентрализованный ",
-        " community ": " сообщество ",
-    }
-    normalized = f" {text} "
-    for src, dst in replacements.items():
-        normalized = normalized.replace(src, dst)
-    return normalized.strip()
-
-
-async def rewrite_as_prose(text: str, lang: str) -> str | None:
-    ai_backend_url = os.getenv('AI_BACKEND_URL')
-    api_key = os.getenv('API_KEY')
-    if not ai_backend_url or not api_key:
-        return None
-
-    if lang == "ru":
-        user_prompt = f"Перепиши это в нормальный связный текст:\n\n{text}"
-        extra_instruction = "Ты получил сырой блок данных. Перепиши его в прозе."
-    else:
-        user_prompt = f"Rewrite this as natural prose:\n\n{text}"
-        extra_instruction = "You received a raw data block. Rewrite it as prose."
-
-    payload = {
-        "stream": False,
-        "messages": [
-            {"role": "system", "content": f"{build_regen_system_prompt(lang)} {extra_instruction}"},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                f"{ai_backend_url}/api/chat",
-                json=payload,
-                headers={"Content-Type": "application/json", "X-API-Key": api_key},
-            )
-            r.raise_for_status()
-            try:
-                data = r.json()
-            except ValueError:
-                lines = [line.strip() for line in r.text.splitlines() if line.strip()]
-                if not lines:
-                    return None
-                data = json.loads(lines[-1])
-            if isinstance(data, dict):
-                response_text = (
-                    (data.get("response") or "").strip()
-                    or (data.get("message", {}) or {}).get("content", "").strip()
-                )
-                return response_text or None
-    except Exception as e:
-        print(f"Rewrite failed: {e}")
-    return None
-    return (
-        f"{BASE_SYSTEM_PROMPT} {language_instruction} "
-        "Do not output JSON, code blocks, or raw data dumps. "
-        "If token information is provided, use it to write a helpful, natural response. "
-        "For example: 'TON Cats (CATS) is a jetton with 6.65 quadrillion tokens in circulation and 9,377 holders.' "
-        "Write complete sentences. Be conversational and informative."
     )
 
 
@@ -236,23 +131,6 @@ def detect_language_from_text(text: str, default: str = "en") -> str:
     return default
 
 
-def is_ticker_like_message(text: str) -> bool:
-    value = (text or "").strip()
-    if not value:
-        return False
-    lowered = value.lower()
-    if "ticker" in lowered:
-        return True
-    if value.startswith("$") and len(value) <= 15:
-        return True
-    compact = re.sub(r"\s+", " ", value)
-    if re.fullmatch(r"[A-Za-z0-9]{2,10}", compact):
-        return True
-    if re.fullmatch(r"(price|chart|info)\s+[A-Za-z0-9]{2,10}", lowered):
-        return True
-    return False
-
-
 def get_last_user_message_from_history(history: list) -> str | None:
     for item in reversed(history):
         if item.get("role") == "user":
@@ -262,117 +140,16 @@ def get_last_user_message_from_history(history: list) -> str | None:
     return None
 
 
-def format_token_facts_block(text: str) -> str | None:
-    """Convert raw token JSON text into a compact human-readable facts block."""
-    if not text:
-        return None
-
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-
-    if isinstance(payload, dict) and isinstance(payload.get("token"), dict):
-        payload = payload["token"]
-
-    if not isinstance(payload, dict):
-        return None
-
-    name = sanitize_fact_value(payload.get("name"))
-    symbol = sanitize_fact_value(payload.get("symbol"))
-    token_type = sanitize_fact_value(payload.get("type") or payload.get("token_type"))
-    total_supply = (
-        payload.get("total_supply")
-        or payload.get("supply")
-        or payload.get("totalSupply")
-    )
-    holders = payload.get("holders") or payload.get("holder_count") or payload.get("holders_count")
-    last_activity = (
-        payload.get("last_activity")
-        or payload.get("lastActivity")
-        or payload.get("updated_at")
-        or payload.get("updatedAt")
-    )
-    sources = payload.get("sources")
-
-    lines = [
-        f"Name: {name}",
-        f"Symbol: {symbol}",
-        f"Type: {token_type}",
-        "",
-        f"Total supply (tokens): {sanitize_fact_value(_safe_int_like(total_supply))}",
-        f"Holders: {sanitize_fact_value(_safe_int_like(holders))}",
-        f"Last activity: {sanitize_fact_value(last_activity)}",
-    ]
-
-    if isinstance(sources, list) and sources:
-        source_text = ", ".join(sanitize_fact_value(item) for item in sources[:3])
-        lines.extend(["", f"Sources: {source_text}"])
-    elif isinstance(sources, str) and sources.strip():
-        lines.extend(["", f"Sources: {sanitize_fact_value(sources)}"])
-
-    return "\n".join(lines)
-
-
-def looks_like_json(text: str) -> bool:
-    value = text.strip()
-    return (value.startswith("{") and value.endswith("}")) or (value.startswith("[") and value.endswith("]"))
-
-
-def extract_fact_from_loose_text(text: str, keys: list[str]) -> str:
-    if not text:
-        return "unknown"
-    lower_text = text.lower()
-    for key in keys:
-        idx = lower_text.find(key.lower())
-        if idx == -1:
-            continue
-        suffix = text[idx + len(key):]
-        if ":" in suffix[:3]:
-            suffix = suffix[suffix.find(":") + 1:]
-        elif "=" in suffix[:3]:
-            suffix = suffix[suffix.find("=") + 1:]
-        value = suffix.strip().splitlines()[0][:120]
-        value = value.split(",")[0].strip()
-        cleaned = sanitize_fact_value(value)
-        if cleaned and cleaned != "unknown":
-            return cleaned
-    return "unknown"
-
-
-def format_token_facts_block_from_loose_text(text: str) -> str | None:
-    if not looks_like_json(text):
-        return None
-
-    name = extract_fact_from_loose_text(text, ["name"])
-    symbol = extract_fact_from_loose_text(text, ["symbol", "ticker"])
-    token_type = extract_fact_from_loose_text(text, ["type", "token_type"])
-    total_supply = extract_fact_from_loose_text(text, ["total_supply", "totalSupply", "supply"])
-    holders = extract_fact_from_loose_text(text, ["holders", "holder_count", "holders_count"])
-    last_activity = extract_fact_from_loose_text(text, ["last_activity", "lastActivity", "updated_at", "updatedAt"])
-    sources = extract_fact_from_loose_text(text, ["sources", "source"])
-
-    lines = [
-        f"Name: {name}",
-        f"Symbol: {symbol}",
-        f"Type: {token_type}",
-        "",
-        f"Total supply (tokens): {total_supply}",
-        f"Holders: {holders}",
-        f"Last activity: {last_activity}",
-    ]
-    if sources != "unknown":
-        lines.extend(["", f"Sources: {sources}"])
-    return "\n".join(lines)
-
-
 async def get_db_pool():
     """Get or create database connection pool"""
-    global _db_pool
+    global _db_pool, _db_disabled_notice_printed
     if _db_pool is None:
         database_url = os.getenv('DATABASE_URL')
         if not database_url:
-            raise ValueError("DATABASE_URL environment variable is not set")
+            if not _db_disabled_notice_printed:
+                print("Database disabled: DATABASE_URL is not set (history/user persistence off).")
+                _db_disabled_notice_printed = True
+            return None
         
         # For local development on Windows, handle SSL certificate issues
         # In production (Railway), SSL will work fine
@@ -406,6 +183,8 @@ async def get_db_pool():
 async def init_db():
     """Initialize database - create users and messages tables if they don't exist"""
     pool = await get_db_pool()
+    if pool is None:
+        return False
     async with pool.acquire() as conn:
         # Create users table
         await conn.execute("""
@@ -447,12 +226,15 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(telegram_id, created_at ASC)
         """)
         print("Database initialized: users and messages tables created/verified")
+    return True
 
 
 async def save_user_async(update: Update):
     """Save or update user in database asynchronously (non-blocking)"""
     try:
         pool = await get_db_pool()
+        if pool is None:
+            return
         user = update.effective_user
         
         async with pool.acquire() as conn:
@@ -488,6 +270,8 @@ async def save_message(telegram_id: int, role: str, content: str):
     """
     try:
         pool = await get_db_pool()
+        if pool is None:
+            return
         async with pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO messages (telegram_id, role, content)
@@ -501,10 +285,12 @@ async def get_conversation_history(telegram_id: int, limit: int = 5) -> list:
     """
     Retrieve conversation history for a specific user (separated by telegram_id)
     Each user's conversation is stored and fetched independently
-    Returns list of dicts with 'role' and 'content' keys matching Ollama ChatMessage format
+    Returns list of dicts with 'role' and 'content' keys matching AI backend ChatMessage format
     """
     try:
         pool = await get_db_pool()
+        if pool is None:
+            return []
         async with pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT role, content
@@ -514,7 +300,7 @@ async def get_conversation_history(telegram_id: int, limit: int = 5) -> list:
                 LIMIT $2
             """, telegram_id, limit)
             
-            # Convert to list of dicts in Ollama ChatMessage format: {role, content}
+            # Convert to list of dicts in AI backend ChatMessage format: {role, content}
             history = [
                 {"role": row["role"], "content": row["content"]} 
                 for row in rows
@@ -529,6 +315,8 @@ async def get_last_message_by_role(telegram_id: int, role: str) -> str | None:
     """Fetch latest message content for a user by role."""
     try:
         pool = await get_db_pool()
+        if pool is None:
+            return None
         async with pool.acquire() as conn:
             row = await conn.fetchrow("""
                 SELECT content
@@ -552,6 +340,12 @@ async def ensure_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     err = context.error
+    if isinstance(err, Conflict):
+        print(f"[bot_error] fatal Conflict: {err}")
+        print("Stopping bot: another instance is already consuming updates for this token.")
+        if context.application:
+            asyncio.create_task(context.application.stop())
+        return
     if isinstance(err, (NetworkError, TimedOut, RetryAfter)):
         print(f"[bot_error] transient: {type(err).__name__}: {err}")
         return
@@ -575,11 +369,13 @@ async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int, telegram_id: int):
     """
     Stream AI response and edit message as chunks arrive
-    messages: List of message dicts with 'role' and 'content' (Ollama ChatMessage format)
+    messages: List of message dicts with 'role' and 'content' (AI backend ChatMessage format)
     """
-    ai_backend_url = os.getenv('AI_BACKEND_URL')
+    ai_backend_url = (os.getenv('AI_BACKEND_URL') or "http://127.0.0.1:8000").strip().rstrip("/")
     stream_start = time.perf_counter()
     api_key = os.getenv('API_KEY')
+    if not ai_backend_url:
+        raise ValueError("AI_BACKEND_URL environment variable must be set")
     if not api_key:
         raise ValueError("API_KEY environment variable must be set")
     
@@ -643,7 +439,7 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             async with client.stream(
                 "POST",
                 f"{ai_backend_url}/api/chat",
-                json={"messages": messages},  # Send messages array according to Ollama API spec
+                json={"messages": messages},  # Send messages array according to AI backend API spec
                 headers={
                     "Content-Type": "application/json",
                     "X-API-Key": api_key
@@ -687,19 +483,16 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                             elif "response" in data:
                                 accumulated_text = data["response"]
                             
-                            # Edit message periodically to avoid rate limits (with signature)
+                            # Edit message periodically to avoid rate limits.
                             current_time = asyncio.get_event_loop().time()
                             if current_time - last_edit_time >= edit_interval:
                                 if cancel_event.is_set():
                                     return
-                                signature = "\n\n***\n\nSincerely yours, @HyperlinksSpaceBot"
-                                max_response_length = 4096 - len(signature)
+                                max_response_length = 4096
                                 if len(accumulated_text) > max_response_length:
-                                    response_text = accumulated_text[:max_response_length - 3] + "..."
+                                    display_text = accumulated_text[:max_response_length - 3] + "..."
                                 else:
-                                    response_text = accumulated_text
-                                
-                                display_text = response_text + signature
+                                    display_text = accumulated_text
                                 if display_text and display_text != last_sent_text:
                                     await edit_or_fallback_send(display_text)
                                     last_edit_time = current_time
@@ -709,34 +502,22 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
                         except json.JSONDecodeError:
                             continue
                 
-                # Final edit with complete response (add signature)
-                signature = "\n\n***\n\nSincerely yours, @HyperlinksSpaceBot"
-                # Calculate available space for response (Telegram limit is 4096 chars)
-                max_response_length = 4096 - len(signature)
+                # Final edit with complete response as-is from backend
+                max_response_length = 4096
                 if len(accumulated_text) > max_response_length:
                     response_text = accumulated_text[:max_response_length - 3] + "..."
                 else:
                     response_text = accumulated_text
                 if cancel_event.is_set():
                     return
-                rewrite_guard_enabled = os.getenv("ENABLE_REWRITE_GUARD", "1").lower() in ("1", "true", "yes", "on")
-                if rewrite_guard_enabled and looks_like_raw_dump(response_text):
-                    primary_system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
-                    response_lang = "ru" if "Respond only in Russian" in primary_system else "en"
-                    rewritten_text = await rewrite_as_prose(response_text, response_lang)
-                    if rewritten_text:
-                        response_text = rewritten_text
-                primary_system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
-                if "Respond only in Russian" in primary_system:
-                    response_text = normalize_ru_terms(response_text)
-                final_text = response_text + signature
+                final_text = response_text
                 if cancel_event.is_set():
                     return
                 
                 await edit_or_fallback_send(final_text)
                 log_timing("Stream complete -> final edit sent", stream_start)
                 
-                # Save assistant response to conversation history (without signature for context)
+                # Save assistant response to conversation history
                 if accumulated_text:
                     asyncio.create_task(save_message(telegram_id, "assistant", accumulated_text))
                 
@@ -747,7 +528,10 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
         error_text = "Sorry, the AI took too long to respond. Please try again."
         await edit_or_fallback_send(error_text)
     except httpx.RequestError as e:
-        error_text = f"Sorry, I couldn't connect to the AI service. Error: {str(e)}"
+        error_text = (
+            f"Sorry, I couldn't connect to the AI service at {ai_backend_url}. "
+            f"Error: {str(e)}"
+        )
         await edit_or_fallback_send(error_text)
     except asyncio.CancelledError:
         print(f"Stream cancelled for message {message_id}")
@@ -788,12 +572,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history = await get_conversation_history(telegram_id, limit=5)
     last_user_message = get_last_user_message_from_history(history)
 
-    is_ticker_request = is_ticker_like_message(message_text)
     message_lang = detect_language_from_text(message_text)
-    if is_ticker_request and last_user_message:
+    if last_user_message:
         message_lang = detect_language_from_text(last_user_message, default=message_lang)
     
-    # Build messages array according to Ollama API spec
+    # Build messages array according to AI backend API spec
     messages = [{
         "role": "system",
         "content": build_default_system_prompt(message_lang)
@@ -949,8 +732,10 @@ async def post_init(app):
     
     # Initialize database
     try:
-        await init_db()
-        print("Database connection established")
+        if await init_db():
+            print("Database connection established")
+        else:
+            print("Bot will continue without database persistence")
     except Exception as e:
         print(f"Warning: Could not initialize database: {e}")
         print("Bot will continue but user data won't be saved")

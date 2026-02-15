@@ -2,7 +2,6 @@ import os
 import asyncio
 import json
 import time
-import importlib
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
@@ -11,14 +10,17 @@ import asyncpg
 import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from app.config import load_env
+from app.prompts import (
+    LANGUAGE_SYSTEM_HINT,
+    THINKING_TEXT,
+    build_regen_system_prompt,
+    build_default_system_prompt,
+    detect_language_from_text,
+    get_last_user_message_from_history,
+)
 
-try:
-    _dotenv = importlib.import_module("dotenv")
-    _load_dotenv = getattr(_dotenv, "load_dotenv", None)
-    if callable(_load_dotenv):
-        _load_dotenv()
-except ModuleNotFoundError:
-    pass
+load_env()
 
 # Database connection pool
 _db_pool = None
@@ -31,29 +33,6 @@ _lang_switch_locks: dict[tuple[int, int], asyncio.Lock] = {}
 _lang_switch_last_tap: dict[tuple[int, int], float] = {}
 _http_runner: web.AppRunner | None = None
 LANG_SWITCH_DEBOUNCE_SECONDS = 0.5
-
-BASE_SYSTEM_PROMPT = (
-    "You are a helpful assistant. Pay attention to the conversation history and respond "
-    "appropriately to follow-up questions and confirmations."
-)
-
-LANGUAGE_SYSTEM_HINT = {
-    "en": (
-        "Respond only in English. Do not output JSON. "
-        "Do not convert supply to USD. Supply is number of tokens. "
-        "If decimals is null or unknown, say 'decimals unknown'."
-    ),
-    "ru": (
-        "Respond only in Russian. Do not output JSON. "
-        "Do not convert supply to USD. Supply is number of tokens. "
-        "If decimals is null or unknown, say 'decimals unknown'."
-    )
-}
-
-THINKING_TEXT = {
-    "en": "Thinking...",
-    "ru": "Думаю..."
-}
 
 
 def log_timing(label: str, start_time: float) -> float:
@@ -108,68 +87,6 @@ async def cancel_stream(chat_id: int, message_id: int) -> None:
     if task and not task.done():
         task.cancel()
     log_timing(f"Cancel stream (signal-only) {message_id}", cancel_start)
-
-
-def build_regen_system_prompt(lang: str) -> str:
-    if lang == "ru":
-        return (
-            f"{BASE_SYSTEM_PROMPT}\n"
-            "ВАЖНО: отвечай строго на русском языке.\n"
-            "Английские слова запрещены, КРОМЕ тикеров, доменов и названий (MCOM, swap.coffee).\n"
-            "Не выводи JSON, код, таблицы, списки полей или строки с ';'.\n"
-            "Если даны факты о токене — перескажи их ПРОЗОЙ (1–4 предложения).\n"
-            "НЕ ПРИДУМЫВАЙ: блокчейн, даты, листинги, продажи токена, команду, цели проекта.\n"
-            "Если чего-то нет в фактах — скажи, что данных нет.\n"
-        )
-    return (
-        f"{BASE_SYSTEM_PROMPT}\n"
-        "IMPORTANT: respond strictly in English.\n"
-        "No Russian.\n"
-        "No JSON, no raw data dumps.\n"
-        "Use provided facts to write 1-4 natural sentences.\n"
-        "Do not invent blockchain, dates, listings, token sales, team, or roadmap.\n"
-        "If missing, say data is not available.\n"
-    )
-
-
-def build_default_system_prompt(lang: str) -> str:
-    if lang == "ru":
-        return (
-            f"{BASE_SYSTEM_PROMPT}\n"
-            "ВАЖНО: отвечай строго на русском языке.\n"
-            "Английские слова запрещены, КРОМЕ тикеров, доменов и названий (например MCOM, swap.coffee).\n"
-            "Если не уверен — скажи, что данных недостаточно.\n"
-            "Не придумывай факты.\n"
-            "Отвечай в 1-4 предложениях.\n"
-        )
-    return (
-        f"{BASE_SYSTEM_PROMPT}\n"
-        "IMPORTANT: respond strictly in English.\n"
-        "Do not use Russian.\n"
-        "If unsure, say you don't have enough data. Do not invent facts.\n"
-        "Answer in 1-4 sentences.\n"
-    )
-
-
-def detect_language_from_text(text: str, default: str = "en") -> str:
-    if not text:
-        return default
-    cyrillic_count = sum(1 for ch in text if "\u0400" <= ch <= "\u04FF")
-    latin_count = sum(1 for ch in text if ("a" <= ch.lower() <= "z"))
-    if cyrillic_count > latin_count and cyrillic_count > 0:
-        return "ru"
-    if latin_count > 0:
-        return "en"
-    return default
-
-
-def get_last_user_message_from_history(history: list) -> str | None:
-    for item in reversed(history):
-        if item.get("role") == "user":
-            content = (item.get("content") or "").strip()
-            if content:
-                return content
-    return None
 
 
 async def get_db_pool():

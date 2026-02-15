@@ -14,6 +14,7 @@ import urllib.parse
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+from prompt_i18n import localize_prompt_with_model
 
 logger = logging.getLogger(__name__)
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -325,6 +326,24 @@ def _detect_language(text: str) -> str:
     return "ru" if (cyrillic_count / total_alpha) > 0.3 else "en"
 
 
+def _detect_requested_output_language(messages: List["ChatMessage"], fallback_lang: str) -> str:
+    """Detect explicit language request from upstream system prompts."""
+    for msg in messages:
+        try:
+            if msg.role != "system":
+                continue
+            content = (msg.content or "").lower()
+            if not content:
+                continue
+            if ("strictly in russian" in content) or ("только на русском" in content) or ("строго на русском" in content):
+                return "ru"
+            if ("strictly in english" in content) or ("only in english" in content):
+                return "en"
+        except Exception:
+            continue
+    return fallback_lang
+
+
 def _to_int(value: Any) -> Optional[int]:
     """Best-effort conversion of ticker numeric fields to int."""
     if value is None:
@@ -443,6 +462,15 @@ _CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 def _narrative_fallback(user_lang: str) -> str:
     return "Недостаточно данных для анализа." if user_lang == "ru" else "Insufficient data for analysis."
+
+
+def _contains_plain_fallback_phrase(text: str, user_lang: str) -> bool:
+    raw = (text or "").strip().lower()
+    if not raw:
+        return True
+    if user_lang == "ru":
+        return "недостаточно данных для анализа" in raw
+    return "insufficient data for analysis" in raw
 
 
 def _sanitize_ticker_narrative(narrative: str, user_lang: str) -> str:
@@ -975,8 +1003,10 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     # Get last user message
     user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
     
-    # Detect language for response formatting
+    # Detect language for response formatting.
+    # Respect explicit upstream system language instructions (EN/RU buttons).
     user_lang = _detect_language(user_last)
+    user_lang = _detect_requested_output_language(request.messages, user_lang)
     
     # STEP 1: Try ticker detection if RAG is available
     explicit_ticker_signal = _has_explicit_ticker_signal(user_last)
@@ -1066,67 +1096,47 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         ton_only_from_source = "tokens.swap.coffee" in source_name.lower()
         ton_only_narrative = ton_only_from_source
         ticker_name_for_narrative = str(ticker_data.get("name") or ticker_symbol or "")
-        ton_scope_rule_ru = (
-            "- Рассматривай актив строго как часть экосистемы TON.\n"
-            "- Не утверждай и не подразумевай принадлежность к другим блокчейнам."
-            if ton_only_from_source
-            else "- Сохраняй блокчейн-контекст в соответствии с REFERENCE_FACTS."
-        )
         ton_scope_rule_en = (
             "- Treat this asset strictly as part of the TON ecosystem.\n"
             "- DO NOT claim or imply that it belongs to any non-TON blockchain."
             if ton_only_from_source
             else "- Keep blockchain context consistent with REFERENCE_FACTS."
         )
-
-        if user_lang == "ru":
-            ticker_prompt = (
-                "Отвечай ТОЛЬКО на русском языке.\n"
-                "Напиши краткий нарратив из 2-4 предложений.\n"
-                "\n"
-                "ПРАВИЛА НАРРАТИВА:\n"
-                "- Эти правила относятся только к секции Narrative; не переписывай и не изменяй блок фактов/статистики.\n"
-                "- Используй REFERENCE_FACTS как основную опору.\n"
-                "- Можно использовать общие знания модели для качественного контекста, но нельзя выдумывать конкретные факты.\n"
-                "- Начни с идентичности токена: интерпретируй имя/символ и смысловые подсказки из описания.\n"
-                "- Естественно упоминай имя токена или символ в тексте.\n"
-                "- Если в REFERENCE_FACTS есть описание, явно используй его в первых 1-2 предложениях.\n"
-                "- Не повторяй supply/holders/last activity и другие числовые метрики, уже указанные в блоке статистики.\n"
-                "- Фокусируйся на описательной истории: мем-идентичность, почему токен мог появиться, и какой общественный нарратив он выражает.\n"
-                "- Предпочитай культурно-символическую интерпретацию: что знак означает figuratively, почему мем социально резонирует, какая философия участия стоит за сообществом.\n"
-                "- Допустимы мягкие гипотезы (например: вероятно, возможно, часто) для нарративного объяснения.\n"
-                "- Не заявляй о транзакционной/платёжной utility, если это прямо не подтверждено описанием в REFERENCE_FACTS.\n"
-                "- Избегай инвестиционных советов, гарантированных исходов и жёстких прогнозов.\n"
-                "- Не используй английские, китайские, арабские и другие не-русские слова, кроме тикеров/доменов/брендовых имён.\n"
-                f"{ton_scope_rule_ru}\n"
-                "\n"
-                "Всегда давай нарратив, опираясь на доступные reference facts.\n"
-                "Пиши компактно и по делу, без вымышленных конкретных утверждений.\n"
-            )
-        else:
-            ticker_prompt = (
-                "Reply ONLY in English.\n"
-                "Write a concise 2-4 sentence narrative.\n"
-                "\n"
-                "NARRATIVE RULES:\n"
-                "- These rules apply only to the Narrative section; do not rewrite or alter the facts/stats block.\n"
-                "- Use REFERENCE_FACTS as the primary anchor.\n"
-                "- You may use general model knowledge for qualitative context, but do not fabricate specific factual claims.\n"
-                "- Start from token identity: interpret the token name/symbol and description cues.\n"
-                "- Mention token name or symbol naturally in the narrative.\n"
-                "- If description exists in REFERENCE_FACTS, incorporate it explicitly in the first 1-2 sentences.\n"
-                "- Do NOT restate supply/holders/last activity or other numeric stats already shown in the stats block.\n"
-                "- Focus on the descriptive story: what the meme identity is, why this token likely appeared, and what community narrative it represents.\n"
-                "- Prefer cultural/semiotic interpretation: what the symbol means figuratively, why this meme resonates socially, and what philosophy of community participation it signals.\n"
-                "- It is acceptable to use soft hypothesis language (for example: likely, may, often) for narrative framing.\n"
-                "- Do NOT claim transaction/payment utility unless REFERENCE_FACTS description explicitly says so.\n"
-                "- Avoid investment advice, guaranteed outcomes, or hard predictions.\n"
-                "- DO NOT use any non-English characters if English mode (no Russian, Chinese, etc.).\n"
-                f"{ton_scope_rule_en}\n"
-                "\n"
-                "Always provide a narrative using available reference facts.\n"
-                "Keep it concise and grounded; avoid fabricated specifics.\n"
-            )
+        language_name = {
+            "en": "English",
+            "ru": "Russian",
+        }.get(user_lang, user_lang)
+        ticker_prompt_en = (
+            f"Reply ONLY in {language_name}.\n"
+            "Write a concise 2-4 sentence narrative.\n"
+            "\n"
+            "NARRATIVE RULES:\n"
+            "- These rules apply only to the Narrative section; do not rewrite or alter the facts/stats block.\n"
+            "- Use REFERENCE_FACTS as the primary anchor.\n"
+            "- You may use general model knowledge for qualitative context, but do not fabricate specific factual claims.\n"
+            "- Start from token identity: interpret the token name/symbol and description cues.\n"
+            "- Mention token name or symbol naturally in the narrative.\n"
+            "- If description exists in REFERENCE_FACTS, incorporate it explicitly in the first 1-2 sentences.\n"
+            "- Do NOT restate supply/holders/last activity or other numeric stats already shown in the stats block.\n"
+            "- Focus on the descriptive story: what the meme identity is, why this token likely appeared, and what community narrative it represents.\n"
+            "- Prefer cultural/semiotic interpretation: what the symbol means figuratively, why this meme resonates socially, and what philosophy of community participation it signals.\n"
+            "- It is acceptable to use soft hypothesis language (for example: likely, may, often) for narrative framing.\n"
+            "- Do NOT claim transaction/payment utility unless REFERENCE_FACTS description explicitly says so.\n"
+            "- Avoid investment advice, guaranteed outcomes, or hard predictions.\n"
+            f"{ton_scope_rule_en}\n"
+            "\n"
+            "Always provide a narrative using available reference facts.\n"
+            "Keep it concise and grounded; avoid fabricated specifics.\n"
+        )
+        ticker_prompt = await localize_prompt_with_model(
+            template_en=ticker_prompt_en,
+            target_lang=user_lang,
+            provider=LLM_PROVIDER,
+            ollama_url=OLLAMA_URL,
+            ollama_model=OLLAMA_MODEL,
+            openai_api_key=OPENAI_API_KEY,
+            openai_model=OPENAI_MODEL,
+        )
 
         reference_facts = (
             "<REFERENCE_FACTS>\n"
@@ -1235,6 +1245,12 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
             return narrative
         narrative_clean = _sanitize_ticker_narrative(narrative, user_lang)
         narrative_clean = _strip_stat_repetition(narrative_clean, user_lang)
+        if _contains_plain_fallback_phrase(narrative_clean, user_lang):
+            narrative_clean = _descriptive_narrative_fallback(
+                ticker_name_for_narrative,
+                str(ticker_symbol or ""),
+                user_lang,
+            )
         narrative_clean = _ensure_ticker_identity_in_narrative(
             narrative_clean,
             ticker_name_for_narrative,
@@ -1272,6 +1288,13 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                     user_lang,
                 )
         if not narrative_clean.strip():
+            narrative_clean = _descriptive_narrative_fallback(
+                ticker_name_for_narrative,
+                str(ticker_symbol or ""),
+                user_lang,
+            )
+        # Final safety net: never ship plain fallback phrase in ticker narrative.
+        if _contains_plain_fallback_phrase(narrative_clean, user_lang):
             narrative_clean = _descriptive_narrative_fallback(
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),

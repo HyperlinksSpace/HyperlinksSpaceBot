@@ -1,4 +1,10 @@
-AI UI
+TICKER LINK
+
+Text input in bottom bar
+
+Scrolling in AI widget fix
+
+Finish bot parts isolation
 
 ld timeout
 

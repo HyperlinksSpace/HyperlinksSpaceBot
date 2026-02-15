@@ -29,7 +29,8 @@ def build_regen_system_prompt(lang: str) -> str:
             "ВАЖНО: отвечай строго на русском языке.\n"
             "Английские слова запрещены, КРОМЕ тикеров, доменов и названий (MCOM, swap.coffee).\n"
             "Не выводи JSON, код, таблицы, списки полей или строки с ';'.\n"
-            "Если даны факты о токене — перескажи их ПРОЗОЙ (1–4 предложения).\n"
+            "Если даны факты о токене — пиши связный описательный нарратив живым языком (обычно 2–5 предложений).\n"
+            "Не ограничивайся сухим пересказом метрик; дай контекст и смысл для сообщества.\n"
             "НЕ ПРИДУМЫВАЙ: блокчейн, даты, листинги, продажи токена, команду, цели проекта.\n"
             "Если чего-то нет в фактах — скажи, что данных нет.\n"
         )
@@ -38,7 +39,8 @@ def build_regen_system_prompt(lang: str) -> str:
         "IMPORTANT: respond strictly in English.\n"
         "No Russian.\n"
         "No JSON, no raw data dumps.\n"
-        "Use provided facts to write 1-4 natural sentences.\n"
+        "When token facts are provided, write a coherent descriptive narrative (typically 2-5 sentences).\n"
+        "Do not just restate raw metrics; add qualitative community/context framing.\n"
         "Do not invent blockchain, dates, listings, token sales, team, or roadmap.\n"
         "If missing, say data is not available.\n"
     )
@@ -52,14 +54,14 @@ def build_default_system_prompt(lang: str) -> str:
             "Английские слова запрещены, КРОМЕ тикеров, доменов и названий (например MCOM, swap.coffee).\n"
             "Если не уверен — скажи, что данных недостаточно.\n"
             "Не придумывай факты.\n"
-            "Отвечай в 1-4 предложениях.\n"
+            "Отвечай естественно и по делу; при запросах про токены предпочитай описательный нарратив, а не сухой список фактов.\n"
         )
     return (
         f"{BASE_SYSTEM_PROMPT}\n"
         "IMPORTANT: respond strictly in English.\n"
         "Do not use Russian.\n"
         "If unsure, say you don't have enough data. Do not invent facts.\n"
-        "Answer in 1-4 sentences.\n"
+        "Respond naturally and concisely; for token-related queries prefer descriptive narrative over bare fact restatement.\n"
     )
 
 

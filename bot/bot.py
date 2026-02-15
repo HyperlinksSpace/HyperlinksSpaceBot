@@ -10,7 +10,8 @@ import asyncpg
 import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-from app.config import load_env
+from app.ai_client import post_chat_once, stream_chat
+from app.config import load_env, get_ai_backend_url
 from app.prompts import (
     LANGUAGE_SYSTEM_HINT,
     THINKING_TEXT,
@@ -387,37 +388,31 @@ async def http_chat_proxy_handler(request: web.Request) -> web.Response:
     if not isinstance(messages, list) or not messages:
         return _json_response({"error": "messages array cannot be empty."}, status=400)
 
-    ai_backend_url = (os.getenv('AI_BACKEND_URL') or "http://127.0.0.1:8000").strip().rstrip("/")
     api_key = _resolve_bot_api_key()
-    upstream_body = {"messages": messages, "stream": False}
-    timeout_s = float(os.getenv("HTTP_API_TIMEOUT_SECONDS", "60"))
+    timeout_s = float(os.getenv("HTTP_API_TIMEOUT_SECONDS", "120"))
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-            upstream = await client.post(
-                f"{ai_backend_url}/api/chat",
-                json=upstream_body,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": api_key,
-                },
-            )
+        upstream_status, upstream_text, upstream_content_type = await post_chat_once(
+            messages=messages,
+            api_key=api_key,
+            timeout_s=timeout_s,
+        )
     except httpx.TimeoutException:
         return _prompt_unavailable_response()
     except httpx.RequestError as e:
         print(f"[BOT_HTTP_API] AI backend request error: {e}")
         return _prompt_unavailable_response()
 
-    if upstream.status_code != 200:
-        print(f"[BOT_HTTP_API] AI backend status={upstream.status_code}; returning fallback prompt")
+    if upstream_status != 200:
+        print(f"[BOT_HTTP_API] AI backend status={upstream_status}; returning fallback prompt")
         return _prompt_unavailable_response()
 
-    response_content_type = upstream.headers.get("content-type", "application/x-ndjson")
-    print(f"[BOT_HTTP_API] upstream status={upstream.status_code} content-type={response_content_type}")
+    response_content_type = upstream_content_type
+    print(f"[BOT_HTTP_API] upstream status={upstream_status} content-type={response_content_type}")
     return _with_cors(
         web.Response(
-            text=upstream.text,
-            status=upstream.status_code,
+            text=upstream_text,
+            status=upstream_status,
             content_type=response_content_type.split(";")[0],
         )
     )
@@ -489,11 +484,9 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
     Stream AI response and edit message as chunks arrive
     messages: List of message dicts with 'role' and 'content' (AI backend ChatMessage format)
     """
-    ai_backend_url = (os.getenv('AI_BACKEND_URL') or "http://127.0.0.1:8000").strip().rstrip("/")
     stream_start = time.perf_counter()
     api_key = os.getenv('SELF_API_KEY') or os.getenv('API_KEY')
-    if not ai_backend_url:
-        raise ValueError("AI_BACKEND_URL environment variable must be set")
+    ai_backend_url = get_ai_backend_url()
     if not api_key:
         raise ValueError("SELF_API_KEY environment variable must be set")
     
@@ -553,95 +546,86 @@ async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int,
             print(f"Warning: Could not send fallback message: {e}")
     
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream(
-                "POST",
-                f"{ai_backend_url}/api/chat",
-                json={"messages": messages},  # Send messages array according to AI backend API spec
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": api_key
-                }
-            ) as response:
-                log_timing("HTTP stream opened", stream_start)
-                try:
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    status_code = e.response.status_code if e.response is not None else "unknown"
-                    response_text = ""
-                    if e.response is not None:
+        async with stream_chat(messages=messages, api_key=api_key, timeout_s=60.0) as (ai_backend_url, response):
+            log_timing("HTTP stream opened", stream_start)
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code if e.response is not None else "unknown"
+                response_text = ""
+                if e.response is not None:
+                    try:
+                        response_text = (await e.response.aread()).decode("utf-8", errors="replace")
+                    except Exception:
                         try:
-                            response_text = (await e.response.aread()).decode("utf-8", errors="replace")
+                            response_text = e.response.text
                         except Exception:
-                            try:
-                                response_text = e.response.text
-                            except Exception:
-                                response_text = ""
-                    print(f"[AI_BACKEND_ERROR] status={status_code} body={response_text[:2000]}")
-                    await edit_or_fallback_send(f"AI backend error (status {status_code}). Please try again.")
+                            response_text = ""
+                print(f"[AI_BACKEND_ERROR] status={status_code} body={response_text[:2000]}")
+                await edit_or_fallback_send(f"AI backend error (status {status_code}). Please try again.")
+                return
+            
+            async for line in response.aiter_lines():
+                if cancel_event.is_set():
                     return
-                
-                async for line in response.aiter_lines():
-                    if cancel_event.is_set():
-                        return
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            # Log first chunk timing once
-                            if not accumulated_text and "token" in data:
-                                log_timing("First AI chunk received", stream_start)
-                            if "error" in data:
-                                error_text = f"Error: {data['error']}"
-                                await edit_or_fallback_send(error_text)
+                if line:
+                    try:
+                        data = json.loads(line)
+                        # Log first chunk timing once
+                        if not accumulated_text and "token" in data:
+                            log_timing("First AI chunk received", stream_start)
+                        if "error" in data:
+                            error_text = f"Error: {data['error']}"
+                            await edit_or_fallback_send(error_text)
+                            return
+                        
+                        # Parse streaming response: token field contains partial content
+                        if "token" in data:
+                            accumulated_text += data["token"]
+                        elif "response" in data:
+                            accumulated_text = data["response"]
+                        
+                        # Edit message periodically to avoid rate limits.
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_edit_time >= edit_interval:
+                            if cancel_event.is_set():
                                 return
-                            
-                            # Parse streaming response: token field contains partial content
-                            if "token" in data:
-                                accumulated_text += data["token"]
-                            elif "response" in data:
-                                accumulated_text = data["response"]
-                            
-                            # Edit message periodically to avoid rate limits.
-                            current_time = asyncio.get_event_loop().time()
-                            if current_time - last_edit_time >= edit_interval:
-                                if cancel_event.is_set():
-                                    return
-                                max_response_length = 4096
-                                if len(accumulated_text) > max_response_length:
-                                    display_text = accumulated_text[:max_response_length - 3] + "..."
-                                else:
-                                    display_text = accumulated_text
-                                if display_text and display_text != last_sent_text:
-                                    await edit_or_fallback_send(display_text)
-                                    last_edit_time = current_time
-                            
-                            if data.get("done", False):
-                                break
-                        except json.JSONDecodeError:
-                            continue
+                            max_response_length = 4096
+                            if len(accumulated_text) > max_response_length:
+                                display_text = accumulated_text[:max_response_length - 3] + "..."
+                            else:
+                                display_text = accumulated_text
+                            if display_text and display_text != last_sent_text:
+                                await edit_or_fallback_send(display_text)
+                                last_edit_time = current_time
+                        
+                        if data.get("done", False):
+                            break
+                    except json.JSONDecodeError:
+                        continue
                 
-                # Final edit with complete response as-is from backend
-                max_response_length = 4096
-                if len(accumulated_text) > max_response_length:
-                    response_text = accumulated_text[:max_response_length - 3] + "..."
-                else:
-                    response_text = accumulated_text
-                if cancel_event.is_set():
-                    return
-                final_text = response_text
-                if cancel_event.is_set():
-                    return
-                
-                await edit_or_fallback_send(final_text)
-                log_timing("Stream complete -> final edit sent", stream_start)
-                
-                # Save assistant response to conversation history
-                if accumulated_text:
-                    asyncio.create_task(save_message(telegram_id, "assistant", accumulated_text))
-                
-                if not final_text:
-                    no_response_text = "Sorry, I didn't receive a response."
-                    await edit_or_fallback_send(no_response_text)
+            # Final edit with complete response as-is from backend
+            max_response_length = 4096
+            if len(accumulated_text) > max_response_length:
+                response_text = accumulated_text[:max_response_length - 3] + "..."
+            else:
+                response_text = accumulated_text
+            if cancel_event.is_set():
+                return
+            final_text = response_text
+            if cancel_event.is_set():
+                return
+            
+            await edit_or_fallback_send(final_text)
+            log_timing("Stream complete -> final edit sent", stream_start)
+            
+            # Save assistant response to conversation history
+            if accumulated_text:
+                asyncio.create_task(save_message(telegram_id, "assistant", accumulated_text))
+            
+            if not final_text:
+                no_response_text = "Sorry, I didn't receive a response."
+                await edit_or_fallback_send(no_response_text)
     except httpx.TimeoutException:
         error_text = "Sorry, the AI took too long to respond. Please try again."
         await edit_or_fallback_send(error_text)
@@ -910,7 +894,7 @@ def main():
     bot_token = os.getenv('BOT_TOKEN')
     if not bot_token:
         raise ValueError("Environment variable 'BOT_TOKEN' is not set")
-    ai_backend_url = (os.getenv('AI_BACKEND_URL') or "http://127.0.0.1:8000").strip().rstrip("/")
+    ai_backend_url = get_ai_backend_url()
     api_key = os.getenv('SELF_API_KEY') or os.getenv('API_KEY') or ""
     key_preview = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) >= 8 else "(missing/short)"
     

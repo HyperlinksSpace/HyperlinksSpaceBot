@@ -42,3 +42,18 @@ The bot calls only:
 
 - `POST {AI_BACKEND_URL}/api/chat`
 - Header `X-API-Key: {SELF_API_KEY}`
+
+## Bot HTTP Endpoint
+
+This service now also exposes an HTTP API so it can have its own Railway domain.
+
+- `GET /health`
+- `POST /api/chat` (proxy to AI backend)
+- Auth header required: `X-API-Key: {SELF_API_KEY}`
+
+Port behavior:
+
+- Railway: listens on `PORT` automatically
+- Local fallback: `HTTP_PORT` (default `8080`)
+
+For Railway domain generation, use target port `8080` (or your custom `HTTP_PORT`).

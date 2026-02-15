@@ -172,6 +172,7 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                                 cursorHeight: 15,
                                 maxLines: 11,
                                 minLines: 1,
+                                textInputAction: TextInputAction.send,
                                 textAlignVertical: TextAlignVertical.center,
                                 style: TextStyle(
                                   fontFamily: 'Aeroport',
@@ -218,8 +219,9 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                                 enableInteractiveSelection: true,
                                 cursorColor: AppTheme.textColor,
                                 cursorHeight: 15,
-                                maxLines: 11,
+                                maxLines: 1,
                                 minLines: 1,
+                                textInputAction: TextInputAction.send,
                                 textAlignVertical:
                                     _controller.text.split('\n').length == 1
                                         ? TextAlignVertical.center

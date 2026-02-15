@@ -1,31 +1,70 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class AiChatService {
+  static const String _unavailableText = 'AI service unavailable';
+
   Future<String> ask({
     required List<Map<String, String>> messages,
   }) async {
+    final localDefaultUrl = _localDefaultBotApiUrl();
+    final localDefaultKey = _localDefaultBotApiKey();
+
+    final defineBotApiUrl = const String.fromEnvironment('BOT_API_URL').trim();
+    final defineBotApiKey = const String.fromEnvironment('BOT_API_KEY').trim();
+
     // Preferred names for current setup:
     // - BOT_API_URL
     // - BOT_API_KEY
     // Backward compatibility for previous deployments:
     // - AI_BACKEND_URL
     // - API_KEY
-    final botApiUrl =
-        (dotenv.env['BOT_API_URL'] ?? dotenv.env['AI_BACKEND_URL'] ?? '')
-            .trim();
-    final botApiKey =
-        (dotenv.env['BOT_API_KEY'] ?? dotenv.env['API_KEY'] ?? '').trim();
+    final envBotApiUrl = _readEnv('BOT_API_URL');
+    final envAiBackendUrl = _readEnv('AI_BACKEND_URL');
+    final envBotApiKey = _readEnv('BOT_API_KEY');
+    final envApiKey = _readEnv('API_KEY');
+
+    final botApiUrl = envBotApiUrl
+        .ifEmpty(envAiBackendUrl)
+        .ifEmpty(defineBotApiUrl)
+        .ifEmpty(localDefaultUrl)
+        .trim();
+    final botApiKey = envBotApiKey
+        .ifEmpty(envApiKey)
+        .ifEmpty(defineBotApiKey)
+        .ifEmpty(localDefaultKey)
+        .trim();
     if (botApiUrl.isNotEmpty && botApiKey.isNotEmpty) {
-      return _callBotApiDirect(
-        botApiUrl: botApiUrl,
-        botApiKey: botApiKey,
-        messages: messages,
+      debugPrint(
+        '[AiChatService] direct BOT API url=$botApiUrl keySet=${botApiKey.isNotEmpty} messages=${messages.length}',
       );
+      try {
+        return await _callBotApiDirect(
+          botApiUrl: botApiUrl,
+          botApiKey: botApiKey,
+          messages: messages,
+        );
+      } catch (e) {
+        debugPrint('[AiChatService] direct BOT API failed: $e');
+        // If direct endpoint fails, try proxy before returning fallback text.
+        try {
+          return await _callProxy(messages: messages);
+        } catch (proxyError) {
+          debugPrint('[AiChatService] proxy fallback failed: $proxyError');
+          return _unavailableText;
+        }
+      }
     }
-    return _callProxy(messages: messages);
+    debugPrint('[AiChatService] proxy API url=${_resolveProxyEndpoint()}');
+    try {
+      return await _callProxy(messages: messages);
+    } catch (e) {
+      debugPrint('[AiChatService] proxy API failed: $e');
+      return _unavailableText;
+    }
   }
 
   Future<String> _callProxy({
@@ -78,6 +117,9 @@ class AiChatService {
     if (response.statusCode != 200) {
       throw Exception('BOT API failed with status ${response.statusCode}');
     }
+    debugPrint(
+      '[AiChatService] BOT API response status=${response.statusCode} bytes=${response.bodyBytes.length}',
+    );
     return _extractResponseFromNdjson(response.body);
   }
 
@@ -111,10 +153,39 @@ class AiChatService {
   }
 
   Uri _resolveProxyEndpoint() {
-    final explicit = dotenv.env['AI_PROXY_URL']?.trim() ?? '';
+    final explicit = _readEnv('AI_PROXY_URL');
     if (explicit.isNotEmpty) {
       return Uri.parse(explicit);
     }
     return Uri.base.resolve('/api/ai');
   }
+
+  String _readEnv(String key) {
+    try {
+      return (dotenv.env[key] ?? '').trim();
+    } catch (_) {
+      // flutter_dotenv throws NotInitializedError when .env is missing.
+      return '';
+    }
+  }
+
+  String _localDefaultBotApiUrl() {
+    final host = Uri.base.host.toLowerCase();
+    if (host == '127.0.0.1' || host == 'localhost') {
+      return 'http://127.0.0.1:8080';
+    }
+    return '';
+  }
+
+  String _localDefaultBotApiKey() {
+    final host = Uri.base.host.toLowerCase();
+    if (host == '127.0.0.1' || host == 'localhost') {
+      return 'local-dev-self-api-key';
+    }
+    return '';
+  }
+}
+
+extension on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/foundation.dart';
 
 import '../app/theme/app_theme.dart';
 import '../services/ai_chat_service.dart';
@@ -74,11 +75,16 @@ class AiConversationController {
         );
         entriesNotifier.value = updated;
       }
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('[AiConversation] submitPrompt failed: $e');
+      debugPrint('$st');
       final updated = List<AiConversationEntry>.from(entriesNotifier.value);
+      final errorText = kDebugMode
+          ? 'Unable to get AI response right now. $e'
+          : 'Unable to get AI response right now. Please try again.';
       if (insertedIndex < updated.length) {
         updated[insertedIndex] = updated[insertedIndex].copyWith(
-          answer: 'Unable to get AI response right now. Please try again.',
+          answer: errorText,
           isLoading: false,
         );
         entriesNotifier.value = updated;

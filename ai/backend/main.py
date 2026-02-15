@@ -125,6 +125,10 @@ def _extract_ticker_candidates(text: str) -> List[str]:
     candidates = []
     seen = set()
     
+    # Single-word queries like "dogs" should still be eligible as ticker intent.
+    text_stripped = text.strip()
+    normalized_tokens = [t.lower() for t in raw_tokens]
+
     # Phase 1: Prioritize obvious ticker patterns
     for token in raw_tokens:
         symbol = token.upper()
@@ -141,8 +145,19 @@ def _extract_ticker_candidates(text: str) -> List[str]:
         if symbol in COMMON_WORDS:
             continue
         
-        # Filter: Skip mostly lowercase without context
-        if token.islower() and not has_ticker_context:
+        has_dollar_signal = re.search(
+            rf"\$\s*{re.escape(token)}\b",
+            text,
+            flags=re.IGNORECASE,
+        ) is not None
+        is_standalone_symbol_query = (
+            len(raw_tokens) == 1
+            and normalized_tokens[0] == token.lower()
+            and text_stripped.lower() == token.lower()
+        )
+
+        # Filter: Skip mostly lowercase without context/symbol signal
+        if token.islower() and not has_ticker_context and not has_dollar_signal and not is_standalone_symbol_query:
             continue
         
         # Filter: Skip very short tokens without uppercase or context
@@ -476,11 +491,49 @@ def _is_ticker_context_strong(text: str) -> bool:
     if re.search(r"\b[A-Z0-9]{3,10}\b", text):
         return True
     
-    # Check for crypto context words
-    has_en_context = any(word in text_lower for word in TICKER_CONTEXT_EN)
-    has_ru_context = any(word in text_lower for word in TICKER_CONTEXT_RU)
-    
-    return has_en_context or has_ru_context
+    # Context words alone are not enough, they create false positives.
+    # Keep this helper strict: only explicit ticker/symbol clues count.
+    return False
+
+
+def _has_explicit_ticker_signal(text: str) -> bool:
+    """
+    Return True only when the user message contains an explicit ticker-like cue.
+    This prevents generic prompts (e.g., wallet/profit questions) from being
+    misrouted into ticker mode.
+    """
+    if not text:
+        return False
+
+    text_lower = text.lower()
+
+    # Strong universal signals
+    if "$" in text:
+        return True
+    if re.search(r"\b[A-Z0-9]{3,10}\b", text):
+        return True
+
+    # Single standalone token symbol: e.g., "dogs"
+    text_stripped = text.strip()
+    one_token = re.fullmatch(r"[a-zA-Z0-9]{2,10}", text_stripped)
+    if one_token:
+        symbol = text_stripped.upper()
+        if not symbol.isdigit() and symbol not in COMMON_WORDS:
+            return True
+
+    # English explicit forms: "dogs token", "token dogs", "ticker dogs"
+    if re.search(r"\b[a-z0-9]{2,10}\s+(token|coin|jetton|ticker)\b", text_lower):
+        return True
+    if re.search(r"\b(token|coin|jetton|ticker)\s+[a-z0-9]{2,10}\b", text_lower):
+        return True
+
+    # Russian explicit forms: "dogs токен", "токен dogs", etc.
+    if re.search(r"\b[a-z0-9]{2,10}\s+(токен|монета|тикер|джеттон)\b", text_lower):
+        return True
+    if re.search(r"\b(токен|монета|тикер|джеттон)\s+[a-z0-9]{2,10}\b", text_lower):
+        return True
+
+    return False
 
 
 # ============================================================================
@@ -794,7 +847,8 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     user_lang = _detect_language(user_last)
     
     # STEP 1: Try ticker detection if RAG is available
-    if RAG_URL and user_last:
+    explicit_ticker_signal = _has_explicit_ticker_signal(user_last)
+    if RAG_URL and user_last and explicit_ticker_signal:
         ticker_symbol, ticker_data, error_code = await detect_ticker_via_rag(
             user_last, 
             RAG_URL, 
@@ -815,7 +869,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
             )
             return stream_text_response(msg)
         
-        elif error_code == "not_found" and _is_ticker_context_strong(user_last):
+        elif error_code == "not_found" and explicit_ticker_signal:
             # Strong ticker context but no verified ticker found
             # This is "soft fail" - only trigger if context is strong
             msg = (

@@ -1,5 +1,17 @@
 This is a monorepo containing multiple services.
 
+## Local host deploy
+
+Start
+
+```
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "/c/1/HyperlinksSpaceBot/start_local.ps1"
+```
+
+Stop
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "/c/1/HyperlinksSpaceBot/stop_local.ps1"
+
 ## Repository Structure
 
 ```

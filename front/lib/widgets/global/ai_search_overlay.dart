@@ -21,8 +21,8 @@ class AiSearchOverlay extends StatefulWidget {
 class _AiSearchOverlayState extends State<AiSearchOverlay> {
   // Premade input options
   final List<String> _premadeOptions = [
-    "What is my all wallet's last month profit",
-    "Advise me a token to buy",
+    "What is the universe?",
+    "Tell me about dogs token",
   ];
 
   // Store the callback reference for cleanup

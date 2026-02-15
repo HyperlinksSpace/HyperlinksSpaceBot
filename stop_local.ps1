@@ -2,10 +2,10 @@
 # Stops services by killing whatever is LISTENING on ports:
 # - 8000 (AI backend)
 # - 8001 (RAG backend)
-# - 11434 (Ollama) [optional]
+# - 11434 (Ollama) [default]
 
 param(
-  [switch]$StopOllama
+  [switch]$KeepOllama
 )
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -54,6 +54,20 @@ function Kill-BotProcess {
   Stop-Pids $pids "bot.py"
 }
 
+function Kill-FrontendFlutterProcess {
+  Write-Host "Checking frontend flutter web-server processes..."
+  $frontProcs = Get-CimInstance Win32_Process -Filter "Name='flutter.bat'" |
+    Where-Object CommandLine -Match "run -d web-server"
+
+  if (-not $frontProcs) {
+    Write-Host "  No flutter web-server process found."
+    return
+  }
+
+  $pids = $frontProcs | Select-Object -ExpandProperty ProcessId | Sort-Object -Unique
+  Stop-Pids $pids "flutter web-server"
+}
+
 function Kill-BackendPythonByCommand {
   Write-Host "Checking local uvicorn python processes..."
   $targets = @(
@@ -77,17 +91,20 @@ function Kill-BackendPythonByCommand {
 # Always stop backend + rag
 Kill-Port 8000
 Kill-Port 8001
+Kill-Port 8080
+Kill-Port 3000
 Kill-BackendPythonByCommand
 Kill-BotProcess
+Kill-FrontendFlutterProcess
 
-if ($StopOllama) {
-  Kill-Port 11434
+if ($KeepOllama) {
+  Write-Host "Keeping Ollama (11434) running. Use without -KeepOllama to stop it."
 } else {
-  Write-Host "Skipping Ollama (11434). Use: .\stop_local.ps1 -StopOllama"
+  Kill-Port 11434
 }
 
 Write-Host "Done. Active listeners summary:"
-foreach ($port in 8000, 8001, 11434) {
+foreach ($port in 8000, 8001, 8080, 3000, 11434) {
   $pids = Get-ListeningPids $port
   if ($pids.Count -gt 0) {
     Write-Host "  Port $port still in use by PID(s): $($pids -join ', ')"

@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import importlib
+from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
 from telegram.error import Conflict, TelegramError, NetworkError, TimedOut, RetryAfter
@@ -27,6 +28,7 @@ _active_bot_msg_by_chat: dict[int, int] = {}
 _active_stream_tasks: dict[tuple[int, int], asyncio.Task] = {}
 _lang_switch_locks: dict[tuple[int, int], asyncio.Lock] = {}
 _lang_switch_last_tap: dict[tuple[int, int], float] = {}
+_http_runner: web.AppRunner | None = None
 LANG_SWITCH_DEBOUNCE_SECONDS = 0.5
 
 BASE_SYSTEM_PROMPT = (
@@ -339,6 +341,172 @@ async def ensure_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Run database operation asynchronously without blocking the response
     asyncio.create_task(save_user_async(update))
     # Don't return anything - let other handlers process the update
+
+
+def _resolve_bot_api_key() -> str:
+    return (os.getenv('SELF_API_KEY') or os.getenv('API_KEY') or "").strip()
+
+
+def _cors_headers() -> dict[str, str]:
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+    }
+
+
+def _with_cors(resp: web.StreamResponse) -> web.StreamResponse:
+    for key, value in _cors_headers().items():
+        resp.headers[key] = value
+    return resp
+
+
+def _json_response(payload: dict, status: int = 200) -> web.Response:
+    return _with_cors(
+        web.Response(
+            text=json.dumps(payload, ensure_ascii=False),
+            status=status,
+            content_type="application/json",
+        )
+    )
+
+
+def _prompt_unavailable_response() -> web.Response:
+    text = "AI service unavailable"
+    ndjson_lines = [
+        json.dumps({"token": text, "done": False}, ensure_ascii=False),
+        json.dumps({"response": text, "done": True}, ensure_ascii=False),
+    ]
+    return _with_cors(
+        web.Response(
+            text="\n".join(ndjson_lines) + "\n",
+            status=200,
+            content_type="application/x-ndjson",
+        )
+    )
+
+
+def _authorize_request(request: web.Request) -> tuple[bool, web.Response | None]:
+    api_key = _resolve_bot_api_key()
+    if not api_key:
+        print("[BOT_HTTP_API] auth failed: SELF_API_KEY/API_KEY not configured")
+        return False, _json_response(
+            {"error": "SELF_API_KEY is not configured on this service."},
+            status=503
+        )
+    incoming = (request.headers.get("X-API-Key") or "").strip()
+    if not incoming:
+        print("[BOT_HTTP_API] auth failed: missing X-API-Key header")
+        return False, _json_response(
+            {"error": "X-API-Key header is required."},
+            status=401
+        )
+    if incoming != api_key:
+        print("[BOT_HTTP_API] auth failed: invalid X-API-Key")
+        return False, _json_response(
+            {"error": "Invalid API key."},
+            status=403
+        )
+    return True, None
+
+
+async def http_root_handler(request: web.Request) -> web.Response:
+    return _json_response({"status": "ok", "service": "bot-api"})
+
+
+async def http_health_handler(request: web.Request) -> web.Response:
+    return _json_response({
+        "status": "ok",
+        "service": "bot-api",
+        "security": {
+            "self_api_key_configured": bool(_resolve_bot_api_key()),
+        },
+    })
+
+
+async def http_options_handler(request: web.Request) -> web.Response:
+    return _with_cors(web.Response(status=200))
+
+
+async def http_chat_proxy_handler(request: web.Request) -> web.Response:
+    print(f"[BOT_HTTP_API] /api/chat request from {request.remote}")
+    authorized, auth_error = _authorize_request(request)
+    if not authorized:
+        return auth_error  # type: ignore[return-value]
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return _json_response({"error": "Invalid JSON body."}, status=400)
+
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    if not isinstance(messages, list) or not messages:
+        return _json_response({"error": "messages array cannot be empty."}, status=400)
+
+    ai_backend_url = (os.getenv('AI_BACKEND_URL') or "http://127.0.0.1:8000").strip().rstrip("/")
+    api_key = _resolve_bot_api_key()
+    upstream_body = {"messages": messages, "stream": False}
+    timeout_s = float(os.getenv("HTTP_API_TIMEOUT_SECONDS", "60"))
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            upstream = await client.post(
+                f"{ai_backend_url}/api/chat",
+                json=upstream_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-API-Key": api_key,
+                },
+            )
+    except httpx.TimeoutException:
+        return _prompt_unavailable_response()
+    except httpx.RequestError as e:
+        print(f"[BOT_HTTP_API] AI backend request error: {e}")
+        return _prompt_unavailable_response()
+
+    if upstream.status_code != 200:
+        print(f"[BOT_HTTP_API] AI backend status={upstream.status_code}; returning fallback prompt")
+        return _prompt_unavailable_response()
+
+    response_content_type = upstream.headers.get("content-type", "application/x-ndjson")
+    print(f"[BOT_HTTP_API] upstream status={upstream.status_code} content-type={response_content_type}")
+    return _with_cors(
+        web.Response(
+            text=upstream.text,
+            status=upstream.status_code,
+            content_type=response_content_type.split(";")[0],
+        )
+    )
+
+
+async def start_http_api_server() -> None:
+    global _http_runner
+    if _http_runner is not None:
+        return
+
+    app = web.Application()
+    app.router.add_get("/", http_root_handler)
+    app.router.add_get("/health", http_health_handler)
+    app.router.add_post("/api/chat", http_chat_proxy_handler)
+    app.router.add_options("/api/chat", http_options_handler)
+    app.router.add_options("/", http_options_handler)
+    app.router.add_options("/health", http_options_handler)
+
+    _http_runner = web.AppRunner(app)
+    await _http_runner.setup()
+    host = os.getenv("HTTP_HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", os.getenv("HTTP_PORT", "8080")))
+    site = web.TCPSite(_http_runner, host=host, port=port)
+    await site.start()
+    print(f"Bot HTTP API started at http://{host}:{port}")
+
+
+async def stop_http_api_server() -> None:
+    global _http_runner
+    if _http_runner is not None:
+        await _http_runner.cleanup()
+        _http_runner = None
+        print("Bot HTTP API stopped")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -775,10 +943,17 @@ async def post_init(app):
         print(f"Warning: Could not initialize database: {e}")
         print("Bot will continue but user data won't be saved")
 
+    # Start optional HTTP API so this service can expose a Railway domain.
+    try:
+        await start_http_api_server()
+    except Exception as e:
+        print(f"Warning: Could not start HTTP API server: {e}")
+
 
 async def shutdown(app):
     """Close database pool on shutdown"""
     global _db_pool
+    await stop_http_api_server()
     if _db_pool:
         await _db_pool.close()
         print("Database connection closed")

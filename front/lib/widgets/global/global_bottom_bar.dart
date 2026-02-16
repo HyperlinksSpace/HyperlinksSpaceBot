@@ -24,14 +24,28 @@ class GlobalBottomBar extends StatefulWidget {
 
   // Track whether the AI page is currently visible
   static bool get isAiPageOpen => _GlobalBottomBarState._isAiPageOpen;
+  static final ValueNotifier<bool> isAiPageOpenNotifier = ValueNotifier<bool>(false);
   static void setAiPageOpen(bool isOpen) {
     _GlobalBottomBarState._isAiPageOpen = isOpen;
+    isAiPageOpenNotifier.value = isOpen;
   }
 
   // Static method to unfocus the input (can be called from anywhere)
   static void unfocusInput() {
     _focusNotifier.value = false;
     // The actual unfocus will be handled by the state
+  }
+
+  // Request focus on the AI & Search input (e.g. when returning from AI page so overlay is shown)
+  static VoidCallback? _requestFocusCallback;
+  static void requestInputFocus() {
+    _requestFocusCallback?.call();
+  }
+
+  /// Pop the AI page if it's on top (for centralized back button handler)
+  static void popAiPageIfOpen() {
+    if (!isAiPageOpen) return;
+    MyApp.navigatorKey.currentState?.pop(true);
   }
 
   // Static reference to the controller (set by the state)
@@ -81,6 +95,9 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
     // Set the static controller reference
     GlobalBottomBar._controllerInstance = _controller;
     GlobalBottomBar._submitCurrentInputCallback = _navigateToNewPage;
+    GlobalBottomBar._requestFocusCallback = () {
+      if (_focusNode.canRequestFocus) _focusNode.requestFocus();
+    };
 
     _focusNode.addListener(() {
       final newFocusState = _focusNode.hasFocus;
@@ -110,6 +127,7 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
     GlobalBottomBar._focusNotifier.removeListener(_onGlobalFocusChange);
     GlobalBottomBar._controllerInstance = null;
     GlobalBottomBar._submitCurrentInputCallback = null;
+    GlobalBottomBar._requestFocusCallback = null;
     _inputScrollController.removeListener(_onInputScrollChanged);
     _inputScrollController.dispose();
     _controller.dispose();
@@ -138,7 +156,15 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
       GlobalBottomBar.setAiPageOpen(true);
       navigator
           .push(MaterialPageRoute(builder: (_) => const AiPage()))
-          .then((_) => GlobalBottomBar.setAiPageOpen(false));
+          .then((result) {
+        // Run after frame so AI page dispose (backButton.hide()) has completed; then show Back on overlay
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          GlobalBottomBar.setAiPageOpen(false);
+          if (result == true) {
+            GlobalBottomBar.requestInputFocus();
+          }
+        });
+      });
     }
 
     _controller.clear();

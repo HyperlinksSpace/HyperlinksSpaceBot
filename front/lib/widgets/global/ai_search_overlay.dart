@@ -1,11 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../../app/theme/app_theme.dart';
 import '../../utils/keyboard_height_service.dart';
-import '../../utils/telegram_back_button.dart';
 import '../../utils/app_haptic.dart';
-import '../../telegram_webapp.dart';
 import '../../widgets/global/global_bottom_bar.dart';
 import '../common/edge_swipe_back.dart';
 
@@ -25,95 +25,68 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
     "Tell me about dogs token",
   ];
 
-  // Store the callback reference for cleanup
-  Function()? _backButtonCallback;
+  StreamSubscription<tma.BackButton>? _backButtonSubscription;
   bool _isFocused = false;
-  bool _backButtonSetup = false;
 
   @override
   void initState() {
     super.initState();
-    // Track initial focus state
     _isFocused = GlobalBottomBar.focusNotifier.value;
-    // Listen to focus changes to update state and setup/teardown back button
-    GlobalBottomBar.focusNotifier.addListener(_onFocusChanged);
+    GlobalBottomBar.focusNotifier.addListener(_updateBackButtonState);
+    GlobalBottomBar.isAiPageOpenNotifier.addListener(_updateBackButtonState);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateBackButtonState());
   }
 
-  void _onFocusChanged() {
-    final newFocusState = GlobalBottomBar.focusNotifier.value;
-
-    // Only react to actual changes - prevent unnecessary rebuilds
-    if (newFocusState == _isFocused) return;
-
-    // Update state immediately - don't delay with post-frame callback
-    // Delaying causes flash because overlay appears, then state updates later
-    setState(() {
-      _isFocused = newFocusState;
-    });
-
-    if (_isFocused) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted &&
-            GlobalBottomBar.focusNotifier.value &&
-            !_backButtonSetup) {
-          _setupBackButton();
-        }
-      });
+  /// Centralized: single listener, never torn down during overlay↔AI page transitions.
+  /// Show Back when overlay focused OR AI page open; hide only when both closed.
+  void _updateBackButtonState() {
+    if (!mounted) return;
+    final focus = GlobalBottomBar.focusNotifier.value;
+    final aiPageOpen = GlobalBottomBar.isAiPageOpen;
+    final shouldShowBack = focus || aiPageOpen;
+    setState(() => _isFocused = focus);
+    if (shouldShowBack) {
+      _ensureBackButtonActive();
     } else {
-      _teardownBackButton();
+      // Delay teardown so we don't hide when transitioning AI page → overlay (focus not yet set)
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (!mounted) return;
+        if (GlobalBottomBar.focusNotifier.value || GlobalBottomBar.isAiPageOpen) return;
+        _teardownBackButton();
+      });
     }
   }
 
-  void _setupBackButton() {
-    if (_backButtonSetup) return; // Prevent multiple setups
-
-    final telegramWebApp = TelegramWebApp();
-    if (telegramWebApp.isActuallyInTelegram) {
-      // Create callback to unfocus input when back button is clicked
-      _backButtonCallback = () {
-        GlobalBottomBar.unfocusInput();
-      };
-
-      // Show back button and handle clicks
-      // Use postFrameCallback to ensure this happens after the current frame
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted &&
-            GlobalBottomBar.focusNotifier.value &&
-            !_backButtonSetup) {
-          try {
-            TelegramBackButton.show();
-            TelegramBackButton.onClick(_backButtonCallback!);
-            _backButtonSetup = true;
-          } catch (e) {
-            // Silently fail if back button setup fails
-            print('Failed to setup back button: $e');
-          }
+  void _ensureBackButtonActive() {
+    if (_backButtonSubscription != null) return;
+    try {
+      final webApp = tma.WebApp();
+      _backButtonSubscription = webApp.eventHandler.backButtonClicked.listen((_) {
+        if (GlobalBottomBar.isAiPageOpen) {
+          GlobalBottomBar.popAiPageIfOpen();
+        } else if (GlobalBottomBar.focusNotifier.value) {
+          GlobalBottomBar.unfocusInput();
         }
       });
+      webApp.backButton.show();
+    } catch (e) {
+      print('Failed to setup back button: $e');
     }
   }
 
   void _teardownBackButton() {
-    if (!_backButtonSetup) return; // Nothing to teardown
-
-    final telegramWebApp = TelegramWebApp();
-    if (telegramWebApp.isActuallyInTelegram && _backButtonCallback != null) {
-      try {
-        TelegramBackButton.offClick(_backButtonCallback!);
-        TelegramBackButton.hide();
-      } catch (e) {
-        // Silently fail if back button teardown fails
-        print('Failed to teardown back button: $e');
-      }
-      _backButtonCallback = null;
-      _backButtonSetup = false;
-    }
+    if (_backButtonSubscription == null) return;
+    _backButtonSubscription?.cancel();
+    _backButtonSubscription = null;
+    try {
+      tma.WebApp().backButton.hide();
+    } catch (_) {}
   }
 
   @override
   void dispose() {
-    GlobalBottomBar.focusNotifier.removeListener(_onFocusChanged);
-    // Clean up back button if still active
+    GlobalBottomBar.focusNotifier.removeListener(_updateBackButtonState);
+    GlobalBottomBar.isAiPageOpenNotifier.removeListener(_updateBackButtonState);
     _teardownBackButton();
     super.dispose();
   }

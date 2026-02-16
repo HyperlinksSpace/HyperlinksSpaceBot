@@ -65,28 +65,9 @@
       height: calc(100% + 1px) !important;
     }
     
-    /* Hide Telegram close button and header controls */
-    .tg-header,
-    .tg-header *,
-    [class*="tg-close"],
-    [class*="close-button"],
-    [data-role="close"],
-    button[aria-label*="close" i],
-    button[aria-label*="Close" i],
-    .telegram-close-button,
-    .tg-webapp-header button:last-child,
-    .tg-header button,
-    /* Target common Telegram header close button selectors */
-    div[style*="close"] button,
-    .header-close,
-    .webapp-header-close {
-      display: none !important;
-      visibility: hidden !important;
-      opacity: 0 !important;
-      width: 0 !important;
-      height: 0 !important;
-      pointer-events: none !important;
-    }
+    /* Do NOT hide .tg-header or .tg-header * - the Back button (BackButton.show())
+       is rendered there. Hiding it would override our Back button when returning
+       from AI page to widget. Only hide explicit close-only elements if needed. */
   </style>
   <!-- styles.css removed - not needed or create empty file if required -->
   <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
@@ -262,25 +243,30 @@
         }
       }
       
-      // Function to hide Telegram close button
+      // Function to hide Telegram close button ONLY - must NOT hide Back button (BackButton.show())
+      // When overlay/widget shows Back, we need it visible. Only hide elements that are explicitly Close.
       function hideTelegramCloseButton() {
-        // Hide close button using various selectors
+        function isCloseLike(text) {
+          if (!text) return false;
+          var t = text.trim();
+          return t === '×' || t === '✕' || t === '✖' || (t.toLowerCase().includes('close') && !t.toLowerCase().includes('back'));
+        }
+        function isBackLike(text) {
+          if (!text) return false;
+          var t = text.trim().toLowerCase();
+          return t.includes('back') || t === '<' || t === '‹' || t === '←';
+        }
         var selectors = [
-          '.tg-header button:last-child',
-          '.tg-header button',
-          '[class*="close"]',
-          '[data-role="close"]',
-          'button[aria-label*="close" i]',
-          '.telegram-close-button',
-          '.header-close',
-          '.webapp-header-close'
+          '[class*="tg-close"]', '[class*="close-button"]', '[data-role="close"]',
+          'button[aria-label*="close" i]', '.telegram-close-button', '.header-close', '.webapp-header-close'
         ];
-        
         selectors.forEach(function(selector) {
           try {
             var elements = document.querySelectorAll(selector);
             elements.forEach(function(el) {
-              if (el && el.textContent && (el.textContent.trim() === '×' || el.textContent.trim() === '✕' || el.textContent.trim() === '✖' || el.textContent.includes('close'))) {
+              var text = el && el.textContent ? el.textContent : '';
+              if (isBackLike(text)) return; // Never hide Back button
+              if (isCloseLike(text)) {
                 el.style.display = 'none !important';
                 el.style.visibility = 'hidden !important';
                 el.style.opacity = '0 !important';
@@ -289,24 +275,8 @@
                 el.style.pointerEvents = 'none !important';
               }
             });
-          } catch (e) {
-            // Ignore errors
-          }
+          } catch (e) {}
         });
-        
-        // Also hide entire header if it only contains close button
-        try {
-          var headers = document.querySelectorAll('.tg-header, [class*="header"]');
-          headers.forEach(function(header) {
-            var buttons = header.querySelectorAll('button');
-            if (buttons.length === 1 && buttons[0].textContent && (buttons[0].textContent.trim() === '×' || buttons[0].textContent.trim() === '✕')) {
-              header.style.display = 'none !important';
-              header.style.visibility = 'hidden !important';
-            }
-          });
-        } catch (e) {
-          // Ignore errors
-        }
       }
       
       // Prevent auto-scroll when keyboard appears on mobile

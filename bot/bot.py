@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import hashlib
+import re
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
@@ -721,9 +722,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history = await get_conversation_history(telegram_id, limit=5)
     last_user_message = get_last_user_message_from_history(history)
 
-    # Prefer the current message language; use history only as fallback when ambiguous.
+    # Prefer current message language.
+    # For ticker-only inputs like "$TON" keep conversation language continuity.
     history_lang = detect_language_from_text(last_user_message) if last_user_message else "en"
     message_lang = detect_language_from_text(message_text, default=history_lang)
+    if re.fullmatch(r"\$?[A-Za-z0-9]{2,10}", message_text.strip()):
+        message_lang = history_lang
     
     # Build messages array according to AI backend API spec
     messages = [{

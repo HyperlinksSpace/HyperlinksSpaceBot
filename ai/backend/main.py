@@ -12,6 +12,7 @@ import time
 import asyncio
 import urllib.parse
 import logging
+import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 from prompt_i18n import localize_prompt_with_model
@@ -49,11 +50,18 @@ def _mask_secret(value: str, visible: int = 4) -> str:
     return f"{value[:visible]}...{value[-visible:]}"
 
 
+def _key_fingerprint(value: str) -> str:
+    if not value:
+        return "(missing)"
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:6]
+
+
 def _log_runtime_env_snapshot() -> None:
     provider = "openai" if LLM_PROVIDER == "openai" else "ollama"
     logger.info("[ENV][AI] runtime configuration snapshot")
     logger.info("[ENV][AI] provider=%s", provider)
     logger.info("[ENV][AI] INNER_CALLS_KEY configured=%s preview=%s", bool(INNER_CALLS_KEY), _mask_secret(INNER_CALLS_KEY))
+    logger.info("[ENV][AI] INNER_CALLS_KEY sha256_prefix=%s", _key_fingerprint(INNER_CALLS_KEY))
     logger.info("[ENV][AI] RAG_URL=%s", RAG_URL or "(missing)")
     logger.info("[ENV][AI] OLLAMA_URL=%s", OLLAMA_URL or "(missing)")
     logger.info("[ENV][AI] OLLAMA_MODEL=%s", OLLAMA_MODEL or "(missing)")
@@ -1318,7 +1326,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
             )
         if ton_only_narrative:
             non_ton_chain = re.search(
-                r"\b(bitcoin|ethereum|dogecoin|solana|tron|bsc|binance\s+smart\s+chain|polygon|avalanche)\b",
+                r"\b(bitcoin|ethereum|dogecoin|solana|tron|bsc|binance\s+smart\s+chain|polygon|avalanche|доджкоин|доге|доги|эфириум|биткоин|солана|трон)\b",
                 narrative_clean,
                 flags=re.IGNORECASE,
             )

@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os, json
+import hashlib
 from datetime import datetime
 import urllib.request
 import urllib.error
@@ -24,6 +25,31 @@ SWAP_COFFEE_BASE_URL = (
 COFFEE_KEY = (os.getenv("COFFEE_KEY") or os.getenv("TOKENS_API_KEY") or "").strip()
 INNER_CALLS_KEY = (os.getenv("INNER_CALLS_KEY") or os.getenv("API_KEY") or "").strip()
 TOKENS_VERIFICATION = os.getenv("TOKENS_VERIFICATION", "WHITELISTED,COMMUNITY,UNKNOWN")
+
+
+def _mask_secret(value: str, visible: int = 4) -> str:
+    if not value:
+        return "(missing)"
+    if len(value) <= visible * 2:
+        return "*" * len(value)
+    return f"{value[:visible]}...{value[-visible:]}"
+
+
+def _key_fingerprint(value: str) -> str:
+    if not value:
+        return "(missing)"
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:6]
+
+
+def _log_runtime_env_snapshot() -> None:
+    print("[ENV][RAG] runtime configuration snapshot")
+    print(f"[ENV][RAG] INNER_CALLS_KEY configured={bool(INNER_CALLS_KEY)} preview={_mask_secret(INNER_CALLS_KEY)}")
+    print(f"[ENV][RAG] INNER_CALLS_KEY sha256_prefix={_key_fingerprint(INNER_CALLS_KEY)}")
+    print(f"[ENV][RAG] SWAP_COFFEE_BASE_URL={SWAP_COFFEE_BASE_URL}")
+    print(f"[ENV][RAG] COFFEE_KEY configured={bool(COFFEE_KEY)} preview={_mask_secret(COFFEE_KEY)}")
+
+
+_log_runtime_env_snapshot()
 
 
 def _first_non_none(*values):

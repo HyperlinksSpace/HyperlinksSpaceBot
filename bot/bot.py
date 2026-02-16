@@ -2,6 +2,8 @@ import os
 import asyncio
 import json
 import time
+import hashlib
+import re
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, CallbackQueryHandler, filters
@@ -44,6 +46,12 @@ def _mask_secret(value: str, visible: int = 4) -> str:
     return f"{value[:visible]}...{value[-visible:]}"
 
 
+def _key_fingerprint(value: str) -> str:
+    if not value:
+        return "(missing)"
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:6]
+
+
 def _resolve_inner_calls_key_with_source() -> tuple[str, str]:
     for name in ("INNER_CALLS_KEY", "SELF_API_KEY", "API_KEY", "AI_KEY"):
         raw = (os.getenv(name) or "").strip()
@@ -63,6 +71,7 @@ def _log_runtime_env_snapshot() -> None:
     print("[ENV][BOT] runtime configuration snapshot")
     print(f"[ENV][BOT] AI_BACKEND_URL={ai_backend_url}")
     print(f"[ENV][BOT] INNER_CALLS_KEY source={key_source} preview={_mask_secret(key)}")
+    print(f"[ENV][BOT] INNER_CALLS_KEY sha256_prefix={_key_fingerprint(key)}")
     print(f"[ENV][BOT] APP_URL raw={app_url_raw or '(missing)'}")
     print(f"[ENV][BOT] APP_URL valid_launch_url={bool(app_url_built)}")
     print(f"[ENV][BOT] HTTP bind host={http_host} port={http_port}")
@@ -713,9 +722,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history = await get_conversation_history(telegram_id, limit=5)
     last_user_message = get_last_user_message_from_history(history)
 
-    message_lang = detect_language_from_text(message_text)
-    if last_user_message:
-        message_lang = detect_language_from_text(last_user_message, default=message_lang)
+    # Prefer current message language.
+    # For ticker-only inputs like "$TON" keep conversation language continuity.
+    history_lang = detect_language_from_text(last_user_message) if last_user_message else "en"
+    message_lang = detect_language_from_text(message_text, default=history_lang)
+    if re.fullmatch(r"\$?[A-Za-z0-9]{2,10}", message_text.strip()):
+        message_lang = history_lang
     
     # Build messages array according to AI backend API spec
     messages = [{

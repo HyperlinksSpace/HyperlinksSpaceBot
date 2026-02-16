@@ -721,9 +721,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history = await get_conversation_history(telegram_id, limit=5)
     last_user_message = get_last_user_message_from_history(history)
 
-    message_lang = detect_language_from_text(message_text)
-    if last_user_message:
-        message_lang = detect_language_from_text(last_user_message, default=message_lang)
+    # Prefer the current message language; use history only as fallback when ambiguous.
+    history_lang = detect_language_from_text(last_user_message) if last_user_message else "en"
+    message_lang = detect_language_from_text(message_text, default=history_lang)
     
     # Build messages array according to AI backend API spec
     messages = [{

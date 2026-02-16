@@ -1,13 +1,13 @@
-This is a monorepo containing multiple services.
+**HyperlinksSpaceBot** is a Telegram Mini App for the TON ecosystem: a wallet-style UI (Feed, Swap, Trade, Send, Get, Apps, Coins) plus an AI assistant in the bottom app bar and telegram bot that answers questions using RAG-grounded token and project data (e.g. `$DOGS`, `$TON`). The monorepo includes a Flutter web frontend, a Python Telegram bot with HTTP API (gateway and “Run app” entry point), an AI chat backend (FastAPI), and a RAG service for token/project retrieval from sources like swap.coffee. The AI backend uses Ollama or OpenAI for generation. Run locally with `start.sh`, or deploy bot, AI, and RAG to Railway and the frontend to Vercel.
 
 ## How to fork and contribute?
 
-1.Install GitHub CLI and authorize to GitHub from cli for instant work
+1. Install GitHub CLI and authorize to GitHub from CLI for instant work
 
 ```
 winget install --id GitHub.cli
 gh auth login
-``
+```
 
 2. Fork the repo, clone it and create a new branch and switch to it
 
@@ -25,7 +25,7 @@ gh pr create --title "My new PR" --body "It is my best PR"
 
 ## Localhost deploy
 
-Create a bot using @BotFather. Copy bot token and set it in `shell/start.ps1` (environment block near the top).
+Create a bot using @BotFather. Duplicate .env.example, renaming it to .env and copy there the bot token created.
 
 Run the script to start on localhost (logs show in RAG/AI/BOT/FRONT windows by default)
 
@@ -38,6 +38,88 @@ Run the script to stop on localhost
 ```
 sh ./stop.sh
 ```
+
+## Deploy
+
+### Prerequisites
+
+1. **Railway** – for bot, AI, and RAG backends  
+   - Create an account at [railway.app](https://railway.app)  
+   - Install CLI: `npm i -g @railway/cli`  
+   - Log in: `railway login`  
+   - Configure each service (bot, ai, rag) in the Railway dashboard and link them with `railway link` from each directory
+
+2. **Vercel** – for the Flutter web frontend  
+   - Create an account at [vercel.com](https://vercel.com)  
+   - Install CLI: `npm i -g vercel`  
+   - Log in: `vercel login`  
+   - Ensure Flutter is installed (required for `front/deploy.sh`)
+
+### Deploy workflow
+
+**Start deploy** – opens four terminals and deploys in parallel:
+
+```
+sh ./launch.sh
+```
+
+This runs:
+
+- **BOT DEPLOY** – `railway up` from `bot/`
+- **AI DEPLOY** – `railway up` from `ai/`
+- **RAG DEPLOY** – `railway up` from `rag/`
+- **FRONT DEPLOY** – `sh deploy.sh` from `front/` (builds Flutter web, deploys to Vercel)
+
+Each deploy runs in its own window. Wait until all four complete successfully.
+
+**Close deploy terminals** – after deploys finish, close the deploy windows:
+
+```
+sh ./success.sh
+```
+
+This closes the BOT/AI/RAG/FRONT DEPLOY terminals and any leftover deploy child processes (e.g. `railway up`, `deploy.sh`).
+
+*With `commands` loaded (direnv or `source commands`), you can run `launch` and `success` instead of the full paths.*
+
+## ENVS
+
+Set env vars per service in remote deploy as follows.
+
+### Bot service (`bot/bot.py`)
+
+- Required: `BOT_TOKEN`
+- Required: `INNER_CALLS_KEY` - must match frontend + AI + RAG
+- Required: `AI_BACKEND_URL` - public/internal URL of AI backend service
+- Required: `APP_URL` - public HTTPS URL of deployed frontend (Telegram Mini App URL)
+- Optional: `HTTP_PORT` (or platform `PORT`)
+- Optional compatibility aliases: `SELF_API_KEY`, `API_KEY`, `AI_KEY`
+- Optional: `DATABASE_URL` (enable persistence), `HTTP_API_TIMEOUT_SECONDS`, `EDIT_INTERVAL_SECONDS` (stream edit throttle, default `1`), `HTTP_HOST`
+
+### AI service (`ai/backend/main.py`)
+
+- Required: `INNER_CALLS_KEY` - same shared key as bot/frontend/rag
+- Required: `RAG_URL` - URL of RAG backend service
+- Optional provider switch: `LLM_PROVIDER=ollama|openai`
+- If `LLM_PROVIDER=openai`: `OPENAI_API_KEY` (required), `OPENAI_MODEL` (optional, default `gpt-4o-mini`)
+- If `LLM_PROVIDER=ollama`: `OLLAMA_URL`, `OLLAMA_MODEL`
+- Optional compatibility alias: `API_KEY`
+- Optional: platform `PORT`
+
+### RAG service (`rag/backend/main.py`)
+
+- Required: `INNER_CALLS_KEY` - same shared key as bot/frontend/ai
+- Optional: `COFFEE_URL` (default `https://tokens.swap.coffee`, replaces old `TOKENS_API_URL`)
+- Optional: `COFFEE_KEY` (swap.coffee API key, if required by provider limits)
+- Optional: `TOKENS_VERIFICATION`
+- Optional storage paths: `RAG_STORE_PATH`, `PROJECTS_STORE_PATH`
+
+### Frontend (`front/`)
+
+- Required at build/run: `BOT_API_URL` - bot HTTP API base URL
+- Required at build/run: `INNER_CALLS_KEY` - same shared key as bot/AI/RAG
+- Optional compatibility alias: `BOT_API_KEY`
+- Optional (theme): `THEME`
 
 ## Repository Structure
 

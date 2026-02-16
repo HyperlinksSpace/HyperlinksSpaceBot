@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 
 import '../app/theme/app_theme.dart';
 import '../services/ai_chat_service.dart';
@@ -129,6 +132,7 @@ class _AiPageState extends State<AiPage> {
   final Map<int, GlobalKey> _entryKeys = <int, GlobalKey>{};
   int _pinRetryCount = 0;
   double _latestEntryHeight = 0.0;
+  StreamSubscription<tma.BackButton>? _backButtonSubscription;
   // 30px design inset with 1px clip safety to prevent previous-edge bleed.
   static const double _latestEntryTopInset = 29.0;
 
@@ -161,10 +165,26 @@ class _AiPageState extends State<AiPage> {
         _pinLatestEntryToTop();
       }
     });
+    // TMA built-in back button — same setup as apps_page so press works like slide-back
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        final webApp = tma.WebApp();
+        final eventHandler = webApp.eventHandler;
+        _backButtonSubscription =
+            eventHandler.backButtonClicked.listen((_) => _handleBackButton());
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) webApp.backButton.show();
+        });
+      } catch (_) {}
+    });
   }
 
   @override
   void dispose() {
+    _backButtonSubscription?.cancel();
+    try {
+      tma.WebApp().backButton.hide();
+    } catch (_) {}
     AiConversationController.instance.entriesNotifier
         .removeListener(_onEntriesChanged);
     _scrollController.dispose();

@@ -4,11 +4,12 @@ param(
   [switch]$ForegroundBot,
   [switch]$StopOllama,
   [switch]$OpenLogWindows,
-  [switch]$LogsInServiceWindows
+  [switch]$NoServiceWindowLogs  # If set, log to files instead of service windows (default: logs in service windows)
 )
 
+$LogsInServiceWindows = -not $NoServiceWindowLogs
 $ErrorActionPreference = "Stop"
-Write-Host "start_local.ps1: launching local stack..."
+Write-Host "start.ps1: launching local stack..."
 
 function Get-ListeningPids($port) {
   try {
@@ -46,11 +47,30 @@ function Stop-Pids([int[]]$pids, [string]$reason) {
   }
 }
 
+function Stop-PidsWithTree([int[]]$pids, [string]$reason) {
+  if (-not $pids -or $pids.Count -eq 0) { return }
+  $taskkillExe = Join-Path ([Environment]::GetFolderPath("Windows")) "System32\taskkill.exe"
+  foreach ($procId in ($pids | Sort-Object -Unique)) {
+    try {
+      Write-Host "  Killing PID $procId with child tree ($reason)..."
+      if (Test-Path -LiteralPath $taskkillExe) {
+        & $taskkillExe /PID $procId /T /F | Out-Null
+      } else {
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+      }
+    } catch {}
+  }
+}
+
 function Stop-BotProcesses {
   $botPids = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-    Where-Object CommandLine -Match "bot\.py" |
+    Where-Object {
+      $cmd = $_.CommandLine
+      if (-not $cmd) { return $false }
+      return ($cmd -like "*bot.py*" -or $cmd -like "*bot\bot.py*")
+    } |
     Select-Object -ExpandProperty ProcessId -Unique
-  Stop-Pids $botPids "bot.py"
+  Stop-PidsWithTree $botPids "bot.py"
 }
 
 function Stop-FrontendProcesses {
@@ -186,29 +206,68 @@ function Start-ServiceProcessWindow {
     [string[]]$Arguments
   )
 
-  $serviceLiteral = To-SingleQuotedLiteral -Text $ServiceName
-  $wdLiteral = To-SingleQuotedLiteral -Text $WorkingDirectory
-  $exeLiteral = To-SingleQuotedLiteral -Text $ExecutablePath
-  $argItems = @()
-  foreach ($arg in $Arguments) {
-    $argItems += (To-SingleQuotedLiteral -Text $arg)
+  # Use native Windows paths so the child PowerShell resolves .venv and dirs correctly
+  $wdNative = $WorkingDirectory -replace '/', '\'
+  if ($wdNative -match '^\\[cC]\\') {
+    $wdNative = ($wdNative -replace '^\\([cC])\\', '$1:\').TrimStart('\')
   }
-  $argsLiteral = "@(" + ($argItems -join ", ") + ")"
-  $cmd = @"
-`$Host.UI.RawUI.WindowTitle = $serviceLiteral
-Write-Host "[$ServiceName]" -ForegroundColor Cyan
-Set-Location -LiteralPath $wdLiteral
-`$args = $argsLiteral
-& $exeLiteral @args
-"@
+  if (-not [System.IO.Path]::IsPathRooted($wdNative)) {
+    $wdNative = (Resolve-Path -LiteralPath $WorkingDirectory).Path
+  }
+  $exeNative = $ExecutablePath -replace '/', '\'
+  if ($exeNative -match '^\\[cC]\\') {
+    $exeNative = ($exeNative -replace '^\\([cC])\\', '$1:\').TrimStart('\')
+  }
+  # Resolve to full path only when it looks like a file path; leave bare command names (e.g. "flutter") as-is
+  if ($exeNative -match '[\\/:]' -and -not [System.IO.Path]::IsPathRooted($exeNative)) {
+    $exeNative = (Resolve-Path -LiteralPath $ExecutablePath).Path
+  }
 
-  return Start-Process -FilePath "powershell.exe" `
-    -ArgumentList @("-NoExit", "-Command", $cmd) `
+  $serviceLiteral = To-SingleQuotedLiteral -Text $ServiceName
+  $wdLiteral = To-SingleQuotedLiteral -Text $wdNative
+  $exeLiteral = To-SingleQuotedLiteral -Text $exeNative
+  $argList = ($Arguments | ForEach-Object { To-SingleQuotedLiteral -Text $_ }) -join " "
+  $scriptLines = @(
+    "`$Host.UI.RawUI.WindowTitle = $serviceLiteral",
+    "Write-Host `"[$ServiceName]`" -ForegroundColor Cyan",
+    "Set-Location -LiteralPath $wdLiteral",
+    "& $exeLiteral $argList"
+  )
+  $scriptContent = $scriptLines -join "`r`n"
+  $tempDir = [System.IO.Path]::GetTempPath()
+  $tempScript = Join-Path $tempDir "HyperlinksSpaceBot_$ServiceName.ps1"
+  # UTF-8 without BOM so child PowerShell parses the script reliably
+  $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+  [System.IO.File]::WriteAllText($tempScript, $scriptContent, $utf8NoBom)
+  $tempScriptFull = [System.IO.Path]::GetFullPath($tempScript)
+
+  # Launch via cmd /c start so the new window gets a real console and shows output
+  # (avoids empty windows when parent was started from bash / non-console)
+  $startTitle = "HyperlinksSpaceBot $ServiceName"
+  $proc = Start-Process -FilePath "cmd.exe" `
+    -ArgumentList @(
+      "/c", "start", "`"$startTitle`"",
+      "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-NoProfile",
+      "-File", "`"$tempScriptFull`""
+    ) `
     -WindowStyle Normal `
     -PassThru
+  # Return a dummy process object so callers still get $ragProc.Id etc.; cmd exits immediately
+  if (-not $proc) {
+    return $proc
+  }
+  Start-Sleep -Milliseconds 200
+  $psProcs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+    Where-Object { $_.CommandLine -like "*HyperlinksSpaceBot_$ServiceName.ps1*" } |
+    Sort-Object CreationDate -Descending |
+    Select-Object -First 1
+  if ($psProcs) {
+    return Get-Process -Id $psProcs.ProcessId -ErrorAction SilentlyContinue
+  }
+  return $proc
 }
 
-$root = (Resolve-Path $PSScriptRoot).Path
+$root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 
 function Get-SystemPythonCommand {
@@ -498,6 +557,19 @@ Ensure-VenvPython -RootPath $root -VenvPythonPath $venvPython
 Install-ServiceDependencies -RootPath $root -VenvPythonPath $venvPython
 
 # ===== Environment configuration =====
+# Load repo root .env (BOT_TOKEN and any other vars)
+$rootEnvPath = Join-Path $root ".env"
+if (Test-Path -LiteralPath $rootEnvPath) {
+  Get-Content -LiteralPath $rootEnvPath -Encoding UTF8 | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -and -not $line.StartsWith("#") -and $line -match "^\s*([^#=]+)=(.*)$") {
+      $key = $Matches[1].Trim()
+      $val = $Matches[2].Trim().Trim('"').Trim("'")
+      if ($key) { Set-Item -Path "Env:$key" -Value $val -ErrorAction SilentlyContinue }
+    }
+  }
+}
+
 # Shared internal auth across front/bot/ai/rag
 $env:INNER_CALLS_KEY = "local-dev-inner-calls-key"
 
@@ -512,9 +584,11 @@ $env:AI_BACKEND_URL  = "http://127.0.0.1:8000"
 $env:OLLAMA_URL      = "http://127.0.0.1:11434"
 $env:OLLAMA_MODEL    = "qwen2.5:1.5b"
 
-# Bot
+# Bot (BOT_TOKEN is loaded from .env above)
 $env:HTTP_PORT       = "8080"
-$env:BOT_TOKEN       = "8592693295:AAGRdNme_SmkOKbdNSH6uWq-QT4Hf2pRjvY"
+if ([string]::IsNullOrWhiteSpace($env:BOT_TOKEN)) {
+  throw "BOT_TOKEN is not set. Add BOT_TOKEN=your_token to the repo root .env file (copy from .env.example)."
+}
 
 # Frontend
 $frontendPort        = 3000
@@ -559,6 +633,8 @@ if ($StopOllama) {
   Stop-Pids (Get-ListeningPids 11434) "port 11434"
 }
 Start-Sleep -Milliseconds 300
+# Allow port 8080 and Telegram token to be released before starting a new bot (avoids double /start replies)
+Start-Sleep -Seconds 1
 
 # Frontend .env sync for direct bot API flow
 $frontEnvPath = Join-Path $frontDir ".env"
@@ -623,6 +699,9 @@ if ($ForegroundBot) {
   return
 }
 
+# Ensure no leftover bot process (avoids double /start replies)
+Stop-BotProcesses
+Start-Sleep -Milliseconds 800
 if ($LogsInServiceWindows) {
   $botProc = Start-ServiceProcessWindow -ServiceName "BOT" -WorkingDirectory $botDir -ExecutablePath $venvPython -Arguments @("bot.py")
 } else {

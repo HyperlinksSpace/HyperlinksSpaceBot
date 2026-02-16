@@ -51,6 +51,9 @@ app.*.map.json
 
 .venv/
 rag/.venv/
+
+# Root .env (bot token and other secrets)
+/.env
 *_store.json
 rag_store.json
 projects_store.json
@@ -59,4 +62,3 @@ __pycache__/
 
 
 ai/backend/main.py.backup
-envs.md

@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "SilentlyContinue"
-$root = (Resolve-Path $PSScriptRoot).Path
+$root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 function Get-ListeningPids($port) {
   try {
@@ -68,15 +68,24 @@ function Stop-PidsWithTree([int[]]$pids, [string]$reason) {
   }
 }
 
-function Kill-Port($port) {
+function Kill-Port($port, [switch]$WithTree) {
   Write-Host "Checking port $port..."
-  Stop-Pids (Get-ListeningPids $port) "port $port"
+  $pids = Get-ListeningPids $port
+  if ($WithTree) {
+    Stop-PidsWithTree $pids "port $port"
+  } else {
+    Stop-Pids $pids "port $port"
+  }
 }
 
 function Kill-BotProcess {
   Write-Host "Checking bot.py processes..."
   $botProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-    Where-Object CommandLine -Match "bot\.py"
+    Where-Object {
+      $cmd = $_.CommandLine
+      if (-not $cmd) { return $false }
+      return ($cmd -like "*bot.py*" -or $cmd -like "*bot\bot.py*")
+    }
 
   if (-not $botProcs) {
     Write-Host "  No bot.py python process found."
@@ -84,7 +93,7 @@ function Kill-BotProcess {
   }
 
   $pids = $botProcs | Select-Object -ExpandProperty ProcessId | Sort-Object -Unique
-  Stop-Pids $pids "bot.py"
+  Stop-PidsWithTree $pids "bot.py"
 }
 
 function Kill-FrontendFlutterProcess {
@@ -98,7 +107,7 @@ function Kill-FrontendFlutterProcess {
   }
 
   $pids = $frontProcs | Select-Object -ExpandProperty ProcessId | Sort-Object -Unique
-  Stop-Pids $pids "flutter web-server"
+  Stop-PidsWithTree $pids "flutter web-server"
 }
 
 function Kill-BackendPythonByCommand {
@@ -118,7 +127,7 @@ function Kill-BackendPythonByCommand {
     } |
     Select-Object -ExpandProperty ProcessId -Unique
 
-  Stop-Pids $backendPids "local uvicorn backend"
+  Stop-PidsWithTree $backendPids "local uvicorn backend"
 }
 
 function Kill-OllamaProcesses {
@@ -156,7 +165,7 @@ function Kill-RepoProcesses {
     } |
     Select-Object -ExpandProperty ProcessId -Unique
 
-  Stop-Pids $repoRuntimePids "repo runtime process"
+  Stop-PidsWithTree $repoRuntimePids "repo runtime process"
 }
 
 function Kill-LogTailWindows {
@@ -186,33 +195,33 @@ function Kill-ServiceWindows {
     [string]$RootPath
   )
 
-  Write-Host "Checking service terminal windows..."
-  $rootRegex = [regex]::Escape($RootPath)
+  Write-Host "Checking service terminal windows (RAG/AI/BOT/FRONT)..."
+  # Service windows are: powershell.exe -File "...\HyperlinksSpaceBot_<SERVICE>.ps1" (started by start.ps1)
   $serviceWindowPids = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
     Where-Object {
       $cmd = $_.CommandLine
       if (-not $cmd) { return $false }
-      return (
-        ($cmd -match "WindowTitle\s*=\s*'RAG'|WindowTitle\s*=\s*'AI'|WindowTitle\s*=\s*'BOT'|WindowTitle\s*=\s*'FRONT'") -or
-        (($cmd -match "Set-Location\s+-LiteralPath") -and ($cmd -match $rootRegex) -and ($cmd -match "uvicorn|bot\.py|flutter"))
-      )
+      return $cmd -match "HyperlinksSpaceBot_(RAG|AI|BOT|FRONT)\.ps1"
     } |
     Select-Object -ExpandProperty ProcessId -Unique
 
   Stop-PidsWithTree $serviceWindowPids "service window"
 }
 
-# Always stop backend + rag
+# First: close our service terminal windows and their full process trees (RAG/AI/BOT/FRONT)
+# so no python/flutter child is left running (avoids "another instance consuming updates")
+Kill-ServiceWindows -RootPath $root
+Kill-LogTailWindows -RootPath $root
+
+# Then: kill by port (with tree for bot/frontend ports) and by command line
 Kill-Port 8000
 Kill-Port 8001
-Kill-Port 8080
-Kill-Port 3000
+Kill-Port 8080 -WithTree
+Kill-Port 3000 -WithTree
 Kill-BackendPythonByCommand
 Kill-BotProcess
 Kill-FrontendFlutterProcess
 Kill-RepoProcesses -RootPath $root
-Kill-ServiceWindows -RootPath $root
-Kill-LogTailWindows -RootPath $root
 
 if ($KeepOllama) {
   Write-Host "Keeping Ollama (11434) running. Use without -KeepOllama to stop it."
@@ -224,8 +233,10 @@ if ($KeepOllama) {
 # Final sweep: after terminal/process-tree kills, free target ports again.
 foreach ($port in 8000, 8001, 8080, 3000, 11434) {
   if ($KeepOllama -and $port -eq 11434) { continue }
-  Kill-Port $port
+  Kill-Port $port -WithTree
 }
+# One more pass on bot so no instance keeps the token
+Kill-BotProcess
 
 Write-Host "Done. Active listeners summary:"
 foreach ($port in 8000, 8001, 8080, 3000, 11434) {

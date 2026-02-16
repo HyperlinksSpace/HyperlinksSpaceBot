@@ -25,18 +25,18 @@ gh pr create --title "My new PR" --body "It is my best PR"
 
 ## Localhost deploy
 
-Create a bot using @BotFather. Copy bot token and set them in the 446th line of start_local.ps1 in the root directory of the project.
+Create a bot using @BotFather. Copy bot token and set it in `shell/start.ps1` (environment block near the top).
 
-Run the script to start on localhost
+Run the script to start on localhost (logs show in RAG/AI/BOT/FRONT windows by default)
 
 ```
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:/1/HyperlinksSpaceBot/start_local.ps1" -LogsInServiceWindows
+sh ./start.sh
 ```
 
 Run the script to stop on localhost
 
 ```
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:/1/HyperlinksSpaceBot/stop_local.ps1"
+sh ./stop.sh
 ```
 
 ## Repository Structure
@@ -50,10 +50,10 @@ HyperlinksSpaceBot/
 ├── rag/                   # RAG backend (FastAPI)
 │   └── backend/
 ├── docs/                  # Project docs
-├── start_local.ps1        # Main local stack launcher (Windows)
-├── stop_local.ps1         # Local stack stop/cleanup script (Windows)
-├── smoke_test.ps1         # Local smoke checks (PowerShell)
-└── smoke_test.sh          # Local smoke checks (bash)
+├── start.sh               # Root wrapper -> shell/start.ps1
+├── stop.sh                # Root wrapper -> shell/stop.ps1
+├── smoke.sh               # Root wrapper -> shell/smoke.ps1
+└── shell/                 # PowerShell implementations
 ```
 
 ## Runtime Architecture
@@ -74,7 +74,7 @@ Request path in local mode:
 
 ## Local Scripts
 
-### `start_local.ps1`
+### `start.sh` / `shell/start.ps1`
 
 Starts local stack, writes/streams logs, performs readiness checks, and opens frontend in browser when ready.
 
@@ -83,10 +83,10 @@ Supported switches:
 - `-Reload` - enables `uvicorn --reload` for AI and RAG
 - `-ForegroundBot` - runs bot in current terminal (Ctrl+C stops services)
 - `-StopOllama` - stops existing Ollama listener during pre-cleanup
-- `-OpenLogWindows` - opens separate log-tail windows for services
-- `-LogsInServiceWindows` - shows logs in service process windows instead of redirected log files
+- `-OpenLogWindows` - opens separate log-tail windows for services (only when using file logs)
+- `-NoServiceWindowLogs` - log to files instead of service process windows (default: logs in service windows)
 
-### `stop_local.ps1`
+### `stop.sh` / `shell/stop.ps1`
 
 Stops the local stack robustly by:
 
@@ -106,7 +106,7 @@ Switch:
 - `8080` - bot HTTP API (`/health`)
 - `11434` - Ollama API (when using `LLM_PROVIDER=ollama`)
 
-`start_local.ps1` reports readiness for:
+`start.sh` reports readiness for:
 
 - RAG `/health`
 - AI root endpoint
@@ -121,7 +121,7 @@ Current frontend deploy helper scripts in `front/` are Vercel-oriented:
 - `front/deploy.sh`
 - `front/deploy.bat`
 
-`start_local.ps1` also prints this flow after startup:
+`start.sh` also prints this flow after startup:
 
 1. `cd front`
 2. `bash deploy.sh` (or `.\deploy.bat` on Windows)

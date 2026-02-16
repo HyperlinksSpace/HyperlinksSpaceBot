@@ -926,8 +926,15 @@ async def post_init(app):
         print("Bot will continue but user data won't be saved")
 
     # Start optional HTTP API so this service can expose a Railway domain.
+    # If port is in use, another bot instance is likely running — exit to avoid duplicate /start replies.
     try:
         await start_http_api_server()
+    except OSError as e:
+        if e.errno in (98, 10048):  # Address already in use (Unix, Windows)
+            print("Another bot instance is using the HTTP port. Exiting to avoid duplicate replies.")
+            import sys
+            sys.exit(1)
+        raise
     except Exception as e:
         print(f"Warning: Could not start HTTP API server: {e}")
 

@@ -432,12 +432,28 @@ async def http_chat_proxy_handler(request: web.Request) -> web.Response:
     if not isinstance(messages, list) or not messages:
         return _json_response({"error": "messages array cannot be empty."}, status=400)
 
+    # Keep HTTP proxy language behavior consistent with Telegram path:
+    # current message language wins; ticker-only inputs can inherit prior user language.
+    user_messages = [
+        m.get("content", "").strip()
+        for m in messages
+        if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str)
+    ]
+    current_user_text = user_messages[-1] if user_messages else ""
+    prev_user_text = user_messages[-2] if len(user_messages) >= 2 else ""
+    history_lang = detect_language_from_text(prev_user_text) if prev_user_text else "en"
+    message_lang = detect_language_from_text(current_user_text, default=history_lang)
+    if re.fullmatch(r"\$?[A-Za-z0-9]{2,10}", current_user_text):
+        message_lang = history_lang
+    proxied_messages = [{"role": "system", "content": build_default_system_prompt(message_lang)}]
+    proxied_messages.extend(messages)
+
     api_key = _resolve_bot_api_key()
     timeout_s = float(os.getenv("HTTP_API_TIMEOUT_SECONDS", "120"))
 
     try:
         upstream_status, upstream_text, upstream_content_type = await post_chat_once(
-            messages=messages,
+            messages=proxied_messages,
             api_key=api_key,
             timeout_s=timeout_s,
         )

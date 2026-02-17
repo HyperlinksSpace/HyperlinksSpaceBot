@@ -478,7 +478,15 @@ async def get_token(symbol: str, api_key: str = Depends(verify_inner_calls_key))
         "symbol": data.get("symbol") or normalized,
         "name": data.get("name"),
         "description": description,
-        "decimals": None,
+        "decimals": _first_non_none(
+            data.get("decimals"), metadata.get("decimals")
+        ),
+        "verified": _first_non_none(
+            data.get("verification"),
+            metadata.get("verification"),
+            data.get("verified"),
+            data.get("is_verified"),
+        ),
         # Keep source values as-is; do not fabricate fallback numbers.
         "total_supply": _first_non_none(
             data.get("total_supply"), data.get("supply"), data.get("totalSupply")

@@ -445,6 +445,24 @@ def _format_activity_date(value: Any) -> Optional[str]:
     return text
 
 
+def _truncate_text(value: str, max_len: int = 180) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "..."
+
+
+def _format_verified(value: Any, user_lang: str) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return ("да" if value else "нет") if user_lang == "ru" else ("yes" if value else "no")
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
+
+
 def _resolve_token_source(ticker_data: Dict[str, Any]) -> str:
     source = ticker_data.get("source")
     if source:
@@ -459,18 +477,23 @@ def _resolve_token_source(ticker_data: Dict[str, Any]) -> str:
 
 def _build_ticker_facts_block(ticker_data: Dict[str, Any], ticker_symbol: Optional[str], user_lang: str) -> str:
     symbol = str(ticker_data.get("symbol") or ticker_symbol or "UNKNOWN").upper()
+    token_type = str(ticker_data.get("type") or "token").lower()
 
     # RAW VALUES - exactly as fetched
     supply_raw = ticker_data.get("total_supply")
     holders_raw = ticker_data.get("holders")
     description_raw = ticker_data.get("description")
+    contract_raw = ticker_data.get("id") or ticker_data.get("address") or ticker_data.get("contract")
+    decimals_raw = ticker_data.get("decimals")
+    verified_raw = ticker_data.get("verified")
     
     # Format raw integers with commas for readability (but keep them accurate)
     supply_display = _metric_display(supply_raw) if supply_raw is not None else None
     holders_display = _metric_display(holders_raw) if holders_raw is not None else None
-    description_display = str(description_raw).strip() if description_raw is not None else ""
-    if not description_display:
-        description_display = "not available" if user_lang != "ru" else "недоступно"
+    description_display = _truncate_text(str(description_raw).strip()) if description_raw is not None else ""
+    contract_display = str(contract_raw).strip() if contract_raw is not None else ""
+    decimals_display = _metric_display(decimals_raw) if decimals_raw is not None else None
+    verified_display = _format_verified(verified_raw, user_lang)
 
     if user_lang == "ru":
         lines = [
@@ -479,8 +502,15 @@ def _build_ticker_facts_block(ticker_data: Dict[str, Any], ticker_symbol: Option
             "Blockchain: TON",
             f"Выпуск: {supply_display if supply_display else 'неизвестно'}",
             f"Держатели: {holders_display if holders_display else 'неизвестно'}",
-            f"Описание: {description_display}",
         ]
+        if token_type == "jetton" and contract_display:
+            lines.append(f"Контракт: {contract_display}")
+        if decimals_display:
+            lines.append(f"Decimals: {decimals_display}")
+        if verified_display:
+            lines.append(f"Verified: {verified_display}")
+        if description_display:
+            lines.append(f"Описание: {description_display}")
         
     else:
         lines = [
@@ -489,8 +519,15 @@ def _build_ticker_facts_block(ticker_data: Dict[str, Any], ticker_symbol: Option
             "Blockchain: TON",
             f"Supply: {supply_display if supply_display else 'not available'}",
             f"Holders: {holders_display if holders_display else 'not available'}",
-            f"Description: {description_display}",
         ]
+        if token_type == "jetton" and contract_display:
+            lines.append(f"Contract: {contract_display}")
+        if decimals_display:
+            lines.append(f"Decimals: {decimals_display}")
+        if verified_display:
+            lines.append(f"Verified: {verified_display}")
+        if description_display:
+            lines.append(f"Description: {description_display}")
     
     return "\n".join(lines)
 

@@ -30,12 +30,6 @@ class _MainPageState extends State<MainPage> {
     return bottomPadding;
   }
 
-  // Helper method to calculate GlobalBottomBar height
-  double _getGlobalBottomBarHeight() {
-    // Minimum height: container padding (10 + 15) + TextField minHeight (30)
-    return 10.0 + 30.0 + 15.0;
-  }
-
   String _selectedTab = 'Feed'; // Default selected tab
 
   static const List<String> _tabOrder = ['Feed', 'Chat', 'Tasks', 'Items', 'Coins'];
@@ -88,6 +82,14 @@ class _MainPageState extends State<MainPage> {
         'secondaryText': "Press to access a creators page",
         'timestamp': '11:11',
         'rightText': null,
+        'route': 'creators',
+      },
+      {
+        'icon': 'assets/sample/DLLR.svg',
+        'primaryText': 'Token granted',
+        'secondaryText': '\$1',
+        'timestamp': '13:17',
+        'rightText': '+1 DLLR',
       },
       {
         'icon': 'assets/sample/mak/3.svg',
@@ -109,13 +111,6 @@ class _MainPageState extends State<MainPage> {
         'secondaryText': 'AI CLATH Collection',
         'timestamp': '15:22',
         'rightText': 'N/A',
-      },
-      {
-        'icon': 'assets/sample/DLLR.svg',
-        'primaryText': 'Token granted',
-        'secondaryText': '\$1',
-        'timestamp': '13:17',
-        'rightText': '+1 DLLR',
       },
     ];
   }
@@ -199,8 +194,7 @@ class _MainPageState extends State<MainPage> {
           // The logo visibility doesn't actually change when keyboard opens,
           // so we don't need to listen to fullscreenNotifier here
           final topPadding = GlobalLogoBar.getContentTopPadding();
-          final logoBlockHeight = GlobalLogoBar.getLogoBlockHeight();
-          final bottomBarHeight = _getGlobalBottomBarHeight();
+          final bottomPadding = _getAdaptiveBottomPadding();
           print('[MainPage] Applying content top padding: $topPadding');
           return Stack(
             children: [
@@ -217,6 +211,15 @@ class _MainPageState extends State<MainPage> {
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
+                        // Non-positioned child so Stack gets bounded size (enables scrolling + indicator)
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            return SizedBox(
+                              width: constraints.maxWidth,
+                              height: constraints.maxHeight,
+                            );
+                          },
+                        ),
                         Positioned.fill(
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
@@ -753,7 +756,6 @@ class _MainPageState extends State<MainPage> {
                           if (_selectedTab == 'Feed')
                             Column(
                               children: _feedItems.asMap().entries.map((entry) {
-                                final index = entry.key;
                                 final item = entry.value;
                                 final row = Row(
                                       crossAxisAlignment:
@@ -903,7 +905,7 @@ class _MainPageState extends State<MainPage> {
                                     child: row,
                                   ),
                                 );
-                                if (index == 0) {
+                                if (item['route'] == 'creators') {
                                   cell = GestureDetector(
                                     onTap: () {
                                       AppHaptic.heavy();
@@ -1476,6 +1478,7 @@ class _MainPageState extends State<MainPage> {
                                 );
                               }).toList(),
                             ),
+                        const SizedBox(height: 20), // 20px indent from bottom of viewport (above bottom bar)
                         ],
                       ),
                     ),
@@ -1522,12 +1525,11 @@ class _MainPageState extends State<MainPage> {
               ),
             ),
             ),
-              // Scroll indicator - always visible, 5px from right edge
-              // Height reflects visible area dimension
+              // Scroll indicator - same as trade page (content band, 5px from right)
               Positioned(
                 right: 5,
-                top: logoBlockHeight,
-                bottom: bottomBarHeight,
+                top: topPadding,
+                bottom: bottomPadding,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final containerHeight = constraints.maxHeight;
@@ -1543,8 +1545,8 @@ class _MainPageState extends State<MainPage> {
                       final viewportHeight = position.viewportDimension;
                       final totalHeight = viewportHeight + maxScroll;
 
-                      // If no scrolling needed, hide the indicator
-                      if (maxScroll <= 0 || totalHeight <= 0) {
+                      // If content fits (no scroll), hide the indicator (e.g. after switching tabs)
+                      if (maxScroll < 1.0 || totalHeight <= 0) {
                         return const SizedBox.shrink();
                       }
 

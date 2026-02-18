@@ -5,6 +5,8 @@ import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
 import '../widgets/global/global_logo_bar.dart';
 import '../widgets/common/edge_swipe_back.dart';
 import '../widgets/common/wallet_panel.dart';
+import '../services/wallet/mock_wallet_service.dart';
+import '../services/wallet/wallet_service.dart';
 import '../telegram_safe_area.dart';
 import '../app/theme/app_theme.dart';
 import '../telegram_webapp.dart';
@@ -18,32 +20,23 @@ class WalletsPage extends StatefulWidget {
 }
 
 class _WalletsPageState extends State<WalletsPage> {
-  WalletPanelState _mockPanelState = WalletPanelState.deploying;
+  static const bool kUseMockWalletState = true;
 
-  final Map<String, dynamic> _mockState = {
-    'deploy_status': 'pending',
-    'dllr_status': 'allocated',
-    'address': 'EQC8fT2u...pRk91A',
-    'balances': {
-      'dllr': {
-        'allocated': '10.00',
-        'locked': '2.00',
-        'available': '8.00',
-      }
-    }
-  };
+  late final WalletService _walletService;
+  MockWalletService? _mockWalletService;
+  WalletMockScenario _mockScenario = WalletMockScenario.deploying;
 
-  String _stateLabel(WalletPanelState state) {
+  String _stateLabel(WalletMockScenario state) {
     switch (state) {
-      case WalletPanelState.noWallet:
+      case WalletMockScenario.noWallet:
         return 'No wallet';
-      case WalletPanelState.generating:
+      case WalletMockScenario.generating:
         return 'Generating';
-      case WalletPanelState.deploying:
+      case WalletMockScenario.deploying:
         return 'Deploying';
-      case WalletPanelState.ready:
+      case WalletMockScenario.ready:
         return 'Ready';
-      case WalletPanelState.restored:
+      case WalletMockScenario.restored:
         return 'Restored';
     }
   }
@@ -67,6 +60,13 @@ class _WalletsPageState extends State<WalletsPage> {
   @override
   void initState() {
     super.initState();
+
+    _walletService =
+        kUseMockWalletState ? MockWalletService() : RealWalletService();
+    if (_walletService is MockWalletService) {
+      _mockWalletService = _walletService as MockWalletService;
+      _mockWalletService!.setScenario(_mockScenario);
+    }
     
     // Set up back button using flutter_telegram_miniapp package
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -154,20 +154,22 @@ class _WalletsPageState extends State<WalletsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                       WalletPanel(
-                        state: _mockPanelState,
-                        mockState: _mockState,
+                        walletService: _walletService,
                       ),
                       const SizedBox(height: 10),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
-                          children: WalletPanelState.values.map((state) {
-                            final selected = _mockPanelState == state;
+                          children: WalletMockScenario.values.map((state) {
+                            final selected = _mockScenario == state;
                             final label = _stateLabel(state);
                             return Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: GestureDetector(
-                                onTap: () => setState(() => _mockPanelState = state),
+                                onTap: () => setState(() {
+                                  _mockScenario = state;
+                                  _mockWalletService?.setScenario(state);
+                                }),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   decoration: BoxDecoration(
@@ -195,8 +197,9 @@ class _WalletsPageState extends State<WalletsPage> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      // Placeholder only; backend/SMC integration will replace mock state.
-                      // TODO: fetch wallet status from /wallet/status and drive WalletPanel state.
+                      // Placeholder only; integration will replace mock state.
+                      // TODO: wire to WalletService (front-only local service or backend provider)
+                      // pending architecture decision.
                       const SizedBox(height: 20),
                       SizedBox(
                         height: 20,

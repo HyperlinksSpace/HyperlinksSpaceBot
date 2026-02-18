@@ -74,6 +74,15 @@ def _inner_calls_headers() -> Dict[str, str]:
         return {}
     return {"X-API-Key": INNER_CALLS_KEY}
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
 # ============================================================================
 # TICKER DETECTION - PRODUCTION GRADE
 # ============================================================================
@@ -862,6 +871,47 @@ def _normalize_provider() -> str:
     return "ollama"
 
 
+def _default_model_for_provider(provider: str) -> str:
+    if provider == "openai":
+        return OPENAI_MODEL
+    return OLLAMA_MODEL
+
+
+def _build_capabilities_payload() -> Dict[str, Any]:
+    """
+    Stable capabilities contract for smoke checks and provider swap traceability.
+    Capability flags are env-overridable to avoid false claims during rollout.
+    """
+    provider = _normalize_provider()
+    model = _default_model_for_provider(provider)
+
+    streaming = _env_bool("CAP_STREAMING", True)
+    # Conservative default for tools on ollama; most OpenAI-compatible providers support it.
+    default_tools = provider == "openai"
+    tools = _env_bool("CAP_TOOLS", default_tools)
+    images = _env_bool("CAP_IMAGES", False)
+    video = _env_bool("CAP_VIDEO", False)
+
+    caps = {
+        "streaming": streaming,
+        "tools": tools,
+        "images": images,
+        "video": video,
+    }
+
+    return {
+        "status": "ok",
+        "service": "ai-backend",
+        "provider": provider,
+        "model": model,
+        "response_format_version": RESPONSE_FORMAT_VERSION,
+        # Keep top-level flags for simple consumers.
+        **caps,
+        # Also expose a nested block for forward-compatible capability expansion.
+        "capabilities": caps,
+    }
+
+
 async def _check_rag_health(timeout_s: float = 2.0) -> Dict[str, Any]:
     if not RAG_URL:
         return {
@@ -1045,6 +1095,11 @@ async def health():
     }
 
     return JSONResponse(content=payload, status_code=200 if overall_ok else 503)
+
+
+@app.get("/capabilities")
+async def capabilities():
+    return JSONResponse(content=_build_capabilities_payload(), status_code=200)
 
 
 @app.post("/api/chat")

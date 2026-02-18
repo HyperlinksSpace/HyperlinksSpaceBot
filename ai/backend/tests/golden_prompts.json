@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "description": "Golden prompt checks for quick provider-swap regression detection",
+  "cases": [
+    {
+      "name": "dogs_symbol_blockchain",
+      "prompt": "$DOGS",
+      "expect_contains": ["$DOGS", "Blockchain: TON"],
+      "forbid_contains": []
+    },
+    {
+      "name": "dogs_symbol_supply",
+      "prompt": "$DOGS",
+      "expect_contains": ["Supply:", "Holders:"],
+      "forbid_contains": []
+    },
+    {
+      "name": "dogs_symbol_no_placeholder_description",
+      "prompt": "$DOGS",
+      "expect_contains": ["Blockchain: TON"],
+      "forbid_contains": ["Description: not available", "Описание: неизвестно"]
+    },
+    {
+      "name": "ton_symbol_blockchain",
+      "prompt": "$TON",
+      "expect_contains": ["$TON", "Blockchain: TON"],
+      "forbid_contains": []
+    },
+    {
+      "name": "ton_symbol_decimals_present",
+      "prompt": "$TON",
+      "expect_contains": ["Decimals:"],
+      "forbid_contains": []
+    },
+    {
+      "name": "dogs_plain_symbol_still_ticker_mode",
+      "prompt": "DOGS",
+      "expect_contains": ["Blockchain: TON"],
+      "forbid_contains": []
+    },
+    {
+      "name": "dogs_ru_query_still_ticker_mode",
+      "prompt": "что такое DOGS?",
+      "expect_contains": ["Blockchain: TON"],
+      "forbid_contains": []
+    },
+    {
+      "name": "dogs_no_cross_chain_dogecoin_en",
+      "prompt": "$DOGS",
+      "expect_contains": ["Blockchain: TON"],
+      "forbid_contains": ["Dogecoin", "dogecoin"]
+    },
+    {
+      "name": "dogs_no_cross_chain_dogecoin_ru",
+      "prompt": "что такое DOGS?",
+      "expect_contains": ["Blockchain: TON"],
+      "forbid_contains": ["Догекоин", "догекоин", "DOGE"]
+    },
+    {
+      "name": "ton_symbol_no_placeholder_description",
+      "prompt": "$TON",
+      "expect_contains": ["Blockchain: TON"],
+      "forbid_contains": ["Description: not available", "Описание: неизвестно"]
+    },
+    {
+      "name": "capability_tools_request_shape",
+      "kind": "capability_tools_request",
+      "requires_capability": "tools",
+      "prompt": "tool capability check",
+      "expect_contains": [],
+      "forbid_contains": []
+    }
+  ]
+}

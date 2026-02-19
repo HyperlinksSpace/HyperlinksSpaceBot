@@ -7,14 +7,15 @@ This guide covers running **upstream Cocoon** (origin branch, unmodified) on **G
 ## Index
 
 1. [Overview](#overview)
-2. [Prerequisites](#prerequisites)
-3. [Set up a test instance in your project](#set-up-a-test-instance-in-your-project) — create the VM (one-time)
-4. [Environment variables (client only)](#environment-variables-client-only) — obligatory vs optional, where to set on GCP
-5. [Option A: Compute Engine VM](#option-a-compute-engine-vm) — full VM workflow (build, run, envs)
-6. [Option B: Cloud Run (container)](#option-b-cloud-run-container)
-7. [HTTPS and production](#https-and-production)
-8. [Connect your app](#connect-your-app)
-9. [Troubleshooting](#troubleshooting)
+2. [Plan: Moving to full Cocoon run](#plan-moving-to-full-cocoon-run) — steps to run worker + client + router
+3. [Prerequisites](#prerequisites)
+4. [Set up a test instance in your project](#set-up-a-test-instance-in-your-project) — create the VM (one-time)
+5. [Environment variables (client only)](#environment-variables-client-only) — obligatory vs optional, where to set on GCP
+6. [Option A: Compute Engine VM](#option-a-compute-engine-vm) — full VM workflow (build, run, envs)
+7. [Option B: Cloud Run (container)](#option-b-cloud-run-container)
+8. [HTTPS and production](#https-and-production)
+9. [Connect your app](#connect-your-app)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -35,12 +36,50 @@ You will:
 
 ---
 
+## Plan: Moving to full Cocoon run
+
+To run the **full** Cocoon stack (worker + client + router) on Google Cloud, follow this order.
+
+| Phase | What to do |
+|-------|------------|
+| **1. GCP billing & quota** | Enable billing on your project. Request **GPU quota**: [Quotas](https://console.cloud.google.com/iam-admin/quotas) → set “Metric” to **All quotas**; filter by `NVIDIA_H100` or `GPUS_PER_GPU_FAMILY`. Edit the **GPUS_PER_GPU_FAMILY** (or **NVIDIA H100**) quota for region `us-central1` and request at least **1**. For Spot VMs you may also need **PREEMPTIBLE_NVIDIA_H100_GPUS** in that region. Submit and wait for approval (often 24–48 hours). |
+| **2. Create full-setup VM** | Use the [**Full setup (worker-capable)**](#4-create-the-vm-instance) create command: A3 + TDX + H100 (Spot), zone `us-central1-a` (or `us-east5-a` / `europe-west4-c`). Same steps 1–3 (project, zone, optional default zone), then the `a3-highgpu-1g` command in step 4. |
+| **3. Firewall** | Create rules for client (port 10000) and optionally worker stats (port 12000) as in [step 5](#5-open-firewall-for-the-cocoon-client-port-10000). |
+| **4. Enable confidential GPU on VM** | SSH into the VM. Follow GCP: [Enable confidential computing mode on the GPU](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance-with-gpu#enable-confidential-computing-mode-on-the-gpu) (install drivers, LKCA, persistence mode, reboot). |
+| **5. Cocoon worker setup** | On the VM: get TON wallet and keys; download [Cocoon worker distribution](https://docs.cocoon.org/for-gpu-owners#quick-start); run **seal-server** (required for production); create **worker.conf** (`owner_address`, `model`, `gpu`, `node_wallet_key`, `hf_token`, `ton_config`, `root_contract_address`); run worker with `./scripts/cocoon-launch worker.conf`. See [Cocoon For GPU Owners](https://docs.cocoon.org/for-gpu-owners). |
+| **6. Client + router (same VM)** | On the same VM you can also build and run **client + router** (Option A from step 3 onward) so your app can call the Cocoon network; your worker will serve inference and you get daily TON payouts. |
+
+Summary: **GCP** (quota → create A3 TDX+H100 VM → firewall → GPU confidential setup) → **Cocoon** (wallet, worker distro, seal-server, worker.conf, launch worker). No separate “plan” or subscription on Cocoon’s side—you just need the hardware, quota, and config.
+
+---
+
 ## Prerequisites
 
 - **Google Cloud** account and a project.
 - **gcloud** CLI installed and logged in (`gcloud auth login`, `gcloud config set project $GC_HS_PROJECT_ID`).
 - For **real TON** (production): TON wallet, `OWNER_ADDRESS`, `NODE_WALLET_KEY`, and a TON config file (e.g. `spec/mainnet-full-ton-config.json`).
 - For **testing**: fake-TON mode needs no real wallet.
+
+### Prerequisites vs. Cocoon “For GPU Owners” guide
+
+The [Cocoon For GPU Owners](https://docs.cocoon.org/for-gpu-owners) guide defines prerequisites for **running workers** (contributing GPU inference to the network). Aligning with that guide:
+
+| Prerequisite (GPU Owner guide) | Client-only on GCP (this doc) | Worker on GCP |
+|--------------------------------|-------------------------------|----------------|
+| **Linux server (6.16+ for full TDX)** | We use Ubuntu 22.04 LTS on the VM; kernel is older than 6.16. Sufficient for **client + router** only. | Worker guide expects 6.16+ for full TDX; GCP guest kernels are managed. |
+| **Intel TDX–capable CPU** | Optional: use C3 TDX VM for a TDX-capable guest (client still works without TDX). | Worker requires TDX. GCP offers Intel TDX (C3) or **AMD SEV-SNP + confidential GPU** (A3 + H100); Cocoon worker stack may expect Intel TDX specifically. |
+| **NVIDIA GPU with CC support (H100+)** | Not required for client. Optional: attach GPU (e.g. T4) for other workloads. | Required for worker. GCP has A3 Confidential VMs with H100 (GPU-TEE); confirm with Cocoon whether AMD SEV-SNP + H100 is supported. |
+| **QEMU with TDX support (10.1+)** | Not used; we use managed Compute Engine VMs. | Worker guide assumes host-side QEMU+TDX for TDX guests; on GCP the hypervisor is managed. |
+| **seal-server** (SGX enclave, key derivation) | Not required for client. | Required for production workers; runs on host, serves TDX guests. On GCP, no customer-run “host” in the same way—confirm with Cocoon for confidential GPU VMs. |
+| **Enable TDX / Enable CC on NVIDIA GPU** | Not required for client. | Required for worker; see [Enabling Intel TDX](https://docs.cocoon.org/), [Enabling CC on NVIDIA GPU](https://docs.cocoon.org/). On GCP, confidential options are enabled via VM creation flags. |
+
+**What to comply with for this guide (client-only):**
+
+- **Linux:** Ubuntu 22.04 LTS on the VM (as in our create commands).
+- **No TDX/GPU required** for the client; optional TDX (C3) or GPU (N1+T4) instance types are documented in [step 4](#4-create-the-vm-instance).
+- **TON:** For production, have wallet, `OWNER_ADDRESS`, `NODE_WALLET_KEY`, and TON config; for testing, fake-TON is enough.
+
+**If you want to run a Cocoon worker on GCP:** You would need a confidential GPU VM (e.g. A3 with H100) and to verify with Cocoon that their worker image and seal-server flow support GCP’s confidential GPU (AMD SEV-SNP + GPU-TEE) and managed host. This guide does not cover worker setup.
 
 ---
 
@@ -77,15 +116,71 @@ gcloud config set compute/region $REGION
 
 **4. Create the VM instance**
 
+Use one of the following. Same name `cocoon-client` and tag for firewall; pick **default**, **TDX**, or **Nvidia GPU** depending on what you need.
+
+**Default (no TDX, no GPU)** — client-only Cocoon, lowest cost:
+
 ```bash
 gcloud compute instances create cocoon-client \
->   --zone=us-central1-a \
->   --machine-type=e2-medium \
->   --image-family=ubuntu-2204-lts \
->   --image-project=ubuntu-os-cloud \
->   --boot-disk-size=20GB \
->   --tags=cocoon-client
+  --zone=us-central1-a \
+  --machine-type=e2-medium \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=20GB \
+  --tags=cocoon-client
 ```
+
+**TDX (Intel Trust Domain Extensions)** — for Cocoon proxy/worker or confidential computing; requires C3 and a TDX-capable zone:
+
+```bash
+gcloud compute instances create cocoon-client \
+  --zone=us-central1-a \
+  --machine-type=c3-standard-4 \
+  --confidential-compute-type=TDX \
+  --maintenance-policy=TERMINATE \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=20GB \
+  --tags=cocoon-client
+```
+
+If the zone does not support TDX, create in a [TDX-capable zone](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance#available-regions) or list images: `gcloud compute images list --filter="guestOsFeatures[].type:(TDX_CAPABLE)"`. Verify on the VM: `sudo dmesg | grep -i tdx`.
+
+**Nvidia GPU (T4, L4, etc.)** — for **client + router only** or other GPU workloads (e.g. local inference). Cocoon **worker** cannot use these: it requires **H100+ with confidential computing**; GCP only offers confidential GPU with H100 (a3-highgpu-1g). If you have T4/L4 quota but not H100, use this option to run client + router (no worker, no TON payouts). Install [NVIDIA drivers](https://cloud.google.com/compute/docs/gpus/install-drivers-gpu) after first boot. Use a zone that has the GPU (e.g. `us-central1-a` for T4):
+
+```bash
+gcloud compute instances create cocoon-client \
+  --zone=us-central1-a \
+  --machine-type=n1-standard-4 \
+  --accelerator=type=nvidia-tesla-t4,count=1 \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=40GB \
+  --tags=cocoon-client
+```
+
+Check GPU availability: `gcloud compute accelerator-types list --filter="zone:us-central1-a"`. Boot disk ≥40GB is recommended for GPU driver install.
+
+**Full setup (worker-capable)** — Intel TDX + NVIDIA H100 for running Cocoon **worker** (and client/router). Uses A3 Confidential VM; **costly** and requires [GPU quota](https://cloud.google.com/compute/resource-usage#gpu_quota) (e.g. preemptible H100). Supported zones: `us-central1-a`, `us-east5-a`, `europe-west4-c`. Create as **Spot** (preemptible) or use [Flex-start](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance-with-gpu#flex-start-model) for better availability:
+
+```bash
+gcloud compute instances create cocoon-client \
+  --provisioning-model=SPOT \
+  --confidential-compute-type=TDX \
+  --machine-type=a3-highgpu-1g \
+  --maintenance-policy=TERMINATE \
+  --zone=us-central1-a \
+  --image-project=ubuntu-os-cloud \
+  --image-family=ubuntu-2204-lts \
+  --boot-disk-size=100GB \
+  --tags=cocoon-client
+```
+
+**Worker GPU is not replaceable:** Cocoon worker requires **H100+ with confidential computing**; T4, L4, and A100 do not meet that. GCP only supports confidential GPU with H100. To run a worker you must request H100 quota. To run only **client + router** with a GPU (e.g. for other workloads), use the **Nvidia GPU (T4/L4)** option above.
+
+If the zone does not have capacity, try `us-east5-a` or `europe-west4-c`. After creation: [Enable confidential computing on the GPU](https://cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance-with-gpu#enable-confidential-computing-mode-on-the-gpu) (install drivers, LKCA, persistence mode, reboot). Then follow the [Cocoon For GPU Owners](https://docs.cocoon.org/for-gpu-owners) guide (seal-server, worker.conf, cocoon-launch worker). Open firewall for worker stats if needed: `gcloud compute firewall-rules create allow-cocoon-worker --allow=tcp:12000 --target-tags=cocoon-client --source-ranges=0.0.0.0/0 --description="Cocoon worker HTTP stats"` (optional).
+
+To **recreate** after deleting the instance: run steps 4–5 again (firewall rule is project-level and may already exist — if create fails with "already exists", skip or delete the rule first). Then run **step 7** and **config-ssh** (step 7 note) so your SSH config gets the new instance IP; re-add `User ASUS` and use forward slashes in `~/.ssh/config` for the new host entry if you use Remote-SSH in Cursor.
 
 **5. Open firewall for the Cocoon client (port 10000)**
 
@@ -520,6 +615,8 @@ Your app sends requests to the AI backend; the backend calls Cocoon at `COCOON_C
 
 | Issue | What to check |
 |-------|----------------|
+| **Quota 'GPUS_PER_GPU_FAMILY' exceeded. Limit: 0.0 … NVIDIA_H100** | Your project has no H100 GPU quota. Go to [Quotas](https://console.cloud.google.com/iam-admin/quotas), switch to **All quotas**, search for `GPUS_PER_GPU_FAMILY` or `NVIDIA_H100`, select the row for region **us-central1** (or your target region), click **Edit quotas** / pencil, request at least **1**, submit. For Spot A3 VMs you may also need **PREEMPTIBLE_NVIDIA_H100_GPUS**. Wait for approval (often 24–48 h). |
+| **Quota request denied** (“unable to grant at this time” / new project) | If the project or billing is new: wait **48 hours** and resubmit the same request, or use the project for a few days to build billing history. To escalate: contact [Google Cloud Sales](https://cloud.google.com/contact/) or your Sales Rep and ask for H100 GPU quota for confidential AI workload (Cocoon); they can sometimes help with quota. Meanwhile run **client + router only** (e2-medium or T4 VM) without the worker. |
 | First SSH: "no SSH key for gcloud" / "Store key in cache?" | Normal on first use. gcloud generates keys and uploads the public key to the project. At "Store key in cache? (y/n)" type **y** and Enter to trust the VM and connect. |
 | Build fails (missing libs) | Install dev packages: `libssl-dev`, `libz-dev`, `libjemalloc-dev`, `libsodium-dev`, `liblz4-dev`, `pkg-config`. |
 | Client won’t start | Ensure config files exist (`client-config.json`, TON or fake-ton config). Run from repo root or set paths in the command. |

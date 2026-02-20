@@ -332,7 +332,7 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                 ),
                 if (showInputScrollbar)
                   Positioned(
-                    right: 0,
+                    right: 5,
                     top: 0,
                     bottom: 0,
                     child: LayoutBuilder(
@@ -350,25 +350,30 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
                           if (maxScroll <= 0 || totalHeight <= 0) {
                             return const SizedBox.shrink();
                           }
-                          final ratio =
+                          final indicatorHeightRatio =
                               (viewportHeight / totalHeight).clamp(0.0, 1.0);
                           final indicatorHeight =
-                              (barHeight * ratio).clamp(10.0, barHeight);
-                          final availableSpace =
-                              (barHeight - indicatorHeight).clamp(0.0, barHeight);
+                              (barHeight * indicatorHeightRatio)
+                                  .clamp(0.0, barHeight);
+                          if (indicatorHeight <= 0) {
+                            return const SizedBox.shrink();
+                          }
                           final scrollPosition =
                               (currentScroll / maxScroll).clamp(0.0, 1.0);
-                          final top = (scrollPosition * availableSpace)
-                              .clamp(0.0, barHeight);
-                          return Padding(
-                            padding: EdgeInsets.only(top: top),
-                            child: Container(
-                              width: 4,
-                              height: indicatorHeight,
-                              margin: const EdgeInsets.only(right: 8),
-                              decoration: BoxDecoration(
+                          final availableSpace =
+                              (barHeight - indicatorHeight)
+                                  .clamp(0.0, barHeight);
+                          final topPosition =
+                              (scrollPosition * availableSpace)
+                                  .clamp(0.0, barHeight);
+                          return Align(
+                            alignment: Alignment.topCenter,
+                            child: Padding(
+                              padding: EdgeInsets.only(top: topPosition),
+                              child: Container(
+                                width: 1,
+                                height: indicatorHeight,
                                 color: const Color(0xFF818181),
-                                borderRadius: BorderRadius.circular(2),
                               ),
                             ),
                           );

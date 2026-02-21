@@ -100,7 +100,7 @@ Set env vars per service in remote deploy as follows.
 
 - Required: `INNER_CALLS_KEY` - same shared key as bot/frontend/rag
 - Required: `RAG_URL` - URL of RAG backend service
-- Optional provider switch: `LLM_PROVIDER=ollama|openai|cocoon`
+- Optional provider switch (default `openai`): `LLM_PROVIDER=ollama|openai|cocoon`
 - If `LLM_PROVIDER=openai`: `OPENAI_API_KEY` (required), `OPENAI_MODEL` (optional, default `gpt-4o-mini`)
 - If `LLM_PROVIDER=ollama`: `OLLAMA_URL`, `OLLAMA_MODEL`
 - If `LLM_PROVIDER=cocoon`: `COCOON_CLIENT_URL` (default `http://127.0.0.1:10000`), `COCOON_MODEL` (optional)

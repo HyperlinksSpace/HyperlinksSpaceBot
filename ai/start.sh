@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-LLM_PROVIDER_NORMALIZED=$(echo "${LLM_PROVIDER:-ollama}" | tr '[:upper:]' '[:lower:]')
+LLM_PROVIDER_NORMALIZED=$(echo "${LLM_PROVIDER:-openai}" | tr '[:upper:]' '[:lower:]')
 
 if [ "$LLM_PROVIDER_NORMALIZED" = "ollama" ]; then
     # Start Ollama in the background

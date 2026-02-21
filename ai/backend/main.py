@@ -34,16 +34,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# LLM provider routing (default = Ollama)
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+def normalize_base_url(raw: Optional[str], default: Optional[str] = None) -> Optional[str]:
+    if raw is None:
+        raw = default
+    if raw is None:
+        return None
+    normalized = raw.strip()
+    if not normalized:
+        return None
+    if not normalized.startswith(("http://", "https://")):
+        normalized = f"https://{normalized}"
+    return normalized.rstrip("/")
+
+
+# LLM provider routing (default = OpenAI for lightweight Railway deploys)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+OLLAMA_URL = normalize_base_url(os.getenv("OLLAMA_URL"), "http://127.0.0.1:11434") or "http://127.0.0.1:11434"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "600"))
+OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.3"))
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
 # Cocoon client (OpenAI-compatible API; for local or Railway client)
-COCOON_CLIENT_URL = (os.getenv("COCOON_CLIENT_URL") or "http://127.0.0.1:10000").rstrip("/")
+COCOON_CLIENT_URL = normalize_base_url(os.getenv("COCOON_CLIENT_URL"), "http://127.0.0.1:10000") or "http://127.0.0.1:10000"
 COCOON_MODEL = os.getenv("COCOON_MODEL", "default")
-RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:8001")
+RAG_URL = normalize_base_url(os.getenv("RAG_URL"), "http://127.0.0.1:8001")
 RESPONSE_FORMAT_VERSION = "facts_analysis_v2"
 INNER_CALLS_KEY = (os.getenv("INNER_CALLS_KEY") or os.getenv("API_KEY") or "").strip()
 WALLET_REPO = (os.getenv("WALLET_REPO") or "memory").strip().lower()
@@ -74,6 +90,9 @@ def _log_runtime_env_snapshot() -> None:
     logger.info("[ENV][AI] OLLAMA_URL=%s", OLLAMA_URL or "(missing)")
     logger.info("[ENV][AI] OLLAMA_MODEL=%s", OLLAMA_MODEL or "(missing)")
     logger.info("[ENV][AI] OPENAI_MODEL=%s", OPENAI_MODEL or "(missing)")
+    logger.info("[ENV][AI] OPENAI_MAX_TOKENS=%s", OPENAI_MAX_TOKENS)
+    logger.info("[ENV][AI] OPENAI_TEMPERATURE=%s", OPENAI_TEMPERATURE)
+    logger.info("[ENV][AI] OPENAI_TIMEOUT_SECONDS=%s", OPENAI_TIMEOUT_SECONDS)
     logger.info("[ENV][AI] OPENAI_API_KEY configured=%s", bool(OPENAI_API_KEY))
     if LLM_PROVIDER == "cocoon":
         logger.info("[ENV][AI] COCOON_CLIENT_URL=%s", COCOON_CLIENT_URL)
@@ -1408,7 +1427,8 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     # BUILD PROVIDER REQUEST
     # ========================================================================
 
-    if request.options:
+    has_request_options = request.options is not None
+    if has_request_options:
         # Convert ModelOptions to dict, excluding None values
         options_dict = request.options.model_dump(exclude_none=True)
     else:
@@ -1456,12 +1476,16 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         "stream": request.stream,
     }
     # Map compatible sampling options when present.
-    if options_dict.get("temperature") is not None:
-        openai_request["temperature"] = options_dict["temperature"]
-    if options_dict.get("top_p") is not None:
-        openai_request["top_p"] = options_dict["top_p"]
-    if options_dict.get("num_predict") is not None:
-        openai_request["max_tokens"] = options_dict["num_predict"]
+    if has_request_options:
+        if options_dict.get("temperature") is not None:
+            openai_request["temperature"] = options_dict["temperature"]
+        if options_dict.get("top_p") is not None:
+            openai_request["top_p"] = options_dict["top_p"]
+        if options_dict.get("num_predict") is not None:
+            openai_request["max_tokens"] = options_dict["num_predict"]
+    else:
+        openai_request["temperature"] = OPENAI_TEMPERATURE
+        openai_request["max_tokens"] = OPENAI_MAX_TOKENS
 
     # ========================================================================
     # STREAM RESPONSE FROM LLM PROVIDER
@@ -1535,7 +1559,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         first_token_logged = False
         prefix_sent = False
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=OPENAI_TIMEOUT_SECONDS) as client:
             if ticker_facts_text:
                 prefix = _normalize_paragraph_spacing(f"{ticker_facts_text}\n\n")
                 yield json.dumps({"token": prefix, "done": False}) + "\n"

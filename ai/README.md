@@ -29,11 +29,20 @@ Optional core wiring:
 
 LLM provider routing:
 
-- `LLM_PROVIDER` - default: `ollama`
+- `LLM_PROVIDER` - default: `openai`
 - `OLLAMA_URL` - default: `http://127.0.0.1:11434`
 - `OLLAMA_MODEL` - default: `qwen2.5:1.5b`
 - `OPENAI_API_KEY` - required only when `LLM_PROVIDER=openai`
 - `OPENAI_MODEL` - default: `gpt-4o-mini`
+- `OPENAI_MAX_TOKENS` - default: `600`
+- `OPENAI_TEMPERATURE` - default: `0.3`
+- `OPENAI_TIMEOUT_SECONDS` - default: `30`
+
+URL normalization for service base URLs:
+
+- `RAG_URL`, `OLLAMA_URL`, and `COCOON_CLIENT_URL` accept plain hostnames/domains.
+- If protocol is omitted, backend auto-prefixes `https://`.
+- Trailing `/` is trimmed automatically.
 
 Copy/paste example:
 
@@ -41,13 +50,16 @@ Copy/paste example:
 INNER_CALLS_KEY=change-me-shared-secret
 RAG_URL=http://127.0.0.1:8001
 
-LLM_PROVIDER=ollama
+LLM_PROVIDER=openai
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=qwen2.5:1.5b
 
 # optional:
 # OPENAI_API_KEY=
 # OPENAI_MODEL=gpt-4o-mini
+# OPENAI_MAX_TOKENS=600
+# OPENAI_TEMPERATURE=0.3
+# OPENAI_TIMEOUT_SECONDS=30
 ```
 
 ## Railway

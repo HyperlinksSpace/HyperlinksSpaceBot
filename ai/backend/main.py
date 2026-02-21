@@ -856,6 +856,12 @@ class WalletCreateRequest(BaseModel):
     public_key: Optional[str] = Field(default=None, description="Optional pre-generated public key")
 
 
+class WalletAllocateRequest(BaseModel):
+    amount: str
+    asset: str = "DLLR"
+    tx_ref: str | None = None
+
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -1139,6 +1145,33 @@ def wallet_get(wallet_id: str):
     m = _wallet_service.get(wallet_id)
     if m is None:
         raise HTTPException(status_code=404, detail="wallet_not_found")
+    return serialize_wallet_machine(m)
+
+
+@app.post("/wallet/{wallet_id}/allocate")
+def wallet_allocate(wallet_id: str, req: WalletAllocateRequest):
+    try:
+        m = _wallet_service.allocate(
+            wallet_id=wallet_id,
+            amount=req.amount,
+            asset=req.asset,
+            tx_ref=req.tx_ref,
+        )
+    except ValueError as e:
+        if str(e) == "wallet_not_found":
+            raise HTTPException(status_code=404, detail="wallet_not_found")
+        raise
+    return serialize_wallet_machine(m)
+
+
+@app.post("/wallet/{wallet_id}/activate")
+def wallet_activate(wallet_id: str):
+    try:
+        m = _wallet_service.activate(wallet_id=wallet_id)
+    except ValueError as e:
+        if str(e) == "wallet_not_found":
+            raise HTTPException(status_code=404, detail="wallet_not_found")
+        raise
     return serialize_wallet_machine(m)
 
 

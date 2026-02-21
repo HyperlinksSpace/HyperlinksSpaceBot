@@ -58,3 +58,28 @@ def test_wallet_create_and_get_flow():
     assert data2["ctx"]["wallet_id"] == "w2"
     assert data2["ctx"]["address"] == "EQxyz"
     assert data2["state"] == "created"
+
+
+def test_wallet_allocate_and_activate_flow():
+    payload = {
+        "user_id": "u3",
+        "wallet_id": "w3",
+        "address": "EQalloc",
+        "public_key": "pubkey3"
+    }
+
+    # Create
+    r1 = client.post("/wallet/create", json=payload, headers=_headers())
+    assert r1.status_code == 200
+    assert r1.json()["state"] == "created"
+
+    # Allocate
+    r2 = client.post("/wallet/w3/allocate", json={"amount": "25"})
+    assert r2.status_code == 200
+    assert r2.json()["state"] == "allocated"
+    assert r2.json()["ctx"]["allocation_amount"] == "25"
+
+    # Activate
+    r3 = client.post("/wallet/w3/activate")
+    assert r3.status_code == 200
+    assert r3.json()["state"] == "active"

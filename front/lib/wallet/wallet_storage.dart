@@ -1,70 +1,44 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:html' as html;
 import 'dart:js' as js;
-
-import 'package:cryptography/cryptography.dart';
 
 import '../telegram_webapp.dart';
 
-class KeyPair {
-  final String publicKeyBase64;
-  final String privateKeyBase64;
-
-  const KeyPair({
-    required this.publicKeyBase64,
-    required this.privateKeyBase64,
-  });
-}
-
-class WalletKeyService {
-  static const String _privKey = 'wallet_priv';
-  static const String _pubKey = 'wallet_pub';
-
-  static final Ed25519 _ed25519 = Ed25519();
+class WalletStorage {
+  static const String mnemonicKey = 'wallet_mnemonic';
 
   final TelegramWebApp _telegram;
 
-  WalletKeyService({TelegramWebApp? telegramWebApp})
+  WalletStorage({TelegramWebApp? telegramWebApp})
       : _telegram = telegramWebApp ?? TelegramWebApp();
 
-  Future<KeyPair> getOrCreateKeyPair() async {
-    try {
-      if (_telegram.isActuallyInTelegram) {
-        final existingPriv = await _secureGet(_privKey);
-        final existingPub = await _secureGet(_pubKey);
-        if (_isSet(existingPriv) && _isSet(existingPub)) {
-          return KeyPair(
-            privateKeyBase64: existingPriv!.trim(),
-            publicKeyBase64: existingPub!.trim(),
-          );
-        }
-      }
-    } catch (e) {
-      print('[WalletKeyService] secure read failed: $e');
-    }
+  bool get isTelegram => _telegram.isActuallyInTelegram;
 
-    final generated = await _generate();
-
+  Future<String?> readMnemonic() async {
     if (_telegram.isActuallyInTelegram) {
-      try {
-        await _secureSet(_privKey, generated.privateKeyBase64);
-        await _secureSet(_pubKey, generated.publicKeyBase64);
-      } catch (e) {
-        // Storage failure must not block app flow.
-        print('[WalletKeyService] secure write failed: $e');
-      }
+      final secure = await _secureGet(mnemonicKey);
+      if (_isSet(secure)) return secure;
     }
-
-    return generated;
+    final local = html.window.localStorage[mnemonicKey];
+    return _isSet(local) ? local!.trim() : null;
   }
 
-  Future<KeyPair> _generate() async {
-    final keyPair = await _ed25519.newKeyPair();
-    final keyData = await keyPair.extract();
-    return KeyPair(
-      privateKeyBase64: base64Encode(keyData.privateKeyBytes),
-      publicKeyBase64: base64Encode(keyData.publicKey.bytes),
-    );
+  Future<void> writeMnemonic(String mnemonic) async {
+    final trimmed = mnemonic.trim();
+    if (trimmed.isEmpty) return;
+
+    if (_telegram.isActuallyInTelegram) {
+      await _secureSet(mnemonicKey, trimmed);
+    }
+    // Keep browser fallback/local copy for non-Telegram mode.
+    html.window.localStorage[mnemonicKey] = trimmed;
+  }
+
+  Future<void> clearMnemonic() async {
+    if (_telegram.isActuallyInTelegram) {
+      await _secureDelete(mnemonicKey);
+    }
+    html.window.localStorage.remove(mnemonicKey);
   }
 
   Future<String?> _secureGet(String key) async {
@@ -75,7 +49,7 @@ class WalletKeyService {
       final secure = app[objectName];
       if (secure is! js.JsObject) continue;
       final value = await _jsGetItem(secure, key);
-      if (value != null) return value;
+      if (_isSet(value)) return value!.trim();
     }
     return null;
   }
@@ -89,6 +63,35 @@ class WalletKeyService {
       if (secure is! js.JsObject) continue;
       final ok = await _jsSetItem(secure, key, value);
       if (ok) return;
+    }
+  }
+
+  Future<void> _secureDelete(String key) async {
+    final app = _telegram.webApp;
+    if (app == null) return;
+
+    for (final objectName in ['SecureStorage', 'secureStorage']) {
+      final secure = app[objectName];
+      if (secure is! js.JsObject) continue;
+      final removeItem = secure['removeItem'];
+      if (removeItem is js.JsFunction) {
+        final completer = Completer<void>();
+        try {
+          removeItem.apply([
+            key,
+            (dynamic _, [dynamic __]) {
+              if (!completer.isCompleted) completer.complete();
+            }
+          ]);
+          await completer.future.timeout(
+            const Duration(seconds: 2),
+            onTimeout: () => null,
+          );
+          return;
+        } catch (_) {
+          if (!completer.isCompleted) completer.complete();
+        }
+      }
     }
   }
 
@@ -141,5 +144,5 @@ class WalletKeyService {
         .timeout(const Duration(seconds: 2), onTimeout: () => false);
   }
 
-  bool _isSet(String? v) => v != null && v.trim().isNotEmpty;
+  bool _isSet(String? value) => value != null && value.trim().isNotEmpty;
 }

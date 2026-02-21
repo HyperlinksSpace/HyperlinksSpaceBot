@@ -15,13 +15,20 @@ app = FastAPI()
 BASE_DIR = Path(__file__).resolve().parent
 ALLOWLIST_PATH = BASE_DIR.parent / "data" / "projects_allowlist.json"
 
+def _normalize_url(value: str, default: str) -> str:
+    """Ensure URL has a scheme; use https:// if missing."""
+    s = (value or default).strip()
+    if s and not s.startswith(("http://", "https://")):
+        s = "https://" + s
+    return s.rstrip("/")
+
+
 STORE_PATH = os.getenv("RAG_STORE_PATH", "rag_store.json")
 PROJECTS_STORE_PATH = os.getenv("PROJECTS_STORE_PATH", "projects_store.json")
-SWAP_COFFEE_BASE_URL = (
-    os.getenv("COFFEE_URL")
-    or os.getenv("TOKENS_API_URL")
-    or "https://tokens.swap.coffee"
-).strip().rstrip("/")
+SWAP_COFFEE_BASE_URL = _normalize_url(
+    os.getenv("COFFEE_URL") or os.getenv("TOKENS_API_URL") or "",
+    "https://tokens.swap.coffee",
+)
 COFFEE_KEY = (os.getenv("COFFEE_KEY") or os.getenv("TOKENS_API_KEY") or "").strip()
 INNER_CALLS_KEY = (os.getenv("INNER_CALLS_KEY") or os.getenv("API_KEY") or "").strip()
 TOKENS_VERIFICATION = os.getenv("TOKENS_VERIFICATION", "WHITELISTED,COMMUNITY,UNKNOWN")

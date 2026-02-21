@@ -11,10 +11,19 @@ Backend chat API used by the Telegram bot.
 
 ## Run Locally
 
+Defaults: **OLLAMA_SWITCH=1** (Ollama starts and model pulls), **OPENAI_SWITCH=0**. No need to set these for local.
+
 ```bash
 cd ai/backend
 pip install -r requirements.txt
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+With Docker locally (Ollama in image, starts on container run):
+
+```bash
+docker build -t ai-local ./ai
+docker run -p 8000:8000 -e RAG_URL=http://host.docker.internal:8001 -e INNER_CALLS_KEY=your-key ai-local
 ```
 
 ## Environment Variables
@@ -27,27 +36,37 @@ Optional core wiring:
 
 - `RAG_URL` - RAG service base URL (enables `/query` + `/tokens/{symbol}` grounding).
 
-LLM provider routing:
+LLM switches (recommended):
 
-- `LLM_PROVIDER` - default: `ollama`
+- `OLLAMA_SWITCH` - default: `1` (local). Set `0` on server when using OpenAI only so Ollama is not started and not in image.
+- `OPENAI_SWITCH` - default: `0`. Set `1` to use OpenAI as primary; when `OLLAMA_SWITCH=1` too, Ollama is used as fallback if OpenAI fails.
+- `OPENAI_KEY` - OpenAI API key (required when `OPENAI_SWITCH=1`). Replaces previous `OPENAI_API_KEY` (still accepted).
+- `OPENAI_MODEL` - default: `gpt-4o` (no need to set on server if using this model).
+
+Ollama (when `OLLAMA_SWITCH=1`):
+
 - `OLLAMA_URL` - default: `http://127.0.0.1:11434`
-- `OLLAMA_MODEL` - default: `qwen2.5:1.5b`
-- `OPENAI_API_KEY` - required only when `LLM_PROVIDER=openai`
-- `OPENAI_MODEL` - default: `gpt-4o-mini`
+- `OLLAMA_MODEL` - default: `qwen2.5:0.5b-instruct`
 
-Copy/paste example:
+Copy/paste example (local: Ollama primary):
 
 ```env
 INNER_CALLS_KEY=change-me-shared-secret
 RAG_URL=http://127.0.0.1:8001
 
-LLM_PROVIDER=ollama
+OLLAMA_SWITCH=1
+OPENAI_SWITCH=0
 OLLAMA_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:1.5b
+OLLAMA_MODEL=qwen2.5:0.5b-instruct
+```
 
-# optional:
-# OPENAI_API_KEY=
-# OPENAI_MODEL=gpt-4o-mini
+Server (OpenAI only, no Ollama in image):
+
+```env
+OLLAMA_SWITCH=0
+OPENAI_SWITCH=1
+OPENAI_KEY=sk-...
+# OPENAI_MODEL=gpt-4o is default
 ```
 
 ## Railway

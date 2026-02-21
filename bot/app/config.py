@@ -18,8 +18,16 @@ def load_env() -> None:
         pass
 
 
+def _normalize_url(value: str, default: str) -> str:
+    """Ensure URL has a scheme; use https:// if missing."""
+    s = (value or default).strip()
+    if s and not s.startswith(("http://", "https://")):
+        s = "https://" + s
+    return s.rstrip("/")
+
+
 def get_ai_backend_url() -> str:
-    return (os.getenv("AI_BACKEND_URL") or DEFAULT_AI_BACKEND_URL).strip().rstrip("/")
+    return _normalize_url(os.getenv("AI_BACKEND_URL", ""), DEFAULT_AI_BACKEND_URL)
 
 
 def get_api_key() -> str:

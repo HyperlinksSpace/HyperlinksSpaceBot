@@ -1,5 +1,3 @@
-Text input in bottom bar
-
 edit interval healthcheck
 
 Ticker link

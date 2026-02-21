@@ -98,25 +98,33 @@ def build_app_launch_url() -> str | None:
     raw = (os.getenv("APP_URL") or "").strip()
     if not raw:
         return None
-
-    if "://" not in raw:
+    # Default to https:// when no scheme (e.g. myapp.railway.app)
+    if not raw.startswith(("http://", "https://")):
         raw = f"https://{raw}"
 
     parsed = urlparse(raw)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    # Reject if scheme/netloc invalid or netloc contains whitespace/control chars (Telegram rejects)
+    netloc = (parsed.netloc or "").strip()
+    if parsed.scheme not in ("http", "https") or not netloc:
+        return None
+    if any(ord(c) < 32 or c in " \t\n\r" for c in netloc):
         return None
 
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query["mode"] = "fullscreen"
-    path = parsed.path or "/"
-    return urlunparse((
+    path = (parsed.path or "/").strip() or "/"
+    result = urlunparse((
         parsed.scheme,
-        parsed.netloc,
+        netloc,
         path,
         parsed.params,
         urlencode(query),
         parsed.fragment
     ))
+    # Final sanity check: no control chars in URL (Telegram can reject)
+    if any(ord(c) < 32 for c in result):
+        return None
+    return result
 
 
 async def cancel_stream(chat_id: int, message_id: int) -> None:
@@ -523,20 +531,27 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start: always send a reply; use Run app button only when APP_URL is valid."""
     app_launch_url = build_app_launch_url()
     message_text = "That's @HyperlinksSpaceBot, you can use AI in bot and explore the app for more features"
 
     if app_launch_url:
-        keyboard = [[InlineKeyboardButton("Run app", url=app_launch_url)]]
+        try:
+            keyboard = [[InlineKeyboardButton("Run app", url=app_launch_url)]]
+            await update.message.reply_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+        except Exception as e:
+            print(f"[BOT] /start: reply with button failed ({e}), falling back to text-only")
+    # No valid APP_URL or button failed: send text so /start always responds
+    if app_launch_url:
+        await update.message.reply_text(message_text)
+    else:
         await update.message.reply_text(
-            message_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            f"{message_text}\n\nMini app URL is not configured. Set APP_URL (for example via Tunnel/railway.env)."
         )
-        return
-
-    await update.message.reply_text(
-        f"{message_text}\n\nMini app URL is not configured. Set APP_URL (for example via Tunnel/railway.env)."
-    )
 
 
 async def stream_ai_response(messages: list, bot, chat_id: int, message_id: int, telegram_id: int):

@@ -31,16 +31,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# LLM provider routing (default = Ollama)
+def _normalize_url(value: str, default: str) -> str:
+    """Ensure URL has a scheme; use https:// if missing."""
+    s = (value or default).strip()
+    if s and not s.startswith(("http://", "https://")):
+        s = "https://" + s
+    return s.rstrip("/")
+
+
+# LLM provider switches — local defaults: Ollama on, OpenAI off (no env needed)
+OLLAMA_SWITCH = (os.getenv("OLLAMA_SWITCH", "1").strip().lower() in ("1", "true", "yes"))
+OPENAI_SWITCH = (os.getenv("OPENAI_SWITCH", "0").strip().lower() in ("1", "true", "yes"))
+# Legacy single-provider routing (overridden by switches when set)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OLLAMA_URL = _normalize_url(os.getenv("OLLAMA_URL", ""), "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b-instruct")
+# OPENAI_KEY is the canonical name; OPENAI_API_KEY kept for backward compatibility
+OPENAI_KEY = (os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY") or "").strip() or None
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 # Cocoon client (OpenAI-compatible API; for local or Railway client)
-COCOON_CLIENT_URL = (os.getenv("COCOON_CLIENT_URL") or "http://127.0.0.1:10000").rstrip("/")
+COCOON_CLIENT_URL = _normalize_url(os.getenv("COCOON_CLIENT_URL", ""), "http://127.0.0.1:10000")
 COCOON_MODEL = os.getenv("COCOON_MODEL", "default")
-RAG_URL = os.getenv("RAG_URL", "http://127.0.0.1:8001")
+RAG_URL = _normalize_url(os.getenv("RAG_URL", ""), "http://127.0.0.1:8001")
 RESPONSE_FORMAT_VERSION = "facts_analysis_v2"
 INNER_CALLS_KEY = (os.getenv("INNER_CALLS_KEY") or os.getenv("API_KEY") or "").strip()
 
@@ -59,18 +71,35 @@ def _key_fingerprint(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:6]
 
 
+def _primary_provider() -> str:
+    """Primary LLM: OpenAI when switch on and key set, else Ollama when switch on, else cocoon."""
+    if OPENAI_SWITCH and OPENAI_KEY:
+        return "openai"
+    if OLLAMA_SWITCH:
+        return "ollama"
+    if COCOON_CLIENT_URL:
+        return "cocoon"
+    return "ollama"
+
+
+def _ollama_fallback_enabled() -> bool:
+    """True when primary is OpenAI and Ollama is also on (use Ollama if OpenAI fails)."""
+    return _primary_provider() == "openai" and OLLAMA_SWITCH
+
+
 def _log_runtime_env_snapshot() -> None:
-    provider = LLM_PROVIDER if LLM_PROVIDER in ("openai", "cocoon") else "ollama"
+    provider = _primary_provider()
     logger.info("[ENV][AI] runtime configuration snapshot")
-    logger.info("[ENV][AI] provider=%s", provider)
+    logger.info("[ENV][AI] OLLAMA_SWITCH=%s OPENAI_SWITCH=%s", OLLAMA_SWITCH, OPENAI_SWITCH)
+    logger.info("[ENV][AI] primary_provider=%s ollama_fallback=%s", provider, _ollama_fallback_enabled())
     logger.info("[ENV][AI] INNER_CALLS_KEY configured=%s preview=%s", bool(INNER_CALLS_KEY), _mask_secret(INNER_CALLS_KEY))
     logger.info("[ENV][AI] INNER_CALLS_KEY sha256_prefix=%s", _key_fingerprint(INNER_CALLS_KEY))
     logger.info("[ENV][AI] RAG_URL=%s", RAG_URL or "(missing)")
     logger.info("[ENV][AI] OLLAMA_URL=%s", OLLAMA_URL or "(missing)")
     logger.info("[ENV][AI] OLLAMA_MODEL=%s", OLLAMA_MODEL or "(missing)")
     logger.info("[ENV][AI] OPENAI_MODEL=%s", OPENAI_MODEL or "(missing)")
-    logger.info("[ENV][AI] OPENAI_API_KEY configured=%s", bool(OPENAI_API_KEY))
-    if LLM_PROVIDER == "cocoon":
+    logger.info("[ENV][AI] OPENAI_KEY configured=%s", bool(OPENAI_KEY))
+    if provider == "cocoon" or COCOON_CLIENT_URL:
         logger.info("[ENV][AI] COCOON_CLIENT_URL=%s", COCOON_CLIENT_URL)
         logger.info("[ENV][AI] COCOON_MODEL=%s", COCOON_MODEL)
 
@@ -863,11 +892,8 @@ async def root():
 
 
 def _normalize_provider() -> str:
-    if LLM_PROVIDER == "openai":
-        return "openai"
-    if LLM_PROVIDER == "cocoon":
-        return "cocoon"
-    return "ollama"
+    """Provider used for health/display; matches primary when using switches."""
+    return _primary_provider()
 
 
 async def _check_rag_health(timeout_s: float = 2.0) -> Dict[str, Any]:
@@ -917,20 +943,20 @@ async def _check_llm_health(provider: str, timeout_s: float = 2.0) -> Dict[str, 
     started = time.perf_counter()
 
     if provider == "openai":
-        if not OPENAI_API_KEY:
+        if not OPENAI_KEY:
             return {
                 "status": "error",
                 "provider": "openai",
                 "model": OPENAI_MODEL,
                 "configured": False,
-                "error": "OPENAI_API_KEY is missing",
+                "error": "OPENAI_KEY is missing",
             }
 
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
                 r = await client.get(
                     f"https://api.openai.com/v1/models/{OPENAI_MODEL}",
-                    headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                    headers={"Authorization": f"Bearer {OPENAI_KEY}"},
                 )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             if r.status_code == 200:
@@ -1082,6 +1108,7 @@ async def health():
         "status": "ok" if overall_ok else "degraded",
         "service": "ai-backend",
         "provider": provider,
+        "ollama_fallback": _ollama_fallback_enabled(),
         "response_format_version": RESPONSE_FORMAT_VERSION,
         "security": {
             "api_key_configured": bool(API_KEY),
@@ -1104,13 +1131,12 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     if not request.messages or len(request.messages) == 0:
         raise HTTPException(status_code=400, detail="Messages array cannot be empty")
     
-    provider = LLM_PROVIDER
+    provider = _primary_provider()
     if provider == "openai":
         model = request.model or OPENAI_MODEL
     elif provider == "cocoon":
         model = request.model or COCOON_MODEL
     else:
-        provider = "ollama"
         model = request.model or OLLAMA_MODEL
 
     def stream_text_response(text: str):
@@ -1267,10 +1293,10 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         ticker_prompt = await localize_prompt_with_model(
             template_en=ticker_prompt_en,
             target_lang=user_lang,
-            provider=LLM_PROVIDER,
+            provider=provider,
             ollama_url=OLLAMA_URL,
             ollama_model=OLLAMA_MODEL,
-            openai_api_key=OPENAI_API_KEY,
+            openai_api_key=OPENAI_KEY,
             openai_model=OPENAI_MODEL,
         )
 
@@ -1521,8 +1547,8 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                         continue
 
     async def generate_openai_response():
-        if not OPENAI_API_KEY:
-            yield json.dumps({"error": "OPENAI_API_KEY is required when LLM_PROVIDER=openai"}) + "\n"
+        if not OPENAI_KEY:
+            yield json.dumps({"error": "OPENAI_KEY is required when using OpenAI"}) + "\n"
             return
 
         inference_start = time.perf_counter()
@@ -1530,7 +1556,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         full_response = ""
         prefix_sent = False
         headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Authorization": f"Bearer {OPENAI_KEY}",
             "Content-Type": "application/json",
         }
 
@@ -1569,11 +1595,10 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                                 RAG_URL,
                                 _mask_secret(INNER_CALLS_KEY),
                             )
-                            fallback = _combine_ticker_output(
-                                "Анализ недоступен в данный момент."
-                                if user_lang == "ru"
-                                else "Analysis is unavailable right now."
-                            )
+                            base = "Анализ недоступен в данный момент." if user_lang == "ru" else "Analysis is unavailable right now."
+                            if error_detail and str(response.status_code) != error_detail:
+                                base += " " + ("Причина: " if user_lang == "ru" else "Reason: ") + str(error_detail)
+                            fallback = _combine_ticker_output(base)
                             if not prefix_sent:
                                 yield json.dumps({"token": _normalize_paragraph_spacing(f"{ticker_facts_text}\n\n"), "done": False}) + "\n"
                             yield json.dumps({"response": fallback, "done": True}) + "\n"
@@ -1636,11 +1661,10 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                         RAG_URL,
                         _mask_secret(INNER_CALLS_KEY),
                     )
-                    fallback = _combine_ticker_output(
-                        "Анализ недоступен в данный момент."
-                        if user_lang == "ru"
-                        else "Analysis is unavailable right now."
-                    )
+                    base = "Анализ недоступен в данный момент." if user_lang == "ru" else "Analysis is unavailable right now."
+                    if error_detail and str(response.status_code) != error_detail:
+                        base += " " + ("Причина: " if user_lang == "ru" else "Reason: ") + str(error_detail)
+                    fallback = _combine_ticker_output(base)
                     if not prefix_sent:
                         yield json.dumps({"token": _normalize_paragraph_spacing(f"{ticker_facts_text}\n\n"), "done": False}) + "\n"
                     yield json.dumps({"response": fallback, "done": True}) + "\n"
@@ -1755,8 +1779,30 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 yield json.dumps({"token": full_response, "done": False}) + "\n"
             yield json.dumps({"response": _combine_ticker_output(full_response), "done": True}) + "\n"
 
+    def _is_error_chunk(chunk: str) -> bool:
+        try:
+            if not chunk or not chunk.strip():
+                return False
+            obj = json.loads(chunk.strip())
+            return isinstance(obj, dict) and "error" in obj
+        except Exception:
+            return False
+
     async def generate_response():
         try:
+            if provider == "openai" and _ollama_fallback_enabled():
+                # Try OpenAI first; on error chunk, fall back to Ollama
+                gen = generate_openai_response()
+                first = await gen.__anext__()
+                if _is_error_chunk(first):
+                    logger.info("OpenAI failed, falling back to Ollama")
+                    async for chunk in generate_ollama_response():
+                        yield chunk
+                    return
+                yield first
+                async for chunk in gen:
+                    yield chunk
+                return
             if provider == "openai":
                 async for chunk in generate_openai_response():
                     yield chunk

@@ -1,9 +1,10 @@
 #!/bin/sh
 set -e
 
-LLM_PROVIDER_NORMALIZED=$(echo "${LLM_PROVIDER:-ollama}" | tr '[:upper:]' '[:lower:]')
+# Local default: OLLAMA_SWITCH=1 (start Ollama + pull model). Set OLLAMA_SWITCH=0 on server to skip.
+OLLAMA_SWITCH_NORMALIZED=$(echo "${OLLAMA_SWITCH:-1}" | tr '[:upper:]' '[:lower:]')
 
-if [ "$LLM_PROVIDER_NORMALIZED" = "ollama" ]; then
+if [ "$OLLAMA_SWITCH_NORMALIZED" = "1" ] || [ "$OLLAMA_SWITCH_NORMALIZED" = "true" ] || [ "$OLLAMA_SWITCH_NORMALIZED" = "yes" ]; then
     # Start Ollama in the background
     echo "Starting Ollama server..."
     # Find Ollama binary - check common locations
@@ -19,7 +20,7 @@ if [ "$LLM_PROVIDER_NORMALIZED" = "ollama" ]; then
     fi
 
     if [ -z "$OLLAMA_BIN" ] || [ ! -f "$OLLAMA_BIN" ]; then
-        echo "ERROR: Ollama binary not found while LLM_PROVIDER=ollama"
+        echo "ERROR: Ollama binary not found while OLLAMA_SWITCH=1"
     else
         echo "Found Ollama at: $OLLAMA_BIN"
         $OLLAMA_BIN serve > /tmp/ollama.log 2>&1 &
@@ -45,7 +46,7 @@ if [ "$LLM_PROVIDER_NORMALIZED" = "ollama" ]; then
         fi
 
         # Ensure model exists before API starts. Keep default in sync with ai/backend/main.py.
-        MODEL=${OLLAMA_MODEL:-qwen2.5:1.5b}
+        MODEL=${OLLAMA_MODEL:-qwen2.5:0.5b-instruct}
         echo "Checking for model: $MODEL"
         if ! $OLLAMA_BIN list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "$MODEL"; then
             echo "Model $MODEL not found. Pulling before startup (first boot may take several minutes)..."
@@ -59,7 +60,7 @@ if [ "$LLM_PROVIDER_NORMALIZED" = "ollama" ]; then
         fi
     fi
 else
-    echo "LLM_PROVIDER=$LLM_PROVIDER_NORMALIZED, skipping Ollama startup."
+    echo "OLLAMA_SWITCH=$OLLAMA_SWITCH_NORMALIZED, skipping Ollama startup and model download."
 fi
 
 # Start FastAPI app (this is the main process)

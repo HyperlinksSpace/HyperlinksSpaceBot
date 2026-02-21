@@ -2,20 +2,27 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for Ollama
-RUN apt-get update && apt-get install -y \
-    curl \
-    zstd \
-    && rm -rf /var/lib/apt/lists/*
+# Build arg: 0 = slim image (no Ollama). Railway passes Variables as build args when ARG is declared.
+# Set OLLAMA_SWITCH=0 in Railway Variables → same var drives both build (slim image) and runtime (no Ollama start).
+ARG OLLAMA_SWITCH=1
+# Alias for explicit control: --build-arg INCLUDE_OLLAMA=0
+ARG INCLUDE_OLLAMA
 
-# Install Ollama with error handling
-RUN set -e && \
+# Install system deps only when including Ollama (OLLAMA_SWITCH=0 or INCLUDE_OLLAMA=0 → skip)
+RUN _skip_ollama=0; \
+    if [ "$OLLAMA_SWITCH" = "0" ] || [ "$OLLAMA_SWITCH" = "false" ]; then _skip_ollama=1; fi; \
+    if [ "$INCLUDE_OLLAMA" = "0" ]; then _skip_ollama=1; fi; \
+    if [ "$_skip_ollama" = "1" ]; then echo "Ollama not installed (slim image)"; exit 0; fi; \
+    apt-get update && apt-get install -y curl zstd && rm -rf /var/lib/apt/lists/*
+RUN _skip_ollama=0; \
+    if [ "$OLLAMA_SWITCH" = "0" ] || [ "$OLLAMA_SWITCH" = "false" ]; then _skip_ollama=1; fi; \
+    if [ "$INCLUDE_OLLAMA" = "0" ]; then _skip_ollama=1; fi; \
+    if [ "$_skip_ollama" = "1" ]; then exit 0; fi; \
+    set -e && \
     curl -fsSL https://ollama.com/install.sh -o /tmp/install-ollama.sh && \
     chmod +x /tmp/install-ollama.sh && \
     /tmp/install-ollama.sh && \
     rm /tmp/install-ollama.sh && \
-    echo "Checking Ollama installation..." && \
-    (which ollama || find /usr/local -name ollama -type f 2>/dev/null | head -1) && \
     echo "Ollama installation completed"
 
 # Copy requirements and install dependencies

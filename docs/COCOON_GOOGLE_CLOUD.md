@@ -10,12 +10,13 @@ This guide covers running **upstream Cocoon** (origin branch, unmodified) on **G
 2. [Plan: Moving to full Cocoon run](#plan-moving-to-full-cocoon-run) — steps to run worker + client + router
 3. [Prerequisites](#prerequisites)
 4. [Set up a test instance in your project](#set-up-a-test-instance-in-your-project) — create the VM (one-time)
-5. [Environment variables (client only)](#environment-variables-client-only) — obligatory vs optional, where to set on GCP
-6. [Option A: Compute Engine VM](#option-a-compute-engine-vm) — full VM workflow (build, run, envs)
-7. [Option B: Cloud Run (container)](#option-b-cloud-run-container)
-8. [HTTPS and production](#https-and-production)
-9. [Connect your app](#connect-your-app)
-10. [Troubleshooting](#troubleshooting)
+5. [Running without TDX (local / WebUI / Cline)](#running-without-tdx-local-machine--webui--cline) — run client + router without Confidential Computing
+6. [Environment variables (client only)](#environment-variables-client-only) — obligatory vs optional, where to set on GCP
+7. [Option A: Compute Engine VM](#option-a-compute-engine-vm) — full VM workflow (build, run, envs)
+8. [Option B: Cloud Run (container)](#option-b-cloud-run-container)
+9. [HTTPS and production](#https-and-production)
+10. [Connect your app](#connect-your-app)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -80,6 +81,31 @@ The [Cocoon For GPU Owners](https://docs.cocoon.org/for-gpu-owners) guide define
 - **TON:** For production, have wallet, `OWNER_ADDRESS`, `NODE_WALLET_KEY`, and TON config; for testing, fake-TON is enough.
 
 **If you want to run a Cocoon worker on GCP:** You would need a confidential GPU VM (e.g. A3 with H100) and to verify with Cocoon that their worker image and seal-server flow support GCP’s confidential GPU (AMD SEV-SNP + GPU-TEE) and managed host. This guide does not cover worker setup.
+
+---
+
+## Running without TDX (local machine / WebUI / Cline)
+
+If you run the **client + router** on a machine **without** Intel TDX / Confidential Computing (e.g. your PC, WSL, or a non-TDX VM), you can use the **no-TDX patch** included in this repo (from [gist](https://gist.github.com/raiym/d5e916e915cb3e146d3b46d4a50344f8)). It does three things:
+
+1. **ClientRunner** — Sends `Content-Type: application/json` for the models list so WebUI/Cline and other OpenAI-compatible UIs recognize the response.
+2. **cocoon-launch** — Router policy and client verbosity are controlled by env vars (default remains `tdx`).
+3. **tee/cocoon/tdx.cpp** — Optional skip of user-claims verification via `COCOON_SKIP_TDX_USERCLAIMS`.
+
+**Steps to run on your machine (no TDX):**
+
+1. **Apply the patch** (already applied in this repo's `cocoon` submodule). If you use a clean cocoon clone, apply the [cocoon.patch](https://gist.github.com/raiym/d5e916e915cb3e146d3b46d4a50344f8) with `git apply` from the cocoon root.
+2. **Build** in WSL/Linux (same deps and command as in [Option A](#option-a-compute-engine-vm)):  
+   `./scripts/cocoon-launch --build-dir "$(pwd)/build" --just-build scripts/client.conf`
+3. **Set env and run** (no TDX):
+   ```bash
+   export COCOON_ROUTER_POLICY=any    # Router listens with policy "any" (no attestation)
+   export COCOON_SKIP_TDX_USERCLAIMS=1   # Optional: skip reportdata check if still failing
+   ./scripts/cocoon-launch --build-dir "$(pwd)/build" scripts/client.conf
+   ```
+4. Use the client URL (e.g. `http://localhost:10000`) in WebUI, Cline, or any OpenAI-compatible client.
+
+Optional: `COCOON_CLIENT_VERBOSITY` (default `3`) controls client log level.
 
 ---
 
@@ -236,6 +262,9 @@ These apply to the **Cocoon client** (and how `cocoon-launch` / your run script 
 | BUILD_DIR | No | `cmake-build-default-tdx` or env | Where the client binary is built. On GCP VM: only if you use a custom build dir. |
 | COCOON_RUN_DIR | No | Set by script (e.g. `/tmp/run`) | Used by config renderer; usually leave unset. |
 | COCOON_SUBST | No | Set by script to `build_dir/tee/cocoon-subst` | Only set if you run the render script manually. |
+| COCOON_ROUTER_POLICY | No | `tdx` | For **no-TDX** runs (local/WebUI): set to `any` so the router does not require attestation. See [Running without TDX](#running-without-tdx-local-machine--webui--cline). |
+| COCOON_CLIENT_VERBOSITY | No | `3` | Log verbosity for client-runner (`-vN`). |
+| COCOON_SKIP_TDX_USERCLAIMS | No | unset | Set to `1` to skip TDX user-claims verification (only when running without TDX and you still get reportdata mismatch). |
 
 Summary for **fake-TON**: you must set **OWNER_ADDRESS** (any test address is fine). Everything else can use defaults.
 
@@ -374,21 +403,41 @@ gcloud compute ssh cocoon-client --project=$GC_HS_PROJECT_ID
 
 On the VM:
 
+All of these are required by the Cocoon/TON build (see cocoon and ton CMakeLists, BuildSECP256K1, tdutils):
+
 ```bash
-sudo apt-get update
-sudo apt-get install -y \
+sudo apt-get update && sudo apt-get install -y \
   build-essential \
   cmake \
   ninja-build \
   git \
   python3 \
+  pkg-config \
   libssl-dev \
   libz-dev \
   libjemalloc-dev \
   libsodium-dev \
   liblz4-dev \
-  pkg-config
+  autoconf \
+  automake \
+  libtool \
+  gperf
 ```
+
+| Package | Where it's required |
+|---------|---------------------|
+| build-essential | gcc/g++/make for compilation |
+| cmake, ninja-build | cocoon-launch and TON build system |
+| git | git_watcher.cmake |
+| python3 | cocoon-launch script |
+| pkg-config | find_package(PkgConfig), tdutils/crypto |
+| libssl-dev | find_package(OpenSSL REQUIRED) in ton/CMakeLists.txt |
+| libz-dev | find_package(ZLIB REQUIRED) in cocoon + ton |
+| libjemalloc-dev | find_package(jemalloc REQUIRED) when TON_USE_JEMALLOC=ON |
+| libsodium-dev | FindSodium / ton/crypto |
+| liblz4-dev | pkg_check_modules(LZ4 REQUIRED liblz4) in ton/tdutils |
+| autoconf, automake, libtool | secp256k1: ton/CMake/BuildSECP256K1.cmake runs autogen.sh + configure |
+| gperf | ton/tdutils/generate (MIME types) when TDUTILS_MIME_TYPE=ON |
 
 ### 4. Clone Cocoon (origin branch, no local changes)
 

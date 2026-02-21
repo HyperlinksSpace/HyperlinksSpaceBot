@@ -16,6 +16,7 @@ import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 from prompt_i18n import localize_prompt_with_model
+from wallet.repo import InMemoryWalletRepository
 from wallet.service import WalletService, serialize_wallet_machine
 
 logger = logging.getLogger(__name__)
@@ -1108,7 +1109,8 @@ async def capabilities():
     return JSONResponse(content=_build_capabilities_payload(), status_code=200)
 
 
-_wallet_service = WalletService()
+_wallet_repo = InMemoryWalletRepository()
+_wallet_service = WalletService(repo=_wallet_repo)
 
 
 @app.post("/wallet/create")
@@ -1127,13 +1129,17 @@ async def wallet_create(request: WalletCreateRequest, api_key: str = Depends(ver
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return JSONResponse(
-        content={
-            "status": "ok",
-            "wallet": serialize_wallet_machine(machine),
-        },
-        status_code=200,
-    )
+    return JSONResponse(content=serialize_wallet_machine(machine), status_code=200)
+
+
+@app.get("/wallet/{wallet_id}")
+def wallet_get(wallet_id: str):
+    m = _wallet_service.get(wallet_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="wallet_not_found")
+    return serialize_wallet_machine(m)
+
+
 @app.post("/api/chat")
 async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     """

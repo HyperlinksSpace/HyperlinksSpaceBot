@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from uuid import uuid4
 
-from .state_machine import WalletMachine
+from wallet.repo import WalletRepository, InMemoryWalletRepository
+from wallet.state_machine import WalletMachine
 
 
 class WalletService:
@@ -12,37 +12,48 @@ class WalletService:
     DB/persistence can be attached later without changing route handlers.
     """
 
-    def create_wallet(
-        self,
-        *,
-        user_id: str,
-        wallet_id: str | None = None,
-        address: str | None = None,
-        public_key: str | None = None,
-    ) -> WalletMachine:
-        resolved_wallet_id = (wallet_id or "").strip() or f"w_{uuid4().hex[:12]}"
-        resolved_address = (address or "").strip() or f"EQ{uuid4().hex[:46]}"
-        resolved_public_key = (public_key or "").strip() or uuid4().hex
+    def __init__(self, repo: WalletRepository | None = None) -> None:
+        self._repo: WalletRepository = repo or InMemoryWalletRepository()
 
-        machine = WalletMachine.new(user_id=user_id, wallet_id=resolved_wallet_id)
-        return machine.created(address=resolved_address, public_key=resolved_public_key)
+    def get(self, wallet_id: str):
+        return self._repo.get(wallet_id)
+
+    def create_wallet(self, *, user_id: str, wallet_id: str, address: str, public_key: str):
+        m = WalletMachine.new(user_id=user_id, wallet_id=wallet_id).created(
+            address=address,
+            public_key=public_key,
+        )
+        self._repo.save(m)
+        return m
 
     def allocate(
         self,
-        machine: WalletMachine,
         *,
+        wallet_id: str,
         amount: str,
         asset: str = "DLLR",
         tx_ref: str | None = None,
-    ) -> WalletMachine:
-        return machine.allocated(amount=amount, asset=asset, tx_ref=tx_ref)
+    ):
+        m = self._repo.get(wallet_id)
+        if m is None:
+            raise ValueError("wallet_not_found")
 
-    def activate(self, machine: WalletMachine) -> WalletMachine:
-        return machine.active()
+        m2 = m.allocated(amount=amount, asset=asset, tx_ref=tx_ref)
+        self._repo.save(m2)
+        return m2
+
+    def activate(self, *, wallet_id: str):
+        m = self._repo.get(wallet_id)
+        if m is None:
+            raise ValueError("wallet_not_found")
+
+        m2 = m.active()
+        self._repo.save(m2)
+        return m2
 
 
 def serialize_wallet_machine(machine: WalletMachine) -> dict:
     return {
         "state": machine.state.value,
-        "context": asdict(machine.ctx),
+        "ctx": asdict(machine.ctx),
     }

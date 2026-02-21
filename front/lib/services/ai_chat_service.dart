@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import '../api/auth_api.dart';
+
 class AiChatService {
   static const String _unavailableText = 'AI service unavailable';
 
@@ -18,22 +20,14 @@ class AiChatService {
     final defineInnerCallsKey =
         const String.fromEnvironment('INNER_CALLS_KEY').trim();
 
-    // Preferred names for current setup:
-    // - BOT_API_URL
-    // - INNER_CALLS_KEY
-    // - BOT_API_KEY
-    // Backward compatibility for previous deployments:
-    // - AI_BACKEND_URL
-    // - API_KEY
-    final envBotApiUrl = _readEnv('BOT_API_URL');
-    final envAiBackendUrl = _readEnv('AI_BACKEND_URL');
+    // Prefer AuthApi cache (from /api/config in prod), then .env, --dart-define, local default
+    final envBotApiUrl = AuthApi.resolveBaseUrl().ifEmpty(_readEnv('BOT_API_URL'));
     final envInnerCallsKey = _readEnv('INNER_CALLS_KEY');
     final envBotApiKey = _readEnv('BOT_API_KEY');
     final envApiKey = _readEnv('API_KEY');
 
     final botApiUrl = _normalizeHttpUrl(
       envBotApiUrl
-          .ifEmpty(envAiBackendUrl)
           .ifEmpty(defineBotApiUrl)
           .ifEmpty(localDefaultUrl)
           .trim(),

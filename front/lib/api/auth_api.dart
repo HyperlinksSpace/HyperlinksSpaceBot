@@ -75,24 +75,39 @@ class AuthApi {
     throw AuthException(resp.statusCode, err);
   }
 
+  static String? _cachedBaseUrl;
+
+  /// Bot service base URL (auth, chat). Uses cache (from /api/config), then .env, --dart-define, or local default.
   static String resolveBaseUrl() {
-    final defineBotApiUrl = const String.fromEnvironment('BOT_API_URL').trim();
-    final defineAiBackendUrl =
-        const String.fromEnvironment('AI_BACKEND_URL').trim();
-
-    final envBotApiUrl = _readEnv('BOT_API_URL');
-    final envAiBackendUrl = _readEnv('AI_BACKEND_URL');
-
+    if (_cachedBaseUrl != null && _cachedBaseUrl!.isNotEmpty) return _cachedBaseUrl!;
+    final env = _readEnv('BOT_API_URL');
+    final define =
+        const String.fromEnvironment('BOT_API_URL', defaultValue: '').trim();
     final localDefault = _localDefaultBotApiUrl();
-
     return _normalizeHttpUrl(
-      envBotApiUrl
-          .ifEmpty(envAiBackendUrl)
-          .ifEmpty(defineBotApiUrl)
-          .ifEmpty(defineAiBackendUrl)
-          .ifEmpty(localDefault)
-          .trim(),
+      env.ifEmpty(define).ifEmpty(localDefault).trim(),
     );
+  }
+
+  /// Resolves base URL; on web tries /api/config first (so prod can use Vercel env BOT_API_URL). Caches result.
+  static Future<String> resolveBaseUrlAsync() async {
+    final sync = resolveBaseUrl();
+    if (sync.isNotEmpty) return sync;
+    try {
+      final uri = Uri.base.resolve('/api/config');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200 && resp.body.isNotEmpty) {
+        final body = jsonDecode(resp.body);
+        if (body is Map) {
+          final url = (body['BOT_API_URL'] ?? '').toString().trim();
+          if (url.isNotEmpty) {
+            _cachedBaseUrl = _normalizeHttpUrl(url);
+            return _cachedBaseUrl!;
+          }
+        }
+      }
+    } catch (_) {}
+    return '';
   }
 
   static String _readEnv(String key) {

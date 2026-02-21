@@ -18,18 +18,8 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
   @override
   void initState() {
     super.initState();
+    // Run in background: layout is already visible
     _run();
-  }
-
-  void _goToHome() {
-    if (!mounted) return;
-    // Defer navigation to avoid "navigator._debugLocked" when called from async callback
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => widget.home),
-      );
-    });
   }
 
   Future<void> _run() async {
@@ -44,21 +34,26 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       final bool standaloneMode = Uri.base.queryParameters['standalone'] == '1';
       final bool skipSignIn = standaloneMode || !webApp.isActuallyInTelegram || initData.isEmpty;
       if (skipSignIn) {
-        _goToHome();
         return;
       }
 
-      final baseUrl = AuthApi.resolveBaseUrl();
+      // Prefer async resolve so production can get BOT_API_URL from /api/config (Vercel env)
+      String baseUrl = AuthApi.resolveBaseUrl();
       if (baseUrl.isEmpty) {
-        setState(() => _error = 'Service URL is not configured.');
+        baseUrl = await AuthApi.resolveBaseUrlAsync();
+      }
+      if (baseUrl.isEmpty) {
+        if (!mounted) return;
+        setState(() => _error =
+            'Service URL is not configured. '
+            'Local: run the app via the repo start script (start.sh / start.ps1) or set BOT_API_URL in front/.env. '
+            'Production: set BOT_API_URL in Vercel (or host) environment.');
         return;
       }
 
       final authApi = AuthApi(baseUrl: baseUrl);
       await authApi.authTelegram(initData: initData);
-
-      if (!mounted) return;
-      _goToHome();
+      // Success: no navigation needed, layout is already shown
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = _humanizeError(e));
@@ -83,32 +78,42 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_error == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() => _error = null);
-                  _run();
-                },
-                child: const Text('Retry'),
+    return Stack(
+      children: [
+        // Layout loads first; bootstrap (URL, auth) runs in background
+        widget.home,
+        if (_error != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: Material(
+              elevation: 4,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() => _error = null);
+                          _run();
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+      ],
     );
   }
 }

@@ -16,15 +16,16 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Return the API key from environment variables
   const apiKey =
     process.env.INNER_CALLS_KEY ||
     process.env.BOT_API_KEY ||
     process.env.API_KEY ||
     '';
+  const botApiUrl = (process.env.BOT_API_URL || '').trim();
 
   return res.status(200).json({
-    apiKey: apiKey
+    apiKey: apiKey,
+    BOT_API_URL: botApiUrl
   });
 };
 

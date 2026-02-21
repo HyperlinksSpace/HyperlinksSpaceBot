@@ -906,16 +906,27 @@ class _MainPageState extends State<MainPage> {
                                   ),
                                 );
                                 if (item['route'] == 'creators') {
-                                  cell = GestureDetector(
-                                    onTap: () {
-                                      AppHaptic.heavy();
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => const CreatorsPage(),
+                                  // Tappable: content + 10px up/down only; 10px gap below is not tappable
+                                  cell = Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        AppHaptic.heavy();
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => const CreatorsPage(),
+                                          ),
+                                        );
+                                      },
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 10),
+                                          child: row,
                                         ),
-                                      );
-                                    },
-                                    child: cell,
+                                      ),
+                                    ),
                                   );
                                 }
                                 return cell;

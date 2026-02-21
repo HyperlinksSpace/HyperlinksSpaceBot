@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
+import 'api/auth_api.dart';
 import 'telegram_webapp.dart';
 import 'app/app.dart';
 import 'app/theme/app_theme.dart';
@@ -12,6 +14,11 @@ void main() async {
     print('Loaded .env file for local development');
   } catch (e) {
     print('No .env file found (this is OK for production): $e');
+  }
+
+  // On web, prefetch BOT_API_URL from /api/config so production (Vercel) has URL without .env
+  if (kIsWeb) {
+    await AuthApi.resolveBaseUrlAsync();
   }
 
   // Initialize Telegram WebApp using flutter_telegram_miniapp package

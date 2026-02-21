@@ -41,18 +41,21 @@ This is the Flutter frontend for the XP7K Telegram Mini App.
    ```bash
    cd front
    cat > .env <<'EOF'
-   BOT_API_URL=http://127.0.0.1:8000
+   BOT_API_URL=http://127.0.0.1:8080
    INNER_CALLS_KEY=change-me-shared-secret
    EOF
    ```
    
    Or manually create `.env` with:
    ```
-   BOT_API_URL=http://127.0.0.1:8000
+   BOT_API_URL=http://127.0.0.1:8080
    INNER_CALLS_KEY=change-me-shared-secret
    ```
    
+   `BOT_API_URL` is the Bot service base URL (auth and /api/chat). Local default 8080; in production set to your bot’s public URL.
+   
    > **Note**: The `.env` file is gitignored and won't be committed. For production, set the same env vars in Vercel project settings.
+   > When you run the full stack via the repo **start script** (`start.sh` or `shell/start.ps1`), it sets `BOT_API_URL` and writes `front/.env` for you. If you run the frontend alone (e.g. `cd front && flutter run -d chrome`) and see "Service URL is not configured", create `front/.env` with `BOT_API_URL=...`. On production (Vercel), set `BOT_API_URL` in the project environment.
 
 2. Get dependencies:
    ```bash

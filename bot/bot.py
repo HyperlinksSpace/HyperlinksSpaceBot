@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import hashlib
+import hmac
 import re
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -195,6 +196,20 @@ async def init_db():
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id)
         """)
+        await conn.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS has_wallet BOOLEAN NOT NULL DEFAULT FALSE
+        """)
+        await conn.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wallet_assigned_at TIMESTAMP NULL
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users((lower(username)))
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_users_has_wallet ON users(has_wallet)
+        """)
         
         # Create messages table for conversation history
         # Each user's messages are stored separately using telegram_id as the key
@@ -323,6 +338,117 @@ async def get_last_message_by_role(telegram_id: int, role: str) -> str | None:
         return None
 
 
+def _normalize_username(username: str) -> str:
+    value = (username or "").strip()
+    if value.startswith("@"):
+        value = value[1:]
+    return value.lower()
+
+
+async def claim_wallet_for_username(username: str) -> str:
+    """
+    Atomically mark wallet assignment in the existing users DB.
+
+    Returns one of:
+    - assigned
+    - already_assigned
+    - user_not_found
+    - invalid_username
+    - db_unavailable
+    """
+    normalized = _normalize_username(username)
+    if not normalized:
+        return "invalid_username"
+
+    pool = await get_db_pool()
+    if pool is None:
+        return "db_unavailable"
+
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                WITH candidate AS (
+                    SELECT telegram_id
+                    FROM users
+                    WHERE lower(username) = $1
+                    ORDER BY last_active_at DESC NULLS LAST, updated_at DESC NULLS LAST
+                    LIMIT 1
+                    FOR UPDATE
+                )
+                UPDATE users u
+                SET
+                    has_wallet = TRUE,
+                    wallet_assigned_at = COALESCE(
+                        u.wallet_assigned_at,
+                        (now() AT TIME ZONE 'UTC') + INTERVAL '3 hours'
+                    ),
+                    updated_at = (now() AT TIME ZONE 'UTC') + INTERVAL '3 hours'
+                FROM candidate c
+                WHERE
+                    u.telegram_id = c.telegram_id
+                    AND COALESCE(u.has_wallet, FALSE) = FALSE
+                RETURNING u.telegram_id
+            """, normalized)
+            if row:
+                return "assigned"
+
+            exists = await conn.fetchval("""
+                SELECT 1
+                FROM users
+                WHERE lower(username) = $1
+                LIMIT 1
+            """, normalized)
+            if exists:
+                return "already_assigned"
+            return "user_not_found"
+    except Exception as e:
+        print(f"Error claiming wallet for username={normalized}: {e}")
+        return "db_unavailable"
+
+
+async def ensure_user_exists_from_verified_user(user: dict) -> bool:
+    """
+    Upsert a verified Telegram user into users table.
+    Returns True on success, False if DB is unavailable or insert fails.
+    """
+    telegram_id = user.get("id")
+    username = _normalize_username(user.get("username") or "")
+    if telegram_id is None or not username:
+        return False
+
+    pool = await get_db_pool()
+    if pool is None:
+        return False
+
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO users (
+                    telegram_id, username, first_name, last_name, language_code, last_active_at
+                )
+                VALUES ($1, $2, $3, $4, $5, (now() AT TIME ZONE 'UTC') + INTERVAL '3 hours')
+                ON CONFLICT (telegram_id)
+                DO UPDATE SET
+                    username = EXCLUDED.username,
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name,
+                    language_code = EXCLUDED.language_code,
+                    last_active_at = (now() AT TIME ZONE 'UTC') + INTERVAL '3 hours',
+                    updated_at = (now() AT TIME ZONE 'UTC') + INTERVAL '3 hours'
+                """,
+                int(telegram_id),
+                username,
+                user.get("first_name"),
+                user.get("last_name"),
+                user.get("language_code"),
+            )
+        return True
+    except Exception as e:
+        print(f"Error ensuring verified user row: {e}")
+        return False
+
+
 async def ensure_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler that ensures user exists in database (runs on all messages, non-blocking)"""
     # Run database operation asynchronously without blocking the response
@@ -333,6 +459,58 @@ async def ensure_user_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 def _resolve_bot_api_key() -> str:
     key, _ = _resolve_inner_calls_key_with_source()
     return key
+
+
+def _hmac_sha256(key: bytes, msg: bytes) -> bytes:
+    return hmac.new(key, msg, hashlib.sha256).digest()
+
+
+def verify_telegram_webapp_init_data(init_data: str, bot_token: str, max_age_seconds: int = 24 * 3600):
+    """
+    Verify Telegram WebApp initData and return parsed payload on success.
+    Returns None if invalid.
+    """
+    if not init_data or not bot_token:
+        return None
+
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True)
+        data = {k: v for k, v in pairs}
+    except Exception:
+        return None
+
+    received_hash = data.pop("hash", None)
+    if not received_hash:
+        return None
+
+    auth_date_str = data.get("auth_date")
+    if auth_date_str:
+        try:
+            auth_date = int(auth_date_str)
+            now = int(time.time())
+            if auth_date > now + 60:
+                return None
+            if max_age_seconds is not None and (now - auth_date > max_age_seconds):
+                return None
+        except Exception:
+            return None
+
+    items = sorted((k, v) for k, v in data.items())
+    data_check_string = "\n".join([f"{k}={v}" for k, v in items]).encode("utf-8")
+    secret_key = _hmac_sha256(b"WebAppData", bot_token.encode("utf-8"))
+    computed_hash = hmac.new(secret_key, data_check_string, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed_hash, received_hash):
+        return None
+
+    user_raw = data.get("user")
+    if user_raw:
+        try:
+            data["user"] = json.loads(user_raw)
+        except Exception:
+            return None
+
+    return data
 
 
 def _cors_headers() -> dict[str, str]:
@@ -478,6 +656,89 @@ async def http_chat_proxy_handler(request: web.Request) -> web.Response:
     )
 
 
+async def auth_telegram(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return _json_response({"ok": False, "error": "bad_json"}, status=400)
+
+    init_data = body.get("initData") if isinstance(body, dict) else None
+    if not init_data or not isinstance(init_data, str):
+        return _json_response({"ok": False, "error": "missing_initData"}, status=400)
+
+    bot_token = (os.getenv("BOT_TOKEN") or "").strip()
+    verified = verify_telegram_webapp_init_data(init_data, bot_token, max_age_seconds=24 * 3600)
+    if not verified:
+        return _json_response({"ok": False, "error": "invalid_initdata"}, status=401)
+
+    user = verified.get("user") if isinstance(verified.get("user"), dict) else {}
+    username = _normalize_username(user.get("username") or "")
+    if not username:
+        return _json_response({"ok": False, "error": "username_required"}, status=400)
+
+    ensured = await ensure_user_exists_from_verified_user(user)
+    if not ensured:
+        return _json_response({"ok": False, "error": "db_unavailable"}, status=503)
+
+    claim_status = await claim_wallet_for_username(username)
+    if claim_status in {"assigned", "already_assigned"}:
+        print(f"auth_telegram username={username} wallet_status={claim_status}")
+        return _json_response(
+            {
+                "ok": True,
+                "user": {
+                    "id": user.get("id"),
+                    "username": username,
+                    "first_name": user.get("first_name"),
+                    "last_name": user.get("last_name"),
+                    "language_code": user.get("language_code"),
+                },
+                "wallet_status": claim_status,
+                "newly_assigned": claim_status == "assigned",
+            },
+            status=200,
+        )
+    if claim_status == "user_not_found":
+        return _json_response({"ok": False, "error": "user_not_found"}, status=404)
+    if claim_status == "invalid_username":
+        return _json_response({"ok": False, "error": "invalid_username"}, status=400)
+    if claim_status == "db_unavailable":
+        return _json_response({"ok": False, "error": "db_unavailable"}, status=503)
+    return _json_response({"ok": False, "error": "wallet_claim_unknown_status"}, status=500)
+
+
+async def http_wallet_ensure_handler(request: web.Request) -> web.Response:
+    authorized, auth_error = _authorize_request(request)
+    if not authorized:
+        return auth_error  # type: ignore[return-value]
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return _json_response({"error": "Invalid JSON body."}, status=400)
+
+    username = payload.get("username") if isinstance(payload, dict) else None
+    if not isinstance(username, str):
+        return _json_response({"error": "username is required."}, status=400)
+
+    result = await claim_wallet_for_username(username)
+    if result == "assigned":
+        return _json_response(
+            {"status": "ok", "wallet_status": "assigned", "newly_assigned": True},
+            status=200,
+        )
+    if result == "already_assigned":
+        return _json_response(
+            {"status": "ok", "wallet_status": "already_assigned", "newly_assigned": False},
+            status=200,
+        )
+    if result == "user_not_found":
+        return _json_response({"error": "user_not_found"}, status=404)
+    if result == "invalid_username":
+        return _json_response({"error": "invalid_username"}, status=400)
+    return _json_response({"error": "database_unavailable"}, status=503)
+
+
 async def start_http_api_server() -> None:
     global _http_runner
     if _http_runner is not None:
@@ -486,8 +747,12 @@ async def start_http_api_server() -> None:
     app = web.Application()
     app.router.add_get("/", http_root_handler)
     app.router.add_get("/health", http_health_handler)
+    app.router.add_post("/auth/telegram", auth_telegram)
     app.router.add_post("/api/chat", http_chat_proxy_handler)
+    app.router.add_post("/wallet/ensure", http_wallet_ensure_handler)
+    app.router.add_options("/auth/telegram", http_options_handler)
     app.router.add_options("/api/chat", http_options_handler)
+    app.router.add_options("/wallet/ensure", http_options_handler)
     app.router.add_options("/", http_options_handler)
     app.router.add_options("/health", http_options_handler)
 

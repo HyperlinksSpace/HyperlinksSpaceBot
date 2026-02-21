@@ -6,6 +6,7 @@ import '../widgets/global/global_logo_bar.dart';
 import '../widgets/global/global_bottom_bar.dart';
 import '../widgets/global/ai_search_overlay.dart';
 import '../pages/main_page.dart';
+import '../screens/bootstrap_screen.dart';
 import '../analytics.dart';
 
 class MyApp extends StatefulWidget {
@@ -265,7 +266,7 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
       debugShowCheckedModeBanner: false,
-      home: const MainPage(),
+      home: const BootstrapScreen(home: MainPage()),
         );
       },
     );

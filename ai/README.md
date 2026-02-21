@@ -69,6 +69,8 @@ OPENAI_KEY=sk-...
 # OPENAI_MODEL=gpt-4o is default
 ```
 
+**If you see OpenAI locally instead of Ollama:** Ensure your local `.env` (e.g. `ai/backend/.env`) does **not** set `OPENAI_SWITCH=1` and does **not** set `OPENAI_KEY`. Remove or comment those lines so defaults apply (Ollama primary). Check startup logs for `primary_provider=ollama`.
+
 ## Railway
 
 Recommended service root: `ai/backend`

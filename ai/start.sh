@@ -1,8 +1,13 @@
 #!/bin/sh
 set -e
 
-# Local default: OLLAMA_SWITCH=1 (start Ollama + pull model). Set OLLAMA_SWITCH=0 on server to skip.
-OLLAMA_SWITCH_NORMALIZED=$(echo "${OLLAMA_SWITCH:-1}" | tr '[:upper:]' '[:lower:]')
+# Local defaults: Ollama on, OpenAI off. Server (e.g. Railway) sets OLLAMA_SWITCH=0 OPENAI_SWITCH=1 before running.
+# Export so the Python process gets these unless already set (no need to edit .env for local Ollama).
+export OLLAMA_SWITCH="${OLLAMA_SWITCH:-1}"
+export OPENAI_SWITCH="${OPENAI_SWITCH:-0}"
+
+# Normalized for shell checks below
+OLLAMA_SWITCH_NORMALIZED=$(echo "${OLLAMA_SWITCH}" | tr '[:upper:]' '[:lower:]')
 
 if [ "$OLLAMA_SWITCH_NORMALIZED" = "1" ] || [ "$OLLAMA_SWITCH_NORMALIZED" = "true" ] || [ "$OLLAMA_SWITCH_NORMALIZED" = "yes" ]; then
     # Start Ollama in the background

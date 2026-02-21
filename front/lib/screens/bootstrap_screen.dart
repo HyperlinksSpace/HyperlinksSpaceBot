@@ -21,12 +21,30 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
     _run();
   }
 
+  void _goToHome() {
+    if (!mounted) return;
+    // Defer navigation to avoid "navigator._debugLocked" when called from async callback
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => widget.home),
+      );
+    });
+  }
+
   Future<void> _run() async {
     try {
       final webApp = TelegramWebApp();
       final initData = webApp.initDataString?.trim() ?? '';
-      if (initData.isEmpty) {
-        setState(() => _error = 'Open this app from inside Telegram.');
+
+      // Outside Telegram (browser): no sign-in. Skip auth when:
+      // - URL has ?standalone=1 (explicit browser mode), or
+      // - not actually in Telegram, or
+      // - no initData (cannot authenticate without it)
+      final bool standaloneMode = Uri.base.queryParameters['standalone'] == '1';
+      final bool skipSignIn = standaloneMode || !webApp.isActuallyInTelegram || initData.isEmpty;
+      if (skipSignIn) {
+        _goToHome();
         return;
       }
 
@@ -40,9 +58,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       await authApi.authTelegram(initData: initData);
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => widget.home),
-      );
+      _goToHome();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = _humanizeError(e));

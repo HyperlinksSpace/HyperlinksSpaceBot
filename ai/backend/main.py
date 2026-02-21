@@ -77,7 +77,10 @@ def _key_fingerprint(value: str) -> str:
 
 
 def _primary_provider() -> str:
-    """Primary LLM: OpenAI when switch on and key set, else Ollama when switch on, else cocoon."""
+    """Primary LLM: OpenAI when switch on and key set, else Ollama when switch on, else cocoon.
+    Local: use Ollama by default (OPENAI_SWITCH=0 or unset; OPENAI_KEY unset).
+    """
+    # Only use OpenAI when explicitly on and key is set (avoids OpenAI locally if .env has key from server)
     if OPENAI_SWITCH and OPENAI_KEY:
         return "openai"
     if OLLAMA_SWITCH:
@@ -97,6 +100,8 @@ def _log_runtime_env_snapshot() -> None:
     logger.info("[ENV][AI] runtime configuration snapshot")
     logger.info("[ENV][AI] OLLAMA_SWITCH=%s OPENAI_SWITCH=%s", OLLAMA_SWITCH, OPENAI_SWITCH)
     logger.info("[ENV][AI] primary_provider=%s ollama_fallback=%s", provider, _ollama_fallback_enabled())
+    if provider == "openai" and ("127.0.0.1" in (OLLAMA_URL or "") or "localhost" in (OLLAMA_URL or "").lower()):
+        logger.warning("[ENV][AI] OpenAI is primary but OLLAMA_URL is local — for local Ollama set OPENAI_SWITCH=0 or unset OPENAI_KEY in .env")
     logger.info("[ENV][AI] INNER_CALLS_KEY configured=%s preview=%s", bool(INNER_CALLS_KEY), _mask_secret(INNER_CALLS_KEY))
     logger.info("[ENV][AI] INNER_CALLS_KEY sha256_prefix=%s", _key_fingerprint(INNER_CALLS_KEY))
     logger.info("[ENV][AI] RAG_URL=%s", RAG_URL or "(missing)")

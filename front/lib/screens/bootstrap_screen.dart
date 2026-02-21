@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/auth_api.dart';
 import '../telegram_webapp.dart';
+import '../wallet/wallet_key_service.dart';
 
 class BootstrapScreen extends StatefulWidget {
   final Widget home;
@@ -37,6 +40,8 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         return;
       }
 
+      _warmUpWalletKeys(webApp);
+
       // Prefer async resolve so production can get BOT_API_URL from /api/config (Vercel env)
       String baseUrl = AuthApi.resolveBaseUrl();
       if (baseUrl.isEmpty) {
@@ -58,6 +63,21 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       if (!mounted) return;
       setState(() => _error = _humanizeError(e));
     }
+  }
+
+  void _warmUpWalletKeys(TelegramWebApp webApp) {
+    unawaited(() async {
+      try {
+        final pair = await WalletKeyService(telegramWebApp: webApp).getOrCreateKeyPair();
+        final preview = pair.publicKeyBase64.length <= 8
+            ? pair.publicKeyBase64
+            : pair.publicKeyBase64.substring(0, 8);
+        print('[Wallet] keypair ready pub=$preview...');
+      } catch (e) {
+        // Never block app load if wallet key setup fails.
+        print('[Wallet] keypair warm-up failed: $e');
+      }
+    }());
   }
 
   String _humanizeError(Object e) {

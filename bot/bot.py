@@ -412,7 +412,7 @@ async def ensure_user_exists_from_verified_user(user: dict) -> bool:
     Returns True on success, False if DB is unavailable or insert fails.
     """
     telegram_id = user.get("id")
-    username = user.get("username")
+    username = _normalize_username(user.get("username") or "")
     if telegram_id is None or not username:
         return False
 
@@ -672,7 +672,7 @@ async def auth_telegram(request: web.Request) -> web.Response:
         return _json_response({"ok": False, "error": "invalid_initdata"}, status=401)
 
     user = verified.get("user") if isinstance(verified.get("user"), dict) else {}
-    username = user.get("username")
+    username = _normalize_username(user.get("username") or "")
     if not username:
         return _json_response({"ok": False, "error": "username_required"}, status=400)
 

@@ -16,6 +16,7 @@ import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 from prompt_i18n import localize_prompt_with_model
+from wallet.service import WalletService, serialize_wallet_machine
 
 logger = logging.getLogger(__name__)
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -844,6 +845,13 @@ class ChatRequest(BaseModel):
     top_logprobs: Optional[int] = Field(default=None, description="Number of most likely tokens to return at each token position when logprobs are enabled")
 
 
+class WalletCreateRequest(BaseModel):
+    user_id: str = Field(..., description="Application user identifier")
+    wallet_id: Optional[str] = Field(default=None, description="Optional external wallet id")
+    address: Optional[str] = Field(default=None, description="Optional pre-generated address")
+    public_key: Optional[str] = Field(default=None, description="Optional pre-generated public key")
+
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -1095,6 +1103,37 @@ async def health():
     return JSONResponse(content=payload, status_code=200 if overall_ok else 503)
 
 
+@app.get("/capabilities")
+async def capabilities():
+    return JSONResponse(content=_build_capabilities_payload(), status_code=200)
+
+
+_wallet_service = WalletService()
+
+
+@app.post("/wallet/create")
+async def wallet_create(request: WalletCreateRequest, api_key: str = Depends(verify_api_key)):
+    user_id = (request.user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    try:
+        machine = _wallet_service.create_wallet(
+            user_id=user_id,
+            wallet_id=request.wallet_id,
+            address=request.address,
+            public_key=request.public_key,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "wallet": serialize_wallet_machine(machine),
+        },
+        status_code=200,
+    )
 @app.post("/api/chat")
 async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     """

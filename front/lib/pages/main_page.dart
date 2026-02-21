@@ -162,9 +162,19 @@ class _MainPageState extends State<MainPage> {
     // Listen to scroll changes to update scroll indicator
     _mainScrollController.addListener(_updateScrollIndicator);
 
+    // When logo is tapped (return to main), reset to Feed tab and refresh
+    GlobalLogoBar.logoTapNotifier.addListener(_onLogoTriggeredRefresh);
+
     // Calculate initial scroll indicator state after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateScrollIndicator();
+    });
+  }
+
+  void _onLogoTriggeredRefresh() {
+    if (!mounted) return;
+    setState(() {
+      _selectedTab = 'Feed';
     });
   }
 
@@ -180,6 +190,7 @@ class _MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
+    GlobalLogoBar.logoTapNotifier.removeListener(_onLogoTriggeredRefresh);
     _mainScrollController.dispose();
     super.dispose();
   }

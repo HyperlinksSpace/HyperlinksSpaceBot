@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
+import '../../app/app.dart';
 import '../../app/theme/app_theme.dart';
 import '../../telegram_safe_area.dart';
 import '../../telegram_webapp.dart';
+import '../../utils/app_haptic.dart';
 
 class GlobalLogoBar extends StatefulWidget {
   const GlobalLogoBar({super.key});
 
   /// App logo asset. Update assets/HyperlinksSpace.svg to change the logo app-wide.
   static const String logoAsset = 'assets/HyperlinksSpace.svg';
+
+  /// Notifier incremented when logo is tapped so main page can refresh (e.g. reset to Feed).
+  static final ValueNotifier<int> logoTapNotifier = ValueNotifier<int>(0);
 
   @override
   State<GlobalLogoBar> createState() => _GlobalLogoBarState();
@@ -192,6 +197,15 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
     super.dispose();
   }
 
+  void _onLogoTap() {
+    AppHaptic.light();
+    final navigator = MyApp.navigatorKey.currentState;
+    if (navigator != null && navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+    }
+    GlobalLogoBar.logoTapNotifier.value++;
+  }
+
   void _setupViewportListener() {
     // DISABLED: Viewport listener was causing logo to hide when keyboard opens
     // because Telegram reports isFullscreen=false when viewport shrinks (keyboard opening).
@@ -241,16 +255,20 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
                   left: 15,
                   right: 15),
               child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 600),
-                  child: SizedBox(
-                    width: 32,
-                    height: 32,
-                    child: SvgPicture.asset(
-                      GlobalLogoBar.logoAsset,
+                child: GestureDetector(
+                  onTap: _onLogoTap,
+                  behavior: HitTestBehavior.opaque,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600),
+                    child: SizedBox(
                       width: 32,
                       height: 32,
-                      key: const ValueKey('global_logo'),
+                      child: SvgPicture.asset(
+                        GlobalLogoBar.logoAsset,
+                        width: 32,
+                        height: 32,
+                        key: const ValueKey('global_logo'),
+                      ),
                     ),
                   ),
                 ),
@@ -284,16 +302,20 @@ class _GlobalLogoBarState extends State<GlobalLogoBar> with SingleTickerProvider
                     left: 15,
                     right: 15),
                 child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 600),
-                    child: SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: SvgPicture.asset(
-                        GlobalLogoBar.logoAsset,
+                  child: GestureDetector(
+                    onTap: _onLogoTap,
+                    behavior: HitTestBehavior.opaque,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 600),
+                      child: SizedBox(
                         width: 32,
                         height: 32,
-                        key: const ValueKey('global_logo'),
+                        child: SvgPicture.asset(
+                          GlobalLogoBar.logoAsset,
+                          width: 32,
+                          height: 32,
+                          key: const ValueKey('global_logo'),
+                        ),
                       ),
                     ),
                   ),

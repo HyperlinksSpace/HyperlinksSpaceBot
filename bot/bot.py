@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import hashlib
+import hmac
 import re
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -417,6 +418,58 @@ def _resolve_bot_api_key() -> str:
     return key
 
 
+def _hmac_sha256(key: bytes, msg: bytes) -> bytes:
+    return hmac.new(key, msg, hashlib.sha256).digest()
+
+
+def verify_telegram_webapp_init_data(init_data: str, bot_token: str, max_age_seconds: int = 24 * 3600):
+    """
+    Verify Telegram WebApp initData and return parsed payload on success.
+    Returns None if invalid.
+    """
+    if not init_data or not bot_token:
+        return None
+
+    try:
+        pairs = parse_qsl(init_data, keep_blank_values=True)
+        data = {k: v for k, v in pairs}
+    except Exception:
+        return None
+
+    received_hash = data.pop("hash", None)
+    if not received_hash:
+        return None
+
+    auth_date_str = data.get("auth_date")
+    if auth_date_str:
+        try:
+            auth_date = int(auth_date_str)
+            now = int(time.time())
+            if auth_date > now + 60:
+                return None
+            if max_age_seconds is not None and (now - auth_date > max_age_seconds):
+                return None
+        except Exception:
+            return None
+
+    items = sorted((k, v) for k, v in data.items())
+    data_check_string = "\n".join([f"{k}={v}" for k, v in items]).encode("utf-8")
+    secret_key = _hmac_sha256(b"WebAppData", bot_token.encode("utf-8"))
+    computed_hash = hmac.new(secret_key, data_check_string, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed_hash, received_hash):
+        return None
+
+    user_raw = data.get("user")
+    if user_raw:
+        try:
+            data["user"] = json.loads(user_raw)
+        except Exception:
+            return None
+
+    return data
+
+
 def _cors_headers() -> dict[str, str]:
     return {
         "Access-Control-Allow-Origin": "*",
@@ -560,6 +613,41 @@ async def http_chat_proxy_handler(request: web.Request) -> web.Response:
     )
 
 
+async def auth_telegram(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return _json_response({"ok": False, "error": "bad_json"}, status=400)
+
+    init_data = body.get("initData") if isinstance(body, dict) else None
+    if not init_data or not isinstance(init_data, str):
+        return _json_response({"ok": False, "error": "missing_initData"}, status=400)
+
+    bot_token = (os.getenv("BOT_TOKEN") or "").strip()
+    verified = verify_telegram_webapp_init_data(init_data, bot_token, max_age_seconds=24 * 3600)
+    if not verified:
+        return _json_response({"ok": False, "error": "invalid_initdata"}, status=401)
+
+    user = verified.get("user") if isinstance(verified.get("user"), dict) else {}
+    username = user.get("username")
+    if not username:
+        return _json_response({"ok": False, "error": "username_required"}, status=400)
+
+    return _json_response(
+        {
+            "ok": True,
+            "user": {
+                "id": user.get("id"),
+                "username": username,
+                "first_name": user.get("first_name"),
+                "last_name": user.get("last_name"),
+                "language_code": user.get("language_code"),
+            },
+        },
+        status=200,
+    )
+
+
 async def http_wallet_ensure_handler(request: web.Request) -> web.Response:
     authorized, auth_error = _authorize_request(request)
     if not authorized:
@@ -600,8 +688,10 @@ async def start_http_api_server() -> None:
     app = web.Application()
     app.router.add_get("/", http_root_handler)
     app.router.add_get("/health", http_health_handler)
+    app.router.add_post("/auth/telegram", auth_telegram)
     app.router.add_post("/api/chat", http_chat_proxy_handler)
     app.router.add_post("/wallet/ensure", http_wallet_ensure_handler)
+    app.router.add_options("/auth/telegram", http_options_handler)
     app.router.add_options("/api/chat", http_options_handler)
     app.router.add_options("/wallet/ensure", http_options_handler)
     app.router.add_options("/", http_options_handler)

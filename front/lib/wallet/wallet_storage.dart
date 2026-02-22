@@ -17,7 +17,7 @@ class WalletStorage {
   Future<String?> readMnemonic() async {
     if (_telegram.isActuallyInTelegram) {
       final secure = await _secureGet(mnemonicKey);
-      if (_isSet(secure)) return secure;
+      return _isSet(secure) ? secure!.trim() : null;
     }
     final local = html.window.localStorage[mnemonicKey];
     return _isSet(local) ? local!.trim() : null;
@@ -29,14 +29,15 @@ class WalletStorage {
 
     if (_telegram.isActuallyInTelegram) {
       await _secureSet(mnemonicKey, trimmed);
+      return;
     }
-    // Keep browser fallback/local copy for non-Telegram mode.
     html.window.localStorage[mnemonicKey] = trimmed;
   }
 
   Future<void> clearMnemonic() async {
     if (_telegram.isActuallyInTelegram) {
       await _secureDelete(mnemonicKey);
+      return;
     }
     html.window.localStorage.remove(mnemonicKey);
   }

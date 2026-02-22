@@ -27,6 +27,10 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      /* iOS: prevent Paste/copy callout when tapping text (e.g. "Get" menu item) */
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
     html {
       background-color: #000000 !important;
@@ -43,6 +47,15 @@
     body {
       -ms-overflow-style: none;
       scrollbar-width: none;
+    }
+    /* iOS: prevent Paste/copy callout on Flutter app (canvas and host) */
+    canvas,
+    flt-glass-pane,
+    flt-scene-host,
+    flt-scene {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
     
     /* Sticky app styles to prevent swipe-down closure */

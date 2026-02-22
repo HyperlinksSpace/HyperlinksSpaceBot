@@ -10,6 +10,7 @@ import 'wallets_page.dart';
 import 'send_page.dart';
 import 'apps_page.dart';
 import 'get_page.dart';
+import 'mnemonics_page.dart';
 import 'creators_page.dart';
 
 class MainPage extends StatefulWidget {
@@ -284,7 +285,12 @@ class _MainPageState extends State<MainPage> {
                                     const SizedBox(width: 15),
                                     GestureDetector(
                                       onTap: () {
-                                        // Edit action
+                                        AppHaptic.light();
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => const MnemonicsPage(),
+                                          ),
+                                        );
                                       },
                                       child: SvgPicture.asset(
                                         'assets/icons/key.svg',

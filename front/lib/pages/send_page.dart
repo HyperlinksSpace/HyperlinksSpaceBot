@@ -296,7 +296,7 @@ class _SendPageState extends State<SendPage> {
                           children: [
                             // 1$ text at the left
                             const Text(
-                              r'$1',
+                              r'1$',
                               style: TextStyle(
                                 fontFamily: 'Aeroport',
                                 fontSize: 15,
@@ -490,7 +490,7 @@ class _SendPageState extends State<SendPage> {
                           children: [
                             Center(
                               child: Text(
-                                'Send',
+                                'N / A',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   color: Colors.white, // White text for contrast on #818181

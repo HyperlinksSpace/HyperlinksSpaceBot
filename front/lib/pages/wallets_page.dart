@@ -53,7 +53,7 @@ class WalletsPage extends StatelessWidget {
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            '1 wallet',
+                            '2 wallets',
                             style: const TextStyle(
                               fontFamily: 'Aeroport',
                               fontSize: 15,
@@ -75,7 +75,7 @@ class WalletsPage extends StatelessWidget {
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          r'$1',
+                          r'3$',
                           style: TextStyle(
                             fontFamily: 'Aeroport',
                             fontSize: 30,
@@ -156,7 +156,7 @@ class WalletsPage extends StatelessWidget {
                                     crossAxisAlignment: CrossAxisAlignment.center,
                                     children: [
                                       Text(
-                                        r'$1',
+                                        r'1$',
                                         style: TextStyle(
                                           fontFamily: 'Aeroport',
                                           fontSize: 15,
@@ -186,6 +186,122 @@ class WalletsPage extends StatelessWidget {
                                   alignment: Alignment.centerRight,
                                   child: Text(
                                     'TON',
+                                    style: const TextStyle(
+                                      fontFamily: 'Aeroport',
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w400,
+                                      color: Color(0xFF818181),
+                                      height: 20 / 15,
+                                    ),
+                                    textAlign: TextAlign.right,
+                                    textHeightBehavior: const TextHeightBehavior(
+                                      applyHeightToFirstAscent: false,
+                                      applyHeightToLastDescent: false,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  height: 20,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      'Wallet 2',
+                                      style: TextStyle(
+                                        fontFamily: 'Aeroport',
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                        color: AppTheme.textColor,
+                                        height: 20 / 15,
+                                      ),
+                                      textHeightBehavior: const TextHeightBehavior(
+                                        applyHeightToFirstAscent: false,
+                                        applyHeightToLastDescent: false,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                SizedBox(
+                                  height: 20,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      '..x53n79i3',
+                                      style: const TextStyle(
+                                        fontFamily: 'Aeroport Mono',
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w400,
+                                        color: Color(0xFF818181),
+                                        height: 20 / 15,
+                                      ),
+                                      textHeightBehavior: const TextHeightBehavior(
+                                        applyHeightToFirstAscent: false,
+                                        applyHeightToLastDescent: false,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              SizedBox(
+                                height: 20,
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        r'2$',
+                                        style: TextStyle(
+                                          fontFamily: 'Aeroport',
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w500,
+                                          color: AppTheme.textColor,
+                                          height: 20 / 15,
+                                        ),
+                                        textAlign: TextAlign.right,
+                                        textHeightBehavior: const TextHeightBehavior(
+                                          applyHeightToFirstAscent: false,
+                                          applyHeightToLastDescent: false,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 5),
+                                      SvgPicture.asset(
+                                          'assets/icons/select.svg',
+                                          width: 5,
+                                          height: 10),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              SizedBox(
+                                height: 20,
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Text(
+                                    'ETH',
                                     style: const TextStyle(
                                       fontFamily: 'Aeroport',
                                       fontSize: 15,

@@ -85,7 +85,7 @@ class _SwapPageState extends State<SwapPage> {
   // Swap state variables
   final String _buyCurrency = 'TON';
   final double _buyAmount = 1.0; // Default: 1 TON
-  final String _sellCurrency = 'USDT';
+  final String _sellCurrency = 'DLLR';
   double? _sellAmount; // Will be fetched from API
   bool _isLoadingSwapAmount = false;
   String? _usdtTokenAddress; // Will be fetched from API if needed
@@ -223,6 +223,16 @@ class _SwapPageState extends State<SwapPage> {
         _selectedPointIndex = closestIndex;
       });
     }
+  }
+
+  /// Single "TON rate in dollars" for UI: use chart last price when available (matches chart zone), else market stats.
+  double? get _effectiveTonPriceUsd {
+    if (_originalChartData != null &&
+        _originalChartData!.isNotEmpty &&
+        _originalChartData!.last['price'] != null) {
+      return (_originalChartData!.last['price'] as num).toDouble();
+    }
+    return _priceUsd;
   }
 
   /// Format price value for display (up to 5 decimal places, removing trailing zeros)
@@ -1410,16 +1420,16 @@ class _SwapPageState extends State<SwapPage> {
     if (value >= 1000000) {
       final millions = value / 1000000;
       return isCurrency
-          ? '\$${millions.toStringAsFixed(1)}M'
+          ? '${millions.toStringAsFixed(1)}M\$'
           : '${millions.toStringAsFixed(1)}M';
     } else if (value >= 1000) {
       final thousands = value / 1000;
       return isCurrency
-          ? '\$${thousands.toStringAsFixed(1)}K'
+          ? '${thousands.toStringAsFixed(1)}K\$'
           : '${thousands.toStringAsFixed(1)}K';
     } else {
       return isCurrency
-          ? '\$${value.toStringAsFixed(0)}'
+          ? '${value.toStringAsFixed(0)}\$'
           : value.toStringAsFixed(0);
     }
   }
@@ -1614,9 +1624,9 @@ class _SwapPageState extends State<SwapPage> {
                                           final leftTextWidth = leftTextPainter.size.width;
                                           
                                           // Measure price text width
-                                          final priceText = _priceUsd != null
-                                              ? '\$${_formatPrice(_priceUsd!)}'
-                                              : '\$...';
+                                          final priceText = _effectiveTonPriceUsd != null
+                                              ? '${_formatPrice(_effectiveTonPriceUsd!)}\$'
+                                              : '...\$';
                                           final priceTextPainter = TextPainter(
                                             text: TextSpan(
                                               text: priceText,
@@ -2172,17 +2182,20 @@ class _SwapPageState extends State<SwapPage> {
                                   ],
                                 ),
                                 const SizedBox(height: 15),
-                                const Row(
+                                Row(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text(r'$1',
-                                          style: TextStyle(
+                                      Text(
+                                          _effectiveTonPriceUsd != null
+                                              ? '${_formatPrice(_effectiveTonPriceUsd!)}\$'
+                                              : '…',
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.w400,
                                             fontSize: 15,
                                             color: Color(0xFF818181),
                                           )),
-                                      Text('TON',
+                                      const Text('TON',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w400,
                                             fontSize: 15,
@@ -2345,10 +2358,11 @@ class _SwapPageState extends State<SwapPage> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.center,
                                       children: [
-                                        Image.asset('assets/sample/usdt.png',
-                                            width: 20,
-                                            height: 20,
-                                            fit: BoxFit.contain),
+                                        SvgPicture.asset(
+                                          'assets/sample/DLLR.svg',
+                                          width: 20,
+                                          height: 20,
+                                        ),
                                         const SizedBox(width: 8),
                                         Text(_sellCurrency.toLowerCase(),
                                             style: TextStyle(
@@ -2369,17 +2383,20 @@ class _SwapPageState extends State<SwapPage> {
                                   ],
                                 ),
                                 const SizedBox(height: 15),
-                                const Row(
+                                Row(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text(r'$1',
-                                          style: TextStyle(
+                                      Text(
+                                          _sellAmount != null
+                                              ? '${_formatPrice(_sellAmount!)}\$'
+                                              : '…',
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.w400,
                                             fontSize: 15,
                                             color: Color(0xFF818181),
                                           )),
-                                      Text('TON',
+                                      const Text('TON',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w400,
                                             fontSize: 15,
@@ -2394,19 +2411,19 @@ class _SwapPageState extends State<SwapPage> {
                               padding: const EdgeInsets.symmetric(
                                   vertical: 10, horizontal: 15),
                               decoration: BoxDecoration(
-                                color: AppTheme.buttonBackgroundColor,
+                                color: const Color(0xFF818181),
                                 borderRadius: BorderRadius.circular(5),
                               ),
-                              child: Row(
+                              child: const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   Center(
                                     child: Text(
-                                      'Swap',
+                                      'Insufficient amount',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
-                                        color: AppTheme.buttonTextColor,
+                                        color: Color(0xFFFAFAFA),
                                         fontSize: 15,
                                         height: 20 / 15,
                                       ),

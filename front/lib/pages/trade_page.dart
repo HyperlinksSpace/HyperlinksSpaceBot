@@ -189,23 +189,23 @@ class _TradePageState extends State<TradePage> {
         {
           'icon': 'assets/sample/items/1.svg',
           'primaryText': 'Some walley',
-          'secondaryText': r'$777',
+          'secondaryText': r'777$',
           'timestamp': '1',
-          'rightText': r'$10,123',
+          'rightText': r'10,123$',
         },
         {
           'icon': 'assets/sample/items/2.svg',
           'primaryText': 'Sty. ker',
-          'secondaryText': r'$537',
+          'secondaryText': r'537$',
           'timestamp': '2',
-          'rightText': r'$9,9999',
+          'rightText': r'9,9999$',
         },
         {
           'icon': 'assets/sample/items/3.svg',
           'primaryText': '4iza',
-          'secondaryText': r'$157',
+          'secondaryText': r'157$',
           'timestamp': '3',
-          'rightText': r'$7111',
+          'rightText': r'7111$',
         },
       ];
 

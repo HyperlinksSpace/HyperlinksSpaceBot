@@ -71,7 +71,7 @@ class _MainPageState extends State<MainPage> {
       'ticker': 'DLLR',
       'blockchain': 'TON',
       'amount': '1',
-      'usdValue': '\$1',
+      'usdValue': '1\$',
     },
   ];
 
@@ -89,7 +89,7 @@ class _MainPageState extends State<MainPage> {
       {
         'icon': 'assets/sample/DLLR.svg',
         'primaryText': 'Token granted',
-        'secondaryText': '\$1',
+        'secondaryText': '1\$',
         'timestamp': '13:17',
         'rightText': '+1 DLLR',
       },
@@ -103,7 +103,7 @@ class _MainPageState extends State<MainPage> {
       {
         'icon': r'assets/sample/mak/+1$.svg',
         'primaryText': 'Incoming task',
-        'secondaryText': 'Send link with \$1 and get +\$1',
+        'secondaryText': 'Send link with 1\$ and get +1\$',
         'timestamp': '17:11',
         'rightText': 'N/A',
       },
@@ -123,7 +123,7 @@ class _MainPageState extends State<MainPage> {
       {
         'icon': r'assets/sample/mak/+1$.svg',
         'primaryText': 'Incoming task',
-        'secondaryText': 'Send link with \$1 and get +\$1',
+        'secondaryText': 'Send link with 1\$ and get +1\$',
         'timestamp': '17:11',
         'rightText': 'N/A',
       },
@@ -345,7 +345,7 @@ class _MainPageState extends State<MainPage> {
                             textBaseline: TextBaseline.alphabetic,
                             children: [
                               Text(
-                                r'$1',
+                                r'1$',
                                 style: TextStyle(
                                   fontFamily: 'Aeroport',
                                   fontSize: 30,

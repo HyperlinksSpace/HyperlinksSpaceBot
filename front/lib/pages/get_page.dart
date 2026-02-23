@@ -13,8 +13,11 @@ class GetPage extends StatefulWidget {
 }
 
 class _GetPageState extends State<GetPage> {
+  static const String _loadingText = 'Loading...';
   static const String _missingAddressText =
       'Wallet public key (hex) not found on this device.';
+  static const String _loadErrorText =
+      'Could not load wallet data. Please try again.';
   late final Future<String> _addressTextFuture;
 
   @override
@@ -31,8 +34,8 @@ class _GetPageState extends State<GetPage> {
       }
       return _formatForDisplay(
           'Wallet public key (hex)\n${wallet.publicKeyHex}');
-    } catch (e) {
-      return 'Could not load wallet data. Please try again.';
+    } catch (_) {
+      return _loadErrorText;
     }
   }
 
@@ -52,9 +55,14 @@ class _GetPageState extends State<GetPage> {
     return FutureBuilder<String>(
       future: _addressTextFuture,
       builder: (context, snapshot) {
-        final text = snapshot.data ?? 'Loading...';
+        final String text = snapshot.data ?? _loadingText;
+        final bool canCopyText =
+            snapshot.connectionState == ConnectionState.done &&
+                snapshot.hasData &&
+                text != _missingAddressText &&
+                text != _loadErrorText;
         return CopyableDetailPage(
-          copyText: text,
+          copyText: canCopyText ? text : '',
           onTitleRightTap: () {
             Navigator.push(
               context,

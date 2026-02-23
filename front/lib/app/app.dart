@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'theme/app_theme.dart';
 import '../utils/page_transitions.dart';
@@ -56,7 +57,7 @@ class _MyAppState extends State<MyApp> {
     return ValueListenableBuilder<String?>(
       valueListenable: AppTheme.colorSchemeNotifier,
       builder: (context, colorScheme, child) {
-        return MaterialApp(
+        final app = MaterialApp(
           title: "Hyperlinks.Space App",
           navigatorKey: MyApp.navigatorKey,
           navigatorObservers: [
@@ -268,6 +269,10 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       home: const BootstrapScreen(home: MainPage()),
         );
+        if (kIsWeb) {
+          return SelectionContainer.disabled(child: app);
+        }
+        return app;
       },
     );
   }

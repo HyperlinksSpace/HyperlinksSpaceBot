@@ -62,7 +62,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       // Success: no navigation needed, layout is already shown
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = _humanizeError(e));
+      // setState(() => _error = _humanizeError(e));
     }
   }
 

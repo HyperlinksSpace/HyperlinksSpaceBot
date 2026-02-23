@@ -298,6 +298,7 @@ class _MainPageState extends State<MainPage> {
                                     const SizedBox(width: 15),
                                     GestureDetector(
                                       onTap: () {
+                                        FocusManager.instance.primaryFocus?.unfocus();
                                         AppHaptic.light();
                                         Navigator.of(context).push(
                                           MaterialPageRoute(
@@ -361,6 +362,7 @@ class _MainPageState extends State<MainPage> {
                               GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onTap: () {
+                                  FocusManager.instance.primaryFocus?.unfocus();
                                   Navigator.push(
                                     context,
                                     PageRouteBuilder(
@@ -406,6 +408,7 @@ class _MainPageState extends State<MainPage> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () {
+                                    FocusManager.instance.primaryFocus?.unfocus();
                                     Navigator.push(
                                       context,
                                       PageRouteBuilder(
@@ -459,6 +462,7 @@ class _MainPageState extends State<MainPage> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () {
+                                    FocusManager.instance.primaryFocus?.unfocus();
                                     Navigator.push(
                                       context,
                                       PageRouteBuilder(
@@ -513,6 +517,7 @@ class _MainPageState extends State<MainPage> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () {
+                                    FocusManager.instance.primaryFocus?.unfocus();
                                     Navigator.push(
                                       context,
                                       PageRouteBuilder(
@@ -566,6 +571,7 @@ class _MainPageState extends State<MainPage> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () {
+                                    FocusManager.instance.primaryFocus?.unfocus();
                                     Navigator.push(
                                       context,
                                       PageRouteBuilder(
@@ -620,6 +626,7 @@ class _MainPageState extends State<MainPage> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () {
+                                    FocusManager.instance.primaryFocus?.unfocus();
                                     Navigator.push(
                                       context,
                                       PageRouteBuilder(
@@ -943,6 +950,7 @@ class _MainPageState extends State<MainPage> {
                                     child: GestureDetector(
                                       behavior: HitTestBehavior.opaque,
                                       onTap: () {
+                                        FocusManager.instance.primaryFocus?.unfocus();
                                         AppHaptic.heavy();
                                         Navigator.of(context).push(
                                           MaterialPageRoute<void>(

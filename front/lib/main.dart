@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_telegram_miniapp/flutter_telegram_miniapp.dart' as tma;
@@ -6,6 +6,7 @@ import 'api/auth_api.dart';
 import 'telegram_webapp.dart';
 import 'app/app.dart';
 import 'app/theme/app_theme.dart';
+import 'utils/prevent_paste_callout.dart';
 
 void main() async {
   // Load .env file for local development
@@ -36,6 +37,11 @@ void main() async {
   
   // Initialize theme from Telegram WebApp (will be called again in MyAppState, but this ensures early initialization)
   AppTheme.initialize();
+
+  // On web: prevent native Paste callout on Get/Key tap (Telegram WebView). Register from Flutter so we run in app context.
+  if (kIsWeb) {
+    initPreventPasteCallout();
+  }
 
   runApp(const MyApp());
 }

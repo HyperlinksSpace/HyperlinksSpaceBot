@@ -10,6 +10,8 @@ import '../telegram_webapp.dart';
 import '../utils/app_haptic.dart';
 import '../widgets/global/global_bottom_bar.dart';
 import '../utils/keyboard_height_service.dart';
+import 'wallets_page.dart';
+import '../widgets/common/pointer_region.dart';
 
 class SendPage extends StatefulWidget {
   const SendPage({super.key});
@@ -185,28 +187,43 @@ class _SendPageState extends State<SendPage> {
                                   ),
                                 ),
                               ),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  const Text(
-                                    'Sendal Rodriges',
-                                    style: TextStyle(
-                                      fontFamily: 'Aeroport',
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w400,
-                                      color: Color(0xFF818181),
-                                      height: 2.0,
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    PageRouteBuilder(
+                                      pageBuilder: (context, animation, secondaryAnimation) =>
+                                          const WalletsPage(),
+                                      transitionDuration: Duration.zero,
+                                      reverseTransitionDuration: Duration.zero,
                                     ),
-                                    textHeightBehavior: TextHeightBehavior(
-                                      applyHeightToFirstAscent: false,
-                                      applyHeightToLastDescent: false,
+                                  );
+                                  AppHaptic.heavy();
+                                },
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    const Text(
+                                      'Sendal Rodriges',
+                                      style: TextStyle(
+                                        fontFamily: 'Aeroport',
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w400,
+                                        color: Color(0xFF818181),
+                                        height: 2.0,
+                                      ),
+                                      textHeightBehavior: TextHeightBehavior(
+                                        applyHeightToFirstAscent: false,
+                                        applyHeightToLastDescent: false,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 5),
-                                  SvgPicture.asset('assets/icons/select.svg', width: 5, height: 10),
-                                ],
-                              ),
+                                    const SizedBox(width: 5),
+                                    SvgPicture.asset('assets/icons/select.svg', width: 5, height: 10),
+                                  ],
+                                ),
+                              ).pointer,
                             ],
                           ),
                         ),

@@ -204,6 +204,27 @@
   </script>
   <script>
     (function() {
+      // Paste/callout prevention: register immediately so no later code can block it (Telegram WebView).
+      (function() {
+        function isInputOrTextarea(el) {
+          if (!el || !el.tagName) return false;
+          var tag = el.tagName.toLowerCase();
+          if (tag === 'input' || tag === 'textarea') return true;
+          var p = el.parentElement;
+          while (p) {
+            var pt = p.tagName && p.tagName.toLowerCase();
+            if (pt === 'input' || pt === 'textarea') return true;
+            p = p.parentElement;
+          }
+          return false;
+        }
+        document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, false);
+        document.addEventListener('selectstart', function(e) { e.preventDefault(); }, false);
+        document.addEventListener('touchstart', function(e) {
+          if (isInputOrTextarea(e.target)) return;
+          e.preventDefault();
+        }, { capture: true, passive: false });
+      })();
       // Function to disable swipe-to-close
       function disableSwipeToClose() {
         // Method 1: Use Telegram WebApp API (available since v7.7)

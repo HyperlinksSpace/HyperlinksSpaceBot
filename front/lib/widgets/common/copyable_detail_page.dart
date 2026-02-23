@@ -11,7 +11,7 @@ import '../../app/app.dart';
 import '../../telegram_safe_area.dart';
 import '../../utils/app_haptic.dart';
 
-/// Reusable full-page layout: header row, centered content. Tap/click copies [copyText] (newlines stripped) or clears; "Copied" below. No selection — just tap to copy.
+/// Reusable full-page layout: header row, centered content. Tap/click copies [copyText] (newlines stripped); "Copied!" appears for 1 second then disappears. No clipboard read.
 class CopyableDetailPage extends StatefulWidget {
   /// Raw text to copy (newlines removed when copying).
   final String copyText;
@@ -25,12 +25,16 @@ class CopyableDetailPage extends StatefulWidget {
   /// Right header label (e.g. 'Sendal Rodriges').
   final String titleRight;
 
+  /// When set, the title right row is tappable and calls this (e.g. navigate to WalletsPage).
+  final VoidCallback? onTitleRightTap;
+
   const CopyableDetailPage({
     super.key,
     required this.copyText,
     required this.centerChildBuilder,
     this.titleLeft = '..xk5str4e',
     this.titleRight = 'Sendal Rodriges',
+    this.onTitleRightTap,
   });
 
   @override
@@ -42,8 +46,7 @@ class _CopyableDetailPageState extends State<CopyableDetailPage>
   StreamSubscription<tma.BackButton>? _backButtonSubscription;
   bool _showCopiedIndicator = false;
   bool _routeObserverSubscribed = false;
-  /// When true, clipboard read was denied or failed; use only set_state from tap (no read).
-  bool _clipboardReadUnavailable = false;
+  Timer? _copiedHideTimer;
 
   static double _getAdaptiveBottomPadding() {
     final service = TelegramSafeAreaService();
@@ -57,31 +60,14 @@ class _CopyableDetailPageState extends State<CopyableDetailPage>
 
   String get _oneLine => widget.copyText.replaceAll('\n', '');
 
-  Future<void> _checkClipboardAndUpdateIndicator() async {
-    if (_clipboardReadUnavailable) return;
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      final clip = data?.text?.trim() ?? '';
-      if (!mounted) return;
-      final matches = clip == _oneLine;
-      if (matches != _showCopiedIndicator) {
-        setState(() => _showCopiedIndicator = matches);
-      }
-    } catch (_) {
-      if (mounted) setState(() => _clipboardReadUnavailable = true);
-    }
-  }
-
-  Future<void> _onTap() async {
-    if (_showCopiedIndicator) {
-      await Clipboard.setData(const ClipboardData(text: ''));
-      AppHaptic.heavy();
-      if (mounted) setState(() => _showCopiedIndicator = false);
-      return;
-    }
-    await Clipboard.setData(ClipboardData(text: _oneLine));
+  void _onTap() {
+    _copiedHideTimer?.cancel();
+    Clipboard.setData(ClipboardData(text: _oneLine));
     AppHaptic.heavy();
     if (mounted) setState(() => _showCopiedIndicator = true);
+    _copiedHideTimer = Timer(const Duration(seconds: 1), () {
+      if (mounted) setState(() => _showCopiedIndicator = false);
+    });
   }
 
   void _handleBackButton() {
@@ -95,7 +81,6 @@ class _CopyableDetailPageState extends State<CopyableDetailPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_clipboardReadUnavailable) _checkClipboardAndUpdateIndicator();
       try {
         final webApp = tma.WebApp();
         final eventHandler = webApp.eventHandler;
@@ -120,12 +105,8 @@ class _CopyableDetailPageState extends State<CopyableDetailPage>
   }
 
   @override
-  void didPopNext() {
-    if (!_clipboardReadUnavailable) _checkClipboardAndUpdateIndicator();
-  }
-
-  @override
   void dispose() {
+    _copiedHideTimer?.cancel();
     if (_routeObserverSubscribed) {
       MyApp.routeObserver.unsubscribe(this);
     }
@@ -190,33 +171,68 @@ class _CopyableDetailPageState extends State<CopyableDetailPage>
                                   ),
                                 ),
                               ),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    widget.titleRight,
-                                    style: const TextStyle(
-                                      fontFamily: 'Aeroport',
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w400,
-                                      color: Color(0xFF818181),
-                                      height: 2.0,
+                              widget.onTitleRightTap != null
+                                  ? GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        FocusManager.instance.primaryFocus?.unfocus();
+                                        widget.onTitleRightTap!();
+                                      },
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            widget.titleRight,
+                                            style: const TextStyle(
+                                              fontFamily: 'Aeroport',
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w400,
+                                              color: Color(0xFF818181),
+                                              height: 2.0,
+                                            ),
+                                            textHeightBehavior:
+                                                const TextHeightBehavior(
+                                              applyHeightToFirstAscent: false,
+                                              applyHeightToLastDescent: false,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 5),
+                                          SvgPicture.asset(
+                                            'assets/icons/select.svg',
+                                            width: 5,
+                                            height: 10,
+                                          ),
+                                        ],
+                                      ),
+                                    ).pointer
+                                  : Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          widget.titleRight,
+                                          style: const TextStyle(
+                                            fontFamily: 'Aeroport',
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w400,
+                                            color: Color(0xFF818181),
+                                            height: 2.0,
+                                          ),
+                                          textHeightBehavior:
+                                              const TextHeightBehavior(
+                                            applyHeightToFirstAscent: false,
+                                            applyHeightToLastDescent: false,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 5),
+                                        SvgPicture.asset(
+                                          'assets/icons/select.svg',
+                                          width: 5,
+                                          height: 10,
+                                        ),
+                                      ],
                                     ),
-                                    textHeightBehavior:
-                                        const TextHeightBehavior(
-                                      applyHeightToFirstAscent: false,
-                                      applyHeightToLastDescent: false,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 5),
-                                  SvgPicture.asset(
-                                    'assets/icons/select.svg',
-                                    width: 5,
-                                    height: 10,
-                                  ),
-                                ],
-                              ),
                             ],
                           ),
                         ),
@@ -240,7 +256,7 @@ class _CopyableDetailPageState extends State<CopyableDetailPage>
                                   child: _showCopiedIndicator
                                       ? Center(
                                           child: Text(
-                                            'Copied',
+                                            'Copied!',
                                             key: const Key('copy_text'),
                                             style: TextStyle(
                                               fontSize: 15,

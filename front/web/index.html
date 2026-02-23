@@ -44,17 +44,11 @@
       -ms-overflow-style: none;
       scrollbar-width: none;
     }
-    /* Touch only (iOS etc): prevent Paste/copy callout. Not applied on desktop so cursor can change to pointer. */
-    @media (hover: none) {
-      body,
-      canvas,
-      flt-glass-pane,
-      flt-scene-host,
-      flt-scene {
-        -webkit-touch-callout: none;
-        -webkit-user-select: none;
-        user-select: none;
-      }
+    /* Prevent Paste/copy callout on tap/long-press (iOS). Must apply broadly; body/canvas-only often fails in WebView. Exclude input/textarea so AI & Search still works. */
+    *:not(input):not(textarea) {
+      -webkit-touch-callout: none !important;
+      -webkit-user-select: none !important;
+      user-select: none !important;
     }
 
     /* Sticky app styles to prevent swipe-down closure */
@@ -543,6 +537,53 @@
       document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
       }, false);
+      // Prevent selection from starting (stops callout on some WebViews)
+      document.addEventListener('selectstart', function(e) {
+        e.preventDefault();
+      }, false);
+
+      // Prevent native long-press callout (Paste menu): stop default touch behavior on non-inputs.
+      // Flutter handles scrolling, so this does not break scroll. Input/textarea still work.
+      document.addEventListener('touchstart', function(e) {
+        var t = e.target;
+        if (t && t.tagName) {
+          var tag = t.tagName.toLowerCase();
+          if (tag === 'input' || tag === 'textarea') return;
+        }
+        e.preventDefault();
+      }, { capture: true, passive: false });
+
+      // Force no-callout on document and all elements (iOS WebView often ignores stylesheet). Run after load and when DOM changes.
+      function applyNoCallout(el) {
+        if (!el || el.nodeType !== 1) return;
+        var tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        el.style.setProperty('-webkit-touch-callout', 'none', 'important');
+        el.style.setProperty('-webkit-user-select', 'none', 'important');
+        el.style.setProperty('user-select', 'none', 'important');
+      }
+      function applyNoCalloutToAll(root) {
+        root = root || document;
+        applyNoCallout(root.documentElement || root);
+        applyNoCallout(root.body);
+        var all = root.querySelectorAll ? root.querySelectorAll('*') : [];
+        for (var i = 0; i < all.length; i++) applyNoCallout(all[i]);
+      }
+      function runNoCallout() {
+        applyNoCalloutToAll();
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', runNoCallout);
+      }
+      window.addEventListener('load', runNoCallout);
+      setTimeout(runNoCallout, 100);
+      setTimeout(runNoCallout, 500);
+      var noCalloutTimer;
+      var observer = new MutationObserver(function() {
+        clearTimeout(noCalloutTimer);
+        noCalloutTimer = setTimeout(runNoCallout, 150);
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
     })();
   </script>
 </head>

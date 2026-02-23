@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../app/theme/app_theme.dart';
@@ -76,6 +78,12 @@ class GlobalBottomBar extends StatefulWidget {
   static double getBottomBarHeight(BuildContext? context) {
     return _GlobalBottomBarState._currentBarHeight;
   }
+
+  /// Premade prompt options shown in overlay; when apply is pressed with empty input, a random one is used.
+  static const List<String> premadePromptOptions = [
+    'What is the universe?',
+    'Tell me about dogs token',
+  ];
 }
 
 class _GlobalBottomBarState extends State<GlobalBottomBar> {
@@ -170,9 +178,15 @@ class _GlobalBottomBarState extends State<GlobalBottomBar> {
   }
 
   void _navigateToNewPage() {
-    final text = _controller.text.trim();
+    String text = _controller.text.trim();
     if (text.isEmpty) {
-      return;
+      if (GlobalBottomBar.premadePromptOptions.isEmpty) return;
+      final chosen = GlobalBottomBar.premadePromptOptions[
+          math.Random().nextInt(GlobalBottomBar.premadePromptOptions.length)];
+      _controller.text = chosen;
+      _controller.selection = TextSelection.collapsed(offset: chosen.length);
+      text = chosen;
+      setState(() {});
     }
 
     final navigator = MyApp.navigatorKey.currentState;

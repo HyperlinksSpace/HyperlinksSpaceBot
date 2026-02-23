@@ -21,12 +21,6 @@ class AiSearchOverlay extends StatefulWidget {
 }
 
 class _AiSearchOverlayState extends State<AiSearchOverlay> {
-  // Premade input options
-  final List<String> _premadeOptions = [
-    "What is the universe?",
-    "Tell me about dogs token",
-  ];
-
   StreamSubscription<tma.BackButton>? _backButtonSubscription;
   bool _isFocused = false;
 
@@ -155,7 +149,7 @@ class _AiSearchOverlayState extends State<AiSearchOverlay> {
                                   mainAxisSize: MainAxisSize.min,
                                   crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
-                                    ..._premadeOptions.map((option) => Padding(
+                                    ...GlobalBottomBar.premadePromptOptions.map((option) => Padding(
                                           padding:
                                               const EdgeInsets.only(bottom: 20),
                                           child: GestureDetector(

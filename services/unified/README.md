@@ -27,6 +27,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8090
 
 - `UNIFIED_MODE` (`forward` by default)
 - `UNIFIED_FORWARD_TIMEOUT_SECONDS` (`30` by default)
+- `UNIFIED_FORWARD_CONNECT_TIMEOUT_SECONDS` (`5` by default)
 - `BOT_BASE_URL` (`http://127.0.0.1:8080` by default)
 - `AI_BASE_URL` (`http://127.0.0.1:8000` by default)
 - `RAG_BASE_URL` (`http://127.0.0.1:8001` by default)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../app/theme/app_theme.dart';
 import '../utils/app_haptic.dart';
 import '../wallet/wallet_service.dart';
+import '../wallet/wallet_ton_address.dart';
 import '../widgets/common/copyable_detail_page.dart';
 import 'wallets_page.dart';
 
@@ -32,11 +33,29 @@ class _GetPageState extends State<GetPage> {
       if (wallet == null || wallet.publicKeyHex.trim().isEmpty) {
         return _missingAddressText;
       }
+      final tonAddress =
+          tonAddressFromPublicKeyHex(wallet.publicKeyHex);
+      if (tonAddress != null && tonAddress.isNotEmpty) {
+        return _formatAddressForDisplay(tonAddress);
+      }
       return _formatForDisplay(
           'Wallet public key (hex)\n${wallet.publicKeyHex}');
     } catch (_) {
       return _loadErrorText;
     }
+  }
+
+  /// Format TON address for display (e.g. split long EQ... into lines).
+  String _formatAddressForDisplay(String address) {
+    const chunkSize = 24;
+    if (address.length <= chunkSize) return address;
+    final chunks = <String>[];
+    for (var i = 0; i < address.length; i += chunkSize) {
+      final end =
+          (i + chunkSize < address.length) ? i + chunkSize : address.length;
+      chunks.add(address.substring(i, end));
+    }
+    return chunks.join('\n');
   }
 
   String _formatForDisplay(String value) {

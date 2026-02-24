@@ -599,12 +599,25 @@
       window.addEventListener('load', runNoCallout);
       setTimeout(runNoCallout, 100);
       setTimeout(runNoCallout, 500);
-      var noCalloutTimer;
-      var observer = new MutationObserver(function() {
-        clearTimeout(noCalloutTimer);
-        noCalloutTimer = setTimeout(runNoCallout, 150);
-      });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
+      function startMutationObserver() {
+        var observeTarget = document.body || document.documentElement;
+        if (!observeTarget) return;
+        var noCalloutTimer;
+        var observer = new MutationObserver(function() {
+          clearTimeout(noCalloutTimer);
+          noCalloutTimer = setTimeout(runNoCallout, 150);
+        });
+        try {
+          observer.observe(observeTarget, { childList: true, subtree: true });
+        } catch (e) {
+          console.warn('MutationObserver observe failed:', e);
+        }
+      }
+      if (document.body) {
+        startMutationObserver();
+      } else {
+        document.addEventListener('DOMContentLoaded', startMutationObserver);
+      }
     })();
   </script>
 </head>

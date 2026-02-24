@@ -16,6 +16,7 @@ dependencies:
   flutter_dotenv: ^5.1.0
   flutter_telegram_miniapp: ^0.0.11
   url_launcher: ^6.2.0
+  ton_dart: 2.1.0
 
 dev_dependencies:
   flutter_test:

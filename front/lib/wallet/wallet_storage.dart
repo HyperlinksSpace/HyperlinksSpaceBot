@@ -6,6 +6,12 @@ import '../telegram_webapp.dart';
 
 class WalletStorage {
   static const String mnemonicKey = 'wallet_mnemonic';
+  static const String mnemonicPasswordKey = 'wallet_mnemonic_password';
+  /// Encrypted payload (mnemonic + mnemonic password), Tonkeeper-style.
+  static const String encryptedKey = 'wallet_encrypted';
+  static const String lockKey = 'wallet_lock';
+  /// Browser only: plain mnemonic+password for "remember me" so we don't ask PIN every load.
+  static const String sessionPayloadKey = 'wallet_session';
 
   final TelegramWebApp _telegram;
 
@@ -40,6 +46,102 @@ class WalletStorage {
       return;
     }
     html.window.localStorage.remove(mnemonicKey);
+  }
+
+  Future<String?> readMnemonicPassword() async {
+    if (_telegram.isActuallyInTelegram) {
+      final secure = await _secureGet(mnemonicPasswordKey);
+      return _isSet(secure) ? secure!.trim() : null;
+    }
+    final local = html.window.localStorage[mnemonicPasswordKey];
+    return _isSet(local) ? local!.trim() : null;
+  }
+
+  Future<void> writeMnemonicPassword(String password) async {
+    final trimmed = password.trim();
+    if (trimmed.isEmpty) return;
+
+    if (_telegram.isActuallyInTelegram) {
+      await _secureSet(mnemonicPasswordKey, trimmed);
+      return;
+    }
+    html.window.localStorage[mnemonicPasswordKey] = trimmed;
+  }
+
+  Future<void> clearMnemonicPassword() async {
+    if (_telegram.isActuallyInTelegram) {
+      await _secureDelete(mnemonicPasswordKey);
+      return;
+    }
+    html.window.localStorage.remove(mnemonicPasswordKey);
+  }
+
+  /// Reads encrypted wallet payload (ciphertext). Same backend as mnemonic (TMA vs browser).
+  Future<String?> readEncrypted() async {
+    if (_telegram.isActuallyInTelegram) {
+      final secure = await _secureGet(encryptedKey);
+      return _isSet(secure) ? secure!.trim() : null;
+    }
+    final local = html.window.localStorage[encryptedKey];
+    return _isSet(local) ? local!.trim() : null;
+  }
+
+  /// Writes encrypted wallet payload. Overwrites any existing value.
+  Future<void> writeEncrypted(String ciphertext) async {
+    final trimmed = ciphertext.trim();
+    if (trimmed.isEmpty) return;
+    if (_telegram.isActuallyInTelegram) {
+      await _secureSet(encryptedKey, trimmed);
+      return;
+    }
+    html.window.localStorage[encryptedKey] = trimmed;
+  }
+
+  Future<void> clearEncrypted() async {
+    if (_telegram.isActuallyInTelegram) {
+      await _secureDelete(encryptedKey);
+      return;
+    }
+    html.window.localStorage.remove(encryptedKey);
+  }
+
+  /// Lock state: when true, app should show PIN screen (Tonkeeper-style).
+  Future<bool> readLock() async {
+    if (_telegram.isActuallyInTelegram) {
+      final v = await _secureGet(lockKey);
+      return v?.trim().toLowerCase() == 'true';
+    }
+    final v = html.window.localStorage[lockKey];
+    return v?.trim().toLowerCase() == 'true';
+  }
+
+  Future<void> setLock(bool locked) async {
+    final value = locked ? 'true' : 'false';
+    if (_telegram.isActuallyInTelegram) {
+      await _secureSet(lockKey, value);
+      return;
+    }
+    html.window.localStorage[lockKey] = value;
+  }
+
+  /// Browser only: read "remember me" session payload (mnemonic\npassword). Not used in Telegram.
+  Future<String?> readSessionPayload() async {
+    if (_telegram.isActuallyInTelegram) return null;
+    final local = html.window.localStorage[sessionPayloadKey];
+    return _isSet(local) ? local!.trim() : null;
+  }
+
+  /// Browser only: write session payload so next load can restore without PIN.
+  Future<void> writeSessionPayload(String payload) async {
+    if (_telegram.isActuallyInTelegram) return;
+    final trimmed = payload.trim();
+    if (trimmed.isEmpty) return;
+    html.window.localStorage[sessionPayloadKey] = trimmed;
+  }
+
+  Future<void> clearSessionPayload() async {
+    if (_telegram.isActuallyInTelegram) return;
+    html.window.localStorage.remove(sessionPayloadKey);
   }
 
   Future<String?> _secureGet(String key) async {

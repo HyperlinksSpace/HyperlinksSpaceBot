@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../app/theme/app_theme.dart';
 import '../utils/app_haptic.dart';
 import '../wallet/wallet_service.dart';
+import '../wallet/wallet_types.dart';
 import '../widgets/common/copyable_detail_page.dart';
 import 'wallets_page.dart';
 
@@ -18,23 +19,40 @@ class _MnemonicsPageState extends State<MnemonicsPage> {
       'No mnemonic found on this device.';
   static const String _loadErrorText =
       'Could not load wallet data. Please try again.';
-  late final Future<String> _mnemonicTextFuture;
+  late final Future<_KeyContent> _contentFuture;
 
   @override
   void initState() {
     super.initState();
-    _mnemonicTextFuture = _loadMnemonicText();
+    _contentFuture = _loadKeyContent();
   }
 
-  Future<String> _loadMnemonicText() async {
+  Future<_KeyContent> _loadKeyContent() async {
     try {
-      final wallet = await WalletServiceImpl().getExisting();
-      if (wallet == null || wallet.mnemonicWords.isEmpty) {
-        return _missingMnemonicText;
+      final service = WalletServiceImpl();
+      WalletMaterial? material = await service.getExisting();
+      if (material == null && await service.hasWallet()) {
+        return _KeyContent.error(_loadErrorText);
       }
-      return _formatMnemonic(wallet.mnemonicWords);
+      if (material == null) {
+        final result = await service.getOrCreate();
+        material = result.material;
+        final pin = result.pin ?? service.getSessionPin();
+        if (material == null) {
+          return _KeyContent.error(_missingMnemonicText);
+        }
+        return _KeyContent(
+          _formatMnemonic(material.mnemonicWords),
+          pin,
+        );
+      }
+      final pin = service.getSessionPin();
+      return _KeyContent(
+        _formatMnemonic(material.mnemonicWords),
+        pin,
+      );
     } catch (_) {
-      return _loadErrorText;
+      return _KeyContent.error(_loadErrorText);
     }
   }
 
@@ -51,17 +69,24 @@ class _MnemonicsPageState extends State<MnemonicsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String>(
-      future: _mnemonicTextFuture,
+    return FutureBuilder<_KeyContent>(
+      future: _contentFuture,
       builder: (context, snapshot) {
-        final String text = snapshot.data ?? _loadingText;
-        final bool canCopyText =
-            snapshot.connectionState == ConnectionState.done &&
-                snapshot.hasData &&
-                text != _missingMnemonicText &&
-                text != _loadErrorText;
+        final content = snapshot.data;
+        final loading = snapshot.connectionState != ConnectionState.done;
+        final hasError = content?.isError ?? false;
+        final mnemonicText = content?.mnemonicText ?? _loadingText;
+        final pin = content?.pin;
+        final canCopyMnemonic = !loading &&
+            snapshot.hasData &&
+            !hasError &&
+            mnemonicText != _missingMnemonicText;
+        final copyText = canCopyMnemonic
+            ? (pin != null ? 'PIN: $pin\n\n$mnemonicText' : mnemonicText)
+            : '';
+
         return CopyableDetailPage(
-          copyText: canCopyText ? text : '',
+          copyText: copyText,
           onTitleRightTap: () {
             Navigator.push(
               context,
@@ -77,19 +102,57 @@ class _MnemonicsPageState extends State<MnemonicsPage> {
           centerChildBuilder: () {
             final baseColor =
                 Theme.of(context).textTheme.bodyLarge?.color ?? AppTheme.textColor;
+            final style = TextStyle(
+              fontSize: 15,
+              height: 30 / 15,
+              fontWeight: FontWeight.w600,
+              color: baseColor,
+            );
+            if (pin != null) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'PIN',
+                    style: style.copyWith(fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(pin, style: style.copyWith(letterSpacing: 4)),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Mnemonic',
+                    style: style.copyWith(fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    mnemonicText,
+                    textAlign: TextAlign.center,
+                    style: style,
+                  ),
+                ],
+              );
+            }
             return Text(
-              text,
+              mnemonicText,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                height: 30 / 15,
-                fontWeight: FontWeight.w600,
-                color: baseColor,
-              ),
+              style: style,
             );
           },
         );
       },
     );
   }
+}
+
+class _KeyContent {
+  _KeyContent(this.mnemonicText, this.pin) : isError = false;
+
+  _KeyContent.error(String message)
+      : mnemonicText = message,
+        pin = null,
+        isError = true;
+
+  final String mnemonicText;
+  final String? pin;
+  final bool isError;
 }

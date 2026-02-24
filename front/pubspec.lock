@@ -25,6 +25,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.6"
+  blockchain_utils:
+    dependency: transitive
+    description:
+      name: blockchain_utils
+      sha256: "9129a7b13e50c692387b69f24ca82c06360a75094dd0d286e21430c5b1492707"
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.4.0"
   boolean_selector:
     dependency: transitive
     description:
@@ -325,6 +333,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.6"
+  ton_dart:
+    dependency: "direct main"
+    description:
+      name: ton_dart
+      sha256: "6ed381f276ffe4a4b57889f311d6d8f921258d5d1d10cc03ccf22b54ef1d4e07"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.0"
   typed_data:
     dependency: transitive
     description:

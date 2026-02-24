@@ -69,13 +69,17 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
   void _warmUpWallet() {
     unawaited(() async {
       try {
-        final material = await WalletServiceImpl().getOrCreate();
-        final preview = material.publicKeyHex.length <= 8
-            ? material.publicKeyHex
-            : material.publicKeyHex.substring(0, 8);
-        print('[Wallet] keypair ready pub=$preview...');
+        final service = WalletServiceImpl();
+        final result = await service.getOrCreate();
+        if (result.material != null) {
+          final preview = result.material!.publicKeyHex.length <= 8
+              ? result.material!.publicKeyHex
+              : result.material!.publicKeyHex.substring(0, 8);
+          print('[Wallet] keypair ready pub=$preview...');
+        } else if (await service.hasWallet()) {
+          print('[Wallet] wallet exists, unlock with PIN to use');
+        }
       } catch (e) {
-        // Never block app load if wallet key setup fails.
         print('[Wallet] material warm-up failed: $e');
       }
     }());

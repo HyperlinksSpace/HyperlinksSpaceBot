@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -17,9 +19,9 @@ void main() async {
     print('No .env file found (this is OK for production): $e');
   }
 
-  // On web, prefetch BOT_API_URL from /api/config so production (Vercel) has URL without .env
+  // On web, prefetch BOT_API_URL in background so runApp isn't blocked (localhost may not serve /api/config)
   if (kIsWeb) {
-    await AuthApi.resolveBaseUrlAsync();
+    unawaited(AuthApi.resolveBaseUrlAsync());
   }
 
   // Initialize Telegram WebApp using flutter_telegram_miniapp package

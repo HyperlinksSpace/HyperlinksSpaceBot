@@ -789,7 +789,7 @@ def _has_explicit_ticker_signal(text: str) -> bool:
     # Strong universal signals
     if "$" in text:
         return True
-    if re.search(r"\b[A-Z0-9]{3,10}\b", text):
+    if re.search(r"\b[A-Z0-9]{2,10}(USDT|USD|TON)\b", text):
         return True
 
     # Single standalone token symbol: e.g., "dogs"
@@ -813,6 +813,30 @@ def _has_explicit_ticker_signal(text: str) -> bool:
         return True
 
     return False
+
+
+def _strip_ticker_turns_from_history(messages: List["ChatMessage"]) -> List["ChatMessage"]:
+    """
+    Remove prior ticker-oriented turns from history.
+    This prevents old ticker conversations from biasing a new general query.
+    """
+    cleaned: List["ChatMessage"] = []
+    skip_turn = False
+
+    for msg in messages:
+        if msg.role == "user":
+            skip_turn = _has_explicit_ticker_signal(msg.content)
+            if skip_turn:
+                continue
+            cleaned.append(msg)
+            continue
+
+        if skip_turn and msg.role in {"assistant", "tool"}:
+            continue
+
+        cleaned.append(msg)
+
+    return cleaned
 
 
 # ============================================================================
@@ -1265,6 +1289,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     
     # STEP 1: Try ticker detection if RAG is available
     explicit_ticker_signal = _has_explicit_ticker_signal(user_last)
+    strong_ticker_context = _is_ticker_context_strong(user_last)
     if RAG_URL and user_last and explicit_ticker_signal:
         ticker_symbol, ticker_data, error_code = await detect_ticker_via_rag(
             user_last, 
@@ -1286,7 +1311,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
             )
             return stream_text_response(msg)
         
-        elif error_code == "not_found" and explicit_ticker_signal:
+        elif error_code == "not_found" and strong_ticker_context:
             # Strong ticker context but no verified ticker found
             # This is "soft fail" - only trigger if context is strong
             msg = (
@@ -1423,7 +1448,16 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         if user_last:
             messages_dict.append({"role": "user", "content": user_last})
     else:
-        for msg in request.messages:
+        history_messages = request.messages
+        if not explicit_ticker_signal:
+            history_messages = _strip_ticker_turns_from_history(request.messages)
+            logger.info(
+                "General mode history filtering: %s -> %s messages",
+                len(request.messages),
+                len(history_messages),
+            )
+
+        for msg in history_messages:
             msg_dict = {
                 "role": msg.role,
                 "content": msg.content

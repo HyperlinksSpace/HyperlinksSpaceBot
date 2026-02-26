@@ -196,3 +196,35 @@ This also auto-regenerates favicon from `assets/HyperlinksSpace.svg` before buil
 - The Telegram Web App SDK script is included in `web/index.html`
 - The app automatically expands to fill the screen when loaded in Telegram
 - The `vercel.json` configuration handles routing for the Flutter SPA
+
+## Telegram Webhook Gateway (Vercel JS)
+
+This repo also includes a thin Telegram webhook receiver under `front/api/bot.js`.
+
+- Endpoint: `POST /api/bot`
+- Local commands: `/start`, `/help`, `/ping`
+- Antifragile `/start`: checks `AI_HEALTH_URL` with bounded timeout and falls back safely when AI is unavailable
+- Optional forwarding to Televerse service (`TELEVERSE_BASE_URL`) via internal key
+
+Supporting logic lives in `front/bot-service/*` for clean discoverability.
+
+### Env Vars (Gateway)
+
+- `BOT_TOKEN` (or `TELEGRAM_BOT_TOKEN`) - required
+- `TELEGRAM_WEBHOOK_SECRET` - recommended
+- `AI_HEALTH_URL` - optional
+- `AI_HEALTH_TIMEOUT_MS` - default `1200`, clamped to `200..1500`
+- `AI_HEALTH_CACHE_TTL_MS` - default `30000`
+- `TELEGRAM_BODY_LIMIT_BYTES` - default `262144`
+- `TELEVERSE_BASE_URL` + `TELEVERSE_INTERNAL_KEY` - optional downstream forwarding
+- `APP_URL` - optional mini app button for `/start`
+
+### Webhook Scripts
+
+```bash
+node scripts/set-telegram-webhook.mjs
+node scripts/delete-telegram-webhook.mjs
+```
+
+Expected `TELEGRAM_WEBHOOK_URL` example:
+- `https://<your-vercel-domain>/api/bot`

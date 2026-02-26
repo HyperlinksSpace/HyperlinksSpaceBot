@@ -5,6 +5,9 @@
     },
     "api/ai.js": {
       "maxDuration": 60
+    },
+    "api/bot.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [
@@ -15,6 +18,10 @@
     {
       "source": "/api/ai",
       "destination": "/api/ai.js"
+    },
+    {
+      "source": "/api/bot",
+      "destination": "/api/bot.js"
     },
     {
       "source": "/(.*)",

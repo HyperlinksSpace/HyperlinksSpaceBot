@@ -1,9 +1,10 @@
 /**
  * Vercel serverless: Telegram webhook gateway.
- * Contract: GET = health; POST = validate (size/body) -> grammY webhookCallback.
+ * Uses Grammy for command and message handling (see bot-service/grammy-bot.js).
+ * Contract: GET = health; POST = validate (secret, size, body) → 200 ACK → process via Grammy.
  */
 const config = require('../bot-service/config');
-const { handleWebhook } = require('../bot-service/grammy-bot');
+const { bot } = require('../bot-service/grammy-bot');
 const { getChatId, getUpdateKind } = require('../bot-service/telegram');
 const { logError, logWarn } = require('../bot-service/logger');
 
@@ -41,6 +42,12 @@ module.exports = async (req, res) => {
     return res.status(405).json({ ok: false, error: 'method_not_allowed' });
   }
 
+  const expectedSecret = config.webhookSecret;
+  const providedSecret = (req.headers['x-telegram-bot-api-secret-token'] || '').toString();
+  if (expectedSecret && providedSecret !== expectedSecret) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
   const bodySize = parseBodySize(req, req.body, config.bodyLimitBytes);
   if (bodySize > config.bodyLimitBytes) {
     return res.status(413).json({ ok: false, error: 'payload_too_large' });
@@ -51,21 +58,22 @@ module.exports = async (req, res) => {
     return res.status(400).json({ ok: false, error: 'invalid_json' });
   }
 
-  try {
-    await handleWebhook(req, res);
-  } catch (error) {
-    logError('telegram_webhook_error', error, {
-      update_id: update.update_id || null,
-      chat_id: getChatId(update),
-      update_kind: getUpdateKind(update),
+  // Antifragile contract: acknowledge immediately after validation.
+  res.status(200).json({ ok: true });
+
+  const ctx = {
+    update_id: update.update_id || null,
+    chat_id: getChatId(update),
+    update_kind: getUpdateKind(update),
+  };
+
+  setImmediate(() => {
+    bot.handleUpdate(update).catch((error) => {
+      logError('telegram_webhook_error', error, ctx);
     });
+  });
 
-    if (!res.headersSent) {
-      return res.status(200).json({ ok: true });
-    }
-  }
-
-  if (!config.webhookSecret) {
-    logWarn('telegram_webhook_secret_not_set', { update_id: update.update_id || null });
+  if (!expectedSecret) {
+    logWarn('telegram_webhook_secret_not_set', { update_id: ctx.update_id });
   }
 };

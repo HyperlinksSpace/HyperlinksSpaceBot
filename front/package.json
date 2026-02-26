@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "description": "Flutter web app with API key injection",
   "scripts": {
-    "postbuild": "node scripts/inject-api-key.js"
+    "postbuild": "node scripts/inject-api-key.js",
+    "bot:local": "node scripts/run-bot-local.mjs",
+    "bot:deploy": "node scripts/deploy-server.mjs",
+    "bot:webhook:set": "node scripts/set-telegram-webhook.mjs",
+    "bot:webhook:delete": "node scripts/delete-telegram-webhook.mjs"
   },
   "engines": {
     "node": ">=18.0.0"

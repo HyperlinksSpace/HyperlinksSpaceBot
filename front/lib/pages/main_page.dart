@@ -205,8 +205,12 @@ class _MainPageState extends State<MainPage> {
         builder: (context) {
           // Calculate padding statically to avoid rebuilds when keyboard opens
           // The logo visibility doesn't actually change when keyboard opens,
-          // so we don't need to listen to fullscreenNotifier here
+          // so we don't need to listen to fullscreenNotifier here.
+          // When topPadding is 0 (TMA not fullscreen), we add a small top gap
+          // inside the scrollable content instead, so the scrollbar sticks to
+          // the top edge of the viewport.
           final topPadding = GlobalLogoBar.getContentTopPadding();
+          final needsScrollableTopGap = topPadding == 0.0;
           final bottomPadding = _getAdaptiveBottomPadding();
           print('[MainPage] Applying content top padding: $topPadding');
           return Stack(
@@ -243,6 +247,8 @@ class _MainPageState extends State<MainPage> {
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 mainAxisAlignment: MainAxisAlignment.start,
                                 children: [
+                          if (needsScrollableTopGap)
+                            const SizedBox(height: 10),
                           // Hash row with icons - content part (30px height to match CopyableDetailPage title row)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 15),

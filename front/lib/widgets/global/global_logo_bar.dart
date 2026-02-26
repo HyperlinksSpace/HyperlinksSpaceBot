@@ -92,8 +92,10 @@ class GlobalLogoBar extends StatefulWidget {
     return height;
   }
 
-  /// Get the top padding for content based on logo visibility
-  /// Returns 10px when logo is hidden, otherwise logo block height + 10px
+  /// Get the top padding for page chrome based on logo visibility.
+  /// When logo is hidden (TMA not fullscreen), pages should handle any
+  /// visual top gap inside their own scrollable content, so this returns 0.
+  /// When logo is visible, content needs logo block height + 10px.
   /// Uses the fullscreenNotifier to get current logo visibility state
   static double getContentTopPadding() {
     // Check if we're in browser or TMA
@@ -111,12 +113,13 @@ class GlobalLogoBar extends StatefulWidget {
       return padding;
     }
     
-    // In TMA mode, check if logo is visible (fullscreen mode)
-    // If logo is hidden (not fullscreen), return minimal padding
+    // In TMA mode, check if logo is visible (fullscreen mode).
+    // If logo is hidden (not fullscreen), return 0 so the page's scrollable
+    // area can start flush under Telegram's header and manage its own inset.
     final isFullscreen = _fullscreenNotifier.value;
     if (!isFullscreen) {
-      print('[GlobalLogoBar] TMA not fullscreen - content top padding: 10.0');
-      return 10.0;
+      print('[GlobalLogoBar] TMA not fullscreen - content top padding: 0.0');
+      return 0.0;
     }
     
     // Logo is visible in TMA fullscreen mode, so content needs full padding

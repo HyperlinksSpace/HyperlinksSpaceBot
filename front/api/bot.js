@@ -34,7 +34,7 @@ module.exports = async (req, res) => {
       mode: 'webhook',
       framework: 'grammy',
       aiHealthConfigured: Boolean(config.aiHealthUrl),
-      televerseConfigured: Boolean(config.televerseBaseUrl && config.televerseInternalKey),
+      forwarding: 'disabled',
     });
   }
 

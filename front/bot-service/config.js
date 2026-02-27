@@ -33,6 +33,4 @@ module.exports = {
   aiHealthTimeoutMs: parseTimeoutMs(env('AI_HEALTH_TIMEOUT_MS'), 1200),
   aiHealthCacheTtlMs: parseTtlMs(env('AI_HEALTH_CACHE_TTL_MS'), 30000),
   bodyLimitBytes: parseBodyLimitBytes(env('TELEGRAM_BODY_LIMIT_BYTES'), 262144),
-  televerseBaseUrl: env('TELEVERSE_BASE_URL').replace(/\/$/, ''),
-  televerseInternalKey: env('TELEVERSE_INTERNAL_KEY'),
 };

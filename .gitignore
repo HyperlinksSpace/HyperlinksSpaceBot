@@ -51,6 +51,8 @@ app.*.map.json
 
 .venv/
 rag/.venv/
+node_modules/
+front/node_modules/
 
 # Root .env (bot token and other secrets)
 /.env

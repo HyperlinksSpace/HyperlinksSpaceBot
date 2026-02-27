@@ -204,6 +204,7 @@ This repo includes a Telegram webhook receiver under `front/api/bot.js`, using [
 - Endpoint: `POST /api/bot`
 - Local commands: `/start`, `/help`, `/ping`
 - Antifragile `/start`: checks `AI_HEALTH_URL` with bounded timeout and falls back safely when AI is unavailable
+
 Supporting logic lives in `front/bot-service/*` for clean discoverability.
 
 ### Env Vars (Gateway)

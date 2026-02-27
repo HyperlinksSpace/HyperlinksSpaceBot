@@ -1,14 +1,13 @@
 /**
  * Grammy bot instance and handler registration.
  * Used by api/bot.js after 200 ACK: bot.handleUpdate(update).
- * Keeps same behavior: /start (with AI health), /help, /ping; other text → Televerse or fallback.
+ * Keeps same behavior: /start (with AI health), /help, /ping; other text → fallback.
  */
 const { Bot } = require('grammy');
 const config = require('./config');
 const { isAiAvailableCached } = require('./ai-health');
 const { startWelcomeText, HELP_TEXT, FALLBACK_TEXT } = require('./text');
 const { makeInlineKeyboardForApp } = require('./telegram');
-const { forwardToTeleverse } = require('./downstream');
 const { logError, logWarn } = require('./logger');
 
 if (!config.botToken) {
@@ -39,20 +38,7 @@ bot.command('ping', async (ctx) => {
 });
 
 bot.on('message:text', async (ctx) => {
-  const update = ctx.update;
-  try {
-    const result = await forwardToTeleverse(update);
-    if (!result.forwarded) {
-      await ctx.reply(FALLBACK_TEXT);
-    }
-  } catch (error) {
-    logError('televerse_forward_error', error, {
-      update_id: update?.update_id ?? null,
-      chat_id: ctx.chat?.id ?? null,
-      message_id: ctx.message?.message_id ?? null,
-    });
-    await ctx.reply(FALLBACK_TEXT);
-  }
+  await ctx.reply(FALLBACK_TEXT);
 });
 
 // Non-text messages (photo, sticker, etc.): reply fallback

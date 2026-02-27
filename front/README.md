@@ -204,19 +204,16 @@ This repo includes a Telegram webhook receiver under `front/api/bot.js`, using [
 - Endpoint: `POST /api/bot`
 - Local commands: `/start`, `/help`, `/ping`
 - Antifragile `/start`: checks `AI_HEALTH_URL` with bounded timeout and falls back safely when AI is unavailable
-- Optional forwarding to Televerse service (`TELEVERSE_BASE_URL`) via internal key
-
 Supporting logic lives in `front/bot-service/*` for clean discoverability.
 
 ### Env Vars (Gateway)
 
-- `BOT_TOKEN` (or `TELEGRAM_BOT_TOKEN`) - required
+- `BOT_TOKEN` - required
 - `TELEGRAM_WEBHOOK_SECRET` - recommended
 - `AI_HEALTH_URL` - optional
 - `AI_HEALTH_TIMEOUT_MS` - default `1200`, clamped to `200..1500`
 - `AI_HEALTH_CACHE_TTL_MS` - default `30000`
 - `TELEGRAM_BODY_LIMIT_BYTES` - default `262144`
-- `TELEVERSE_BASE_URL` + `TELEVERSE_INTERNAL_KEY` - optional downstream forwarding
 - `APP_URL` - optional mini app button for `/start`
 
 ### Webhook Scripts
@@ -228,3 +225,47 @@ node scripts/delete-telegram-webhook.mjs
 
 Expected `TELEGRAM_WEBHOOK_URL` example:
 - `https://<your-vercel-domain>/api/bot`
+
+## Bot Run Modes
+
+### Local mode (polling, no ngrok)
+
+Required env:
+- `BOT_TOKEN`
+
+Run:
+
+```bash
+cd front
+npm ci
+npm run bot:local
+```
+
+### Server mode (set webhook to Vercel)
+
+Required env:
+- `BOT_TOKEN`
+- `VERCEL_URL`
+
+Run:
+
+```bash
+cd front
+npm run bot:deploy
+```
+
+`VERCEL_URL` examples:
+- `your-project.vercel.app`
+- `https://your-project.vercel.app`
+
+Script computes webhook URL as:
+- `https://<VERCEL_URL>/api/bot`
+
+### Safety warning
+
+Do not run local polling with the same token while webhook is active in production.
+Use a separate dev bot token or temporarily remove webhook:
+
+```bash
+npm run bot:webhook:delete
+```

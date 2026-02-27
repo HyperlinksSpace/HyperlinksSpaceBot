@@ -1,7 +1,6 @@
 const { Bot } = require('grammy');
 const config = require('./config');
 const { isAiAvailableCached } = require('./ai-health');
-const { forwardToTeleverse } = require('./downstream');
 const { logError, logInfo, logWarn } = require('./logger');
 const { makeInlineKeyboardForApp } = require('./telegram');
 const { FALLBACK_TEXT, HELP_TEXT, startWelcomeText } = require('./text');
@@ -122,27 +121,11 @@ function createBot() {
   bot.on('message:text', async (ctx) => {
     const startedAt = nowMs();
     const update = ctx.update;
-    try {
-      const result = await forwardToTeleverse(update);
-      if (!result.forwarded) {
-        await ctx.reply(FALLBACK_TEXT);
-      }
-      logHandlerLatency('message_text', startedAt, {
-        update_id: update?.update_id ?? null,
-        chat_id: ctx.chat?.id ?? null,
-      });
-    } catch (error) {
-      logError('televerse_forward_error', error, {
-        update_id: update?.update_id ?? null,
-        chat_id: ctx.chat?.id ?? null,
-        message_id: ctx.message?.message_id ?? null,
-      });
-      await ctx.reply(FALLBACK_TEXT);
-      logHandlerLatency('message_text', startedAt, {
-        update_id: update?.update_id ?? null,
-        chat_id: ctx.chat?.id ?? null,
-      });
-    }
+    await ctx.reply(FALLBACK_TEXT);
+    logHandlerLatency('message_text', startedAt, {
+      update_id: update?.update_id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+    });
   });
 
   // Non-text messages (photo, sticker, etc.): reply fallback.

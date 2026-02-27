@@ -1,3 +1,7 @@
+/**
+ * Televerse downstream helpers are intentionally paused.
+ * This module is kept for portability/history and is not used by active runtime paths.
+ */
 const config = require('./config');
 
 function buildEnvelope(update) {

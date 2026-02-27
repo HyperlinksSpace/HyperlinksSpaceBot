@@ -1,98 +1,61 @@
 ## PR Title
 
-`feat(bot): add Vercel JS webhook gateway with Televerse forwarding skeleton`
+`chore(bot): stabilize front runtime and pause Televerse hot-path dependency`
 
 ## Summary
 
-This PR adds a production-safe Telegram webhook gateway in `front/api/bot.js` and isolates bot logic into `front/bot-service/*`.
-The gateway handles core commands locally (`/start`, `/help`, `/ping`), applies strict webhook safety checks, and can optionally forward sanitized updates to a Televerse (Dart) downstream service.
+This PR applies a low-risk stabilization pass to the current `front/` Telegram bot runtime.
+It keeps webhook/API contracts unchanged, removes Televerse from active message handling, and preserves the portable bot interface (`createBot/getBot/startPolling`) used by both webhook and local polling modes.
 
-## Confirmed Direction
+## What Changed
 
-- JS webhook receiver on Vercel (thin entrypoint)
-- Televerse service handles richer logic downstream
-- Gateway remains reliable even when AI/downstream are unavailable
+- Kept webhook behavior stable in `front/api/bot.js`:
+  - Same endpoint and validation semantics (`401`, `413`, `400`, ACK `200`).
+  - Same ACK-first async processing model.
+- Paused Televerse runtime dependency:
+  - `front/bot-service/grammy-bot.js` no longer forwards text messages to downstream Televerse.
+  - Non-command text now deterministically replies with local fallback.
+- Preserved/kept observability:
+  - `bot_command`
+  - `ai_probe_latency`
+  - `bot_handler_latency`
+  - `telegram_webhook_error`
+- Removed Televerse env usage from active config path:
+  - `TELEVERSE_BASE_URL` / `TELEVERSE_INTERNAL_KEY` are no longer required by active runtime.
+- Added compatibility headers in legacy helper files (`downstream.js`, `router.js`) to mark them as paused/not active.
+- Updated docs (`front/README.md`) to reflect current runtime behavior and added portability notes for future `app/` migration.
 
-## Gateway Contract
+## Public Contract (Unchanged)
 
-- `GET /api/bot`
-  - Health/status for gateway wiring.
-- `POST /api/bot`
-  - Verifies `X-Telegram-Bot-Api-Secret-Token` (when configured).
-  - Rejects oversized payloads.
-  - Validates parsed JSON update.
-  - Responds `200 { ok: true }` immediately after validation (antifragile ACK behavior).
-  - Processes update best-effort asynchronously.
+- `GET /api/bot` for health/info.
+- `POST /api/bot`:
+  - Secret header check when configured.
+  - Payload size guard.
+  - Invalid body guard.
+  - Immediate `200 { ok: true }` ACK after validation.
+  - Async bot processing after ACK.
 
-## Core Behavior
+## Runtime Behavior
 
-- `/start`
-  - Uses bounded AI health probe:
-    - `AI_HEALTH_TIMEOUT_MS` default `1200`
-    - clamped to `200..1500`
-    - cached for short TTL (`AI_HEALTH_CACHE_TTL_MS`, default `30000`)
-  - AI up => welcome suggests prompts
-  - AI down => safe welcome without prompt suggestion
-- `/help` and `/ping` handled locally in gateway
-- Non-core text messages optionally forwarded to Televerse via internal endpoint
+- `/start`: bounded AI health probe and safe fallback welcome if AI is unavailable.
+- `/help`: command list.
+- `/ping`: `pong`.
+- Other text: local deterministic fallback (`Use /help for available commands.`).
 
-## Security and Reliability
+## Manual Verification
 
-- Secret-token verification (`401` on mismatch)
-- Payload size limit (`TELEGRAM_BODY_LIMIT_BYTES`, default `262144`)
-- Structured sanitized logs (`telegram_webhook_error`, `update_id`, `chat_id`, `update_kind`)
-- No raw payload logging in error path
-
-## Televerse Forwarding Contract (Skeleton)
-
-Gateway forwards a reduced envelope to:
-- `POST {TELEVERSE_BASE_URL}/internal/process-update`
-- Header: `X-Internal-Key: {TELEVERSE_INTERNAL_KEY}`
-
-Envelope shape:
-
-```json
-{
-  "update_id": 123,
-  "chat_id": 1,
-  "user_id": 2,
-  "text": "hi",
-  "message_id": 10,
-  "is_command": false,
-  "command": null,
-  "timestamp": 1700000000
-}
-```
-
-## Files Added
-
-- `front/api/bot.js`
-- `front/bot-service/config.js`
-- `front/bot-service/logger.js`
-- `front/bot-service/text.js`
-- `front/bot-service/ai-health.js`
-- `front/bot-service/telegram.js`
-- `front/bot-service/downstream.js`
-- `front/bot-service/router.js`
-- `front/scripts/set-telegram-webhook.mjs`
-- `front/scripts/delete-telegram-webhook.mjs`
-
-## Files Updated
-
-- `front/vercel.json`
-- `front/README.md`
-
-## Manual Smoke Checklist
-
-1. Set env vars (`BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, optional AI/Televerse vars).
-2. Deploy front to Vercel.
-3. Run `node front/scripts/set-telegram-webhook.mjs` with `TELEGRAM_WEBHOOK_URL=https://<domain>/api/bot`.
-4. Send `/start` with healthy AI endpoint => prompt suggestion appears.
-5. Break `AI_HEALTH_URL` => `/start` safe fallback without prompt suggestion.
-6. Send wrong secret header => `401`.
-7. Send malformed/oversized request => rejection path works.
+1. `GET /api/bot` returns `200`.
+2. `POST /api/bot` wrong secret returns `401`.
+3. Oversized request returns `413`.
+4. Invalid/non-object body returns `400`.
+5. Valid update returns immediate `200` and is processed asynchronously.
+6. `/start` with AI up/down returns expected adaptive message.
+7. `/help` and `/ping` still respond correctly.
+8. Duplicate `update_id` is dropped in warm runtime and logged.
 
 ## Notes
 
-- This PR intentionally follows the existing `front/api/*.js` Vercel style for fast merge and single-root deployment.
-- `apps/bot` prototype is not part of this PR scope.
+- No new env vars.
+- No route/path changes.
+- No deploy-surface expansion.
+- Bot modules remain portable for future migration to a new `app/` folder (`front/api/bot.js` thin wrapper + `front/bot-service/*` core logic).

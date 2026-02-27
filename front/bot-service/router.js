@@ -1,3 +1,7 @@
+/**
+ * Legacy router path retained for compatibility reference.
+ * Active runtime uses grammy-bot.js directly; Televerse forwarding is paused.
+ */
 const { isAiAvailableCached } = require('./ai-health');
 const { HELP_TEXT, FALLBACK_TEXT, startWelcomeText } = require('./text');
 const {

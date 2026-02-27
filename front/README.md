@@ -203,6 +203,7 @@ This repo includes a Telegram webhook receiver under `front/api/bot.js`, using [
 
 - Endpoint: `POST /api/bot`
 - Local commands: `/start`, `/help`, `/ping`
+- Non-command text: local deterministic fallback (`Use /help for available commands.`)
 - Antifragile `/start`: checks `AI_HEALTH_URL` with bounded timeout and falls back safely when AI is unavailable
 Supporting logic lives in `front/bot-service/*` for clean discoverability.
 
@@ -269,3 +270,9 @@ Use a separate dev bot token or temporarily remove webhook:
 ```bash
 npm run bot:webhook:delete
 ```
+
+## Portability Notes
+
+- `front/api/bot.js` is a thin webhook wrapper (validation + fast ACK + async update handling).
+- `front/bot-service/*` is the portable bot module boundary (`createBot/getBot/startPolling`).
+- Future migration to an `app/` structure is expected to be a path/import move, not a bot behavior rewrite.

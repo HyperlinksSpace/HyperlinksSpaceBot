@@ -8,6 +8,18 @@ const { FALLBACK_TEXT, HELP_TEXT, startWelcomeText } = require('./text');
 
 const DEDUPE_TTL_MS = 5 * 60 * 1000;
 
+function nowMs() {
+  return Date.now();
+}
+
+function logHandlerLatency(handler, startedAt, extra) {
+  logInfo('bot_handler_latency', {
+    handler,
+    duration_ms: nowMs() - startedAt,
+    ...(extra || {}),
+  });
+}
+
 function createDedupeMiddleware() {
   const seen = new Map();
 
@@ -46,6 +58,7 @@ function createBot() {
   bot.use(createDedupeMiddleware());
 
   bot.command('start', async (ctx) => {
+    const startedAt = nowMs();
     logInfo('bot_command', {
       command: '/start',
       update_id: ctx.update?.update_id ?? null,
@@ -53,43 +66,71 @@ function createBot() {
     });
 
     let aiAvailable = false;
+    const aiProbeStartedAt = nowMs();
     try {
       aiAvailable = await isAiAvailableCached();
+      logInfo('ai_probe_latency', {
+        duration_ms: nowMs() - aiProbeStartedAt,
+        ai_available: aiAvailable,
+      });
     } catch (error) {
       logWarn('ai_fallback', { reason: 'probe_error' });
+      logInfo('ai_probe_latency', {
+        duration_ms: nowMs() - aiProbeStartedAt,
+        ai_available: false,
+      });
       aiAvailable = false;
     }
     const replyMarkup = makeInlineKeyboardForApp();
     await ctx.reply(startWelcomeText(aiAvailable), {
       reply_markup: replyMarkup || undefined,
     });
+    logHandlerLatency('start', startedAt, {
+      update_id: ctx.update?.update_id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+    });
   });
 
   bot.command('help', async (ctx) => {
+    const startedAt = nowMs();
     logInfo('bot_command', {
       command: '/help',
       update_id: ctx.update?.update_id ?? null,
       chat_id: ctx.chat?.id ?? null,
     });
     await ctx.reply(HELP_TEXT);
+    logHandlerLatency('help', startedAt, {
+      update_id: ctx.update?.update_id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+    });
   });
 
   bot.command('ping', async (ctx) => {
+    const startedAt = nowMs();
     logInfo('bot_command', {
       command: '/ping',
       update_id: ctx.update?.update_id ?? null,
       chat_id: ctx.chat?.id ?? null,
     });
     await ctx.reply('pong');
+    logHandlerLatency('ping', startedAt, {
+      update_id: ctx.update?.update_id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+    });
   });
 
   bot.on('message:text', async (ctx) => {
+    const startedAt = nowMs();
     const update = ctx.update;
     try {
       const result = await forwardToTeleverse(update);
       if (!result.forwarded) {
         await ctx.reply(FALLBACK_TEXT);
       }
+      logHandlerLatency('message_text', startedAt, {
+        update_id: update?.update_id ?? null,
+        chat_id: ctx.chat?.id ?? null,
+      });
     } catch (error) {
       logError('televerse_forward_error', error, {
         update_id: update?.update_id ?? null,
@@ -97,6 +138,10 @@ function createBot() {
         message_id: ctx.message?.message_id ?? null,
       });
       await ctx.reply(FALLBACK_TEXT);
+      logHandlerLatency('message_text', startedAt, {
+        update_id: update?.update_id ?? null,
+        chat_id: ctx.chat?.id ?? null,
+      });
     }
   });
 

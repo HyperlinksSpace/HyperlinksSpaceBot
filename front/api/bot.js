@@ -4,7 +4,7 @@
  * Contract: GET = health; POST = validate (secret, size, body) → 200 ACK → process via Grammy.
  */
 const config = require('../bot-service/config');
-const { bot } = require('../bot-service/grammy-bot');
+const { getBot } = require('../bot-service/grammy-bot');
 const { getChatId, getUpdateKind } = require('../bot-service/telegram');
 const { logError, logWarn } = require('../bot-service/logger');
 
@@ -35,6 +35,7 @@ module.exports = async (req, res) => {
       framework: 'grammy',
       aiHealthConfigured: Boolean(config.aiHealthUrl),
       forwarding: 'disabled',
+      televerseConfigured: false,
     });
   }
 
@@ -68,6 +69,7 @@ module.exports = async (req, res) => {
   };
 
   setImmediate(() => {
+    const bot = getBot();
     bot.handleUpdate(update).catch((error) => {
       logError('telegram_webhook_error', error, ctx);
     });

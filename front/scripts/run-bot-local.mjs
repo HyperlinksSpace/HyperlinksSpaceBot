@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { bot } = require('../bot-service/grammy-bot');
+const { startPolling } = require('../bot-service/grammy-bot');
 
 const token = (process.env.BOT_TOKEN || '').trim();
 if (!token) {
@@ -12,5 +12,5 @@ if (!token) {
 console.warn('[bot:local] Using polling mode (getUpdates).');
 console.warn('[bot:local] Do not run with the same token while webhook is active in prod.');
 
-await bot.start();
+await startPolling();
 console.log('[bot:local] Polling started. Press Ctrl+C to stop.');

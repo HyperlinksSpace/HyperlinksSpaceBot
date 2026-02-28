@@ -30,10 +30,13 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (secrets; do not commit)
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
 
 app-example
+
+.vercel

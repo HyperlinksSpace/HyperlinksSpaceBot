@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npx expo export -p web && node scripts/set-webhook.js",
+  "outputDirectory": "dist",
+  "framework": null,
+  "installCommand": "npm install"
+}

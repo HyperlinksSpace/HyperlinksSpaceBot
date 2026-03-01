@@ -5,7 +5,7 @@
   "version": "53.0.43",
   "scripts": {
     "build": "expo export -p web",
-    "start": "npx concurrently -n expo,bot \"expo start\" \"node scripts/run-bot-local.js\"",
+    "start": "npx concurrently -n expo,bot \"expo start\" \"npx tsx scripts/run-bot-local.ts\"",
     "start:expo": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
@@ -15,7 +15,8 @@
     "draft": "npx eas-cli@latest workflow:run create-draft.yml",
     "development-builds": "npx eas-cli@latest workflow:run create-development-builds.yml",
     "deploy": "npx eas-cli@latest workflow:run deploy-to-production.yml",
-    "bot:local": "node scripts/run-bot-local.js"
+    "bot:local": "npx tsx scripts/run-bot-local.ts",
+    "set-webhook": "npx tsx scripts/set-webhook.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -51,6 +52,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
+    "dotenv": "^16.4.5",
+    "tsx": "^4.19.2",
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",

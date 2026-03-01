@@ -1,13 +1,19 @@
 /**
  * Local run: polling (getUpdates). Only BOT_TOKEN needed.
- * Run: BOT_TOKEN=xxx node scripts/run-bot-local.js
+ * Run: npx tsx scripts/run-bot-local.ts  (or npm run bot:local)
  * Do not run with the same token while webhook is set in production.
  */
-const path = require('path');
+import path from 'path';
+import { createBot } from '../bot/grammy-bot';
+
 try {
-  require('dotenv').config({ path: path.join(__dirname, '../.env') });
-} catch (_) {}
-const { createBot } = require('../bot/grammy-bot');
+  const dotenv = require('dotenv');
+  const cwd = process.cwd();
+  dotenv.config({ path: path.join(cwd, '.env') });
+  dotenv.config({ path: path.join(cwd, 'app', '.env') });
+} catch {
+  // dotenv optional
+}
 
 const token = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '').trim();
 if (!token) {
@@ -24,5 +30,8 @@ async function main() {
 
 main().catch((err) => {
   console.error(err);
+  if (err?.error_code === 401) {
+    console.error('[bot] 401 Unauthorized: check BOT_TOKEN in .env (valid token from @BotFather, no extra spaces).');
+  }
   process.exit(1);
 });

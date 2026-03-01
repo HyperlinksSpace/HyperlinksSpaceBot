@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from app.config import get_ai_backend_url
+try:
+    from app.config import get_ai_backend_url
+except ModuleNotFoundError:
+    from bot.app.config import get_ai_backend_url
 
 
 async def post_chat_once(messages: list, api_key: str, timeout_s: float) -> tuple[int, str, str]:
@@ -39,4 +42,3 @@ async def stream_chat(messages: list, api_key: str, timeout_s: float = 60.0):
             },
         ) as response:
             yield ai_backend_url, response
-

@@ -31,3 +31,24 @@ if (!response.ok || !data.ok) {
 
 console.log('[bot:deploy] Webhook set successfully');
 console.log('[bot:deploy] URL:', webhookUrl);
+
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const VERCEL_URL = process.env.VERCEL_URL;
+
+if (!BOT_TOKEN || !VERCEL_URL) {
+  console.error("BOT_TOKEN and VERCEL_URL are required");
+  process.exit(1);
+}
+
+const base = VERCEL_URL.startsWith("http") ? VERCEL_URL : `https://${VERCEL_URL}`;
+const url = `${base.replace(/\/+$/, "")}/api/bot`;
+
+const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ url }),
+});
+
+const data = await resp.json();
+console.log(data);
+if (!data.ok) process.exit(1);

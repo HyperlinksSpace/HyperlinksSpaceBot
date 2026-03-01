@@ -13,16 +13,30 @@ import asyncpg
 import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-from app.ai_client import post_chat_once, stream_chat
-from app.config import load_env, get_ai_backend_url
-from app.prompts import (
-    LANGUAGE_SYSTEM_HINT,
-    THINKING_TEXT,
-    build_regen_system_prompt,
-    build_default_system_prompt,
-    detect_language_from_text,
-    get_last_user_message_from_history,
-)
+try:
+    # Running from bot/ directory (local dev) resolves app.* to bot/app.
+    from app.ai_client import post_chat_once, stream_chat
+    from app.config import load_env, get_ai_backend_url
+    from app.prompts import (
+        LANGUAGE_SYSTEM_HINT,
+        THINKING_TEXT,
+        build_regen_system_prompt,
+        build_default_system_prompt,
+        detect_language_from_text,
+        get_last_user_message_from_history,
+    )
+except ModuleNotFoundError:
+    # Running from repo root needs explicit bot.app.* to avoid root app/ collision.
+    from bot.app.ai_client import post_chat_once, stream_chat
+    from bot.app.config import load_env, get_ai_backend_url
+    from bot.app.prompts import (
+        LANGUAGE_SYSTEM_HINT,
+        THINKING_TEXT,
+        build_regen_system_prompt,
+        build_default_system_prompt,
+        detect_language_from_text,
+        get_last_user_message_from_history,
+    )
 
 load_env()
 

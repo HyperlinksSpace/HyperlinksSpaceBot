@@ -14,3 +14,14 @@ console.warn('[bot:local] Do not run with the same token while webhook is active
 
 await startPolling();
 console.log('[bot:local] Polling started. Press Ctrl+C to stop.');
+
+import { startPolling } from "../../packages/bot/dist/index.js";
+
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+  console.error("BOT_TOKEN is required");
+  process.exit(1);
+}
+
+console.log("Starting bot in polling mode (local)...");
+startPolling({ BOT_TOKEN }, { logger: (e) => console.log(JSON.stringify(e)) });

@@ -4,78 +4,30 @@
  * Contract: GET = health; POST = validate (secret, size, body) → 200 ACK → process via Grammy.
  */
 const config = require('../bot-service/config');
-const { getBot } = require('../bot-service/grammy-bot');
-const { getChatId, getUpdateKind } = require('../bot-service/telegram');
-const { logError, logWarn } = require('../bot-service/logger');
+import { webhookCallback } from "grammy";
+import { getBot } from "../../packages/bot/dist/index.js"; // after build
 
-function parseBodySize(req, body, fallbackBytes) {
-  const header = Number(req.headers['content-length'] || 0);
-  if (Number.isFinite(header) && header > 0) return header;
-  try {
-    return Buffer.byteLength(JSON.stringify(body || {}), 'utf8');
-  } catch (_) {
-    return fallbackBytes;
-  }
+function json(res, status, body) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(body));
 }
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Bot-Api-Secret-Token');
+const logger = (event) => console.log(JSON.stringify(event));
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+export default async function handler(req, res) {
+  if (req.method === "GET") {
+    return json(res, 200, { ok: true, service: "telegram-gateway" });
   }
+  if (req.method !== "POST") return json(res, 405, { ok: false });
 
-  if (req.method === 'GET') {
-    return res.status(200).json({
-      ok: true,
-      service: 'telegram-gateway',
-      mode: 'webhook',
-      framework: 'grammy',
-      aiHealthConfigured: Boolean(config.aiHealthUrl),
-      forwarding: 'disabled',
-      televerseConfigured: false,
-    });
-  }
+  // Minimal envs only
+  const BOT_TOKEN = process.env.BOT_TOKEN;
+  if (!BOT_TOKEN) return json(res, 503, { ok: false, error: "BOT_TOKEN missing" });
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'method_not_allowed' });
-  }
+  const bot = getBot({ BOT_TOKEN }, { logger });
 
-  const expectedSecret = config.webhookSecret;
-  const providedSecret = (req.headers['x-telegram-bot-api-secret-token'] || '').toString();
-  if (expectedSecret && providedSecret !== expectedSecret) {
-    return res.status(401).json({ ok: false, error: 'unauthorized' });
-  }
-
-  const bodySize = parseBodySize(req, req.body, config.bodyLimitBytes);
-  if (bodySize > config.bodyLimitBytes) {
-    return res.status(413).json({ ok: false, error: 'payload_too_large' });
-  }
-
-  const update = req.body;
-  if (!update || typeof update !== 'object') {
-    return res.status(400).json({ ok: false, error: 'invalid_json' });
-  }
-
-  // Antifragile contract: acknowledge immediately after validation.
-  res.status(200).json({ ok: true });
-
-  const ctx = {
-    update_id: update.update_id || null,
-    chat_id: getChatId(update),
-    update_kind: getUpdateKind(update),
-  };
-
-  setImmediate(() => {
-    const bot = getBot();
-    bot.handleUpdate(update).catch((error) => {
-      logError('telegram_webhook_error', error, ctx);
-    });
-  });
-
-  if (!expectedSecret) {
-    logWarn('telegram_webhook_secret_not_set', { update_id: ctx.update_id });
-  }
-};
+  // Let grammY handle update parsing & responses
+  const cb = webhookCallback(bot, "http");
+  return cb(req, res);
+}

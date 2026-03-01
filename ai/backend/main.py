@@ -653,9 +653,11 @@ def _strip_stat_repetition(narrative: str, user_lang: str) -> str:
     return cleaned or text
 
 
-def _descriptive_narrative_fallback(name: str, symbol: str, user_lang: str) -> str:
+def _descriptive_narrative_fallback(name: str, symbol: str, user_lang: str, description: str = "") -> str:
     token_label = name or symbol or "This token"
     token_upper = f"{name} {symbol}".upper()
+    description_clean = re.sub(r"\s+", " ", (description or "").strip())
+    description_hint = _truncate_text(description_clean, max_len=220) if description_clean else ""
     animal_hint = None
     if "DOG" in token_upper:
         animal_hint = "dog"
@@ -663,32 +665,62 @@ def _descriptive_narrative_fallback(name: str, symbol: str, user_lang: str) -> s
         animal_hint = "cat"
     if user_lang == "ru":
         if animal_hint == "dog":
+            desc_line = (
+                f" В описании он подаётся так: {description_hint}."
+                if description_hint
+                else ""
+            )
             return (
                 f"{token_label} строит нарратив вокруг образа собак как интернет-мема: это символ дружелюбного, массового и узнаваемого комьюнити в TON.\n\n"
-                "Вероятнее всего, токен появился как культурный маркер сообщества, где ценится вовлечённость, юмор и общий вайб, а не только формальные метрики."
+                f"Вероятнее всего, токен появился как культурный маркер сообщества, где ценится вовлечённость, юмор и общий вайб, а не только формальные метрики.{desc_line}"
             )
         if animal_hint == "cat":
+            desc_line = (
+                f" В описании акцент сделан на следующем: {description_hint}."
+                if description_hint
+                else ""
+            )
             return (
                 f"{token_label} опирается на узнаваемый образ котов в интернет-культуре и подаётся как мемный символ сообщества TON.\n\n"
-                "Скорее всего, такой токен появился для усиления комьюнити-идентичности: через иронию, визуальный стиль и участие в общем культурном сюжете."
+                f"Скорее всего, такой токен появился для усиления комьюнити-идентичности: через иронию, визуальный стиль и участие в общем культурном сюжете.{desc_line}"
             )
+        desc_line = (
+            f" По описанию проекта: {description_hint}."
+            if description_hint
+            else ""
+        )
         return (
             f"{token_label} подаётся как мемный актив в экосистеме TON: образ строится вокруг узнаваемого интернет-персонажа и культуры шеринга.\n\n"
-            "Обычно такие токены появляются как социальный маркер сообщества: людям важны не столько метрики, сколько идентичность, юмор и участие в общем нарративе."
+            f"Обычно такие токены появляются как социальный маркер сообщества: людям важны не столько метрики, сколько идентичность, юмор и участие в общем нарративе.{desc_line}"
         )
     if animal_hint == "dog":
+        desc_line = (
+            f" Its reference description highlights: {description_hint}."
+            if description_hint
+            else ""
+        )
         return (
             f"{token_label} leans into dog-meme internet culture as a recognizable identity symbol inside TON.\n\n"
-            "It most likely appeared as a community marker where participation, humor, and shared vibe matter more than raw metrics."
+            f"It most likely appeared as a community marker where participation, humor, and shared vibe matter more than raw metrics.{desc_line}"
         )
     if animal_hint == "cat":
+        desc_line = (
+            f" Its reference description emphasizes: {description_hint}."
+            if description_hint
+            else ""
+        )
         return (
             f"{token_label} leans into cat-meme internet culture as a recognizable identity symbol inside TON.\n\n"
-            "It likely emerged as a community-first token built around style, irony, and shared participation rather than purely technical positioning."
+            f"It likely emerged as a community-first token built around style, irony, and shared participation rather than purely technical positioning.{desc_line}"
         )
+    desc_line = (
+        f" Reference description: {description_hint}."
+        if description_hint
+        else ""
+    )
     return (
         f"{token_label} is framed as a meme asset within the TON ecosystem, built around recognizable internet character culture and shareable identity.\n\n"
-        "Tokens like this usually emerge as community symbols: people engage less for hard metrics and more for vibe, belonging, and participation in a common narrative."
+        f"Tokens like this usually emerge as community symbols: people engage less for hard metrics and more for vibe, belonging, and participation in a common narrative.{desc_line}"
     )
 
 
@@ -1278,6 +1310,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     ticker_facts_text = None
     ton_only_narrative = False
     ticker_name_for_narrative = ""
+    ticker_description_for_narrative = ""
     
     # Get last user message
     user_last = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
@@ -1379,6 +1412,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
         ton_only_from_source = "tokens.swap.coffee" in source_name.lower()
         ton_only_narrative = ton_only_from_source
         ticker_name_for_narrative = str(ticker_data.get("name") or ticker_symbol or "")
+        ticker_description_for_narrative = str(ticker_data.get("description") or "")
         ton_scope_rule_en = (
             "- Treat this asset strictly as part of the TON ecosystem.\n"
             "- DO NOT claim or imply that it belongs to any non-TON blockchain."
@@ -1542,6 +1576,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),
                 user_lang,
+                ticker_description_for_narrative,
             )
         narrative_clean = _ensure_ticker_identity_in_narrative(
             narrative_clean,
@@ -1554,18 +1589,21 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),
                 user_lang,
+                ticker_description_for_narrative,
             )
         if _is_utility_boilerplate(narrative_clean, user_lang):
             narrative_clean = _descriptive_narrative_fallback(
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),
                 user_lang,
+                ticker_description_for_narrative,
             )
         if user_lang == "ru" and _has_excessive_latin_in_ru(narrative_clean):
             narrative_clean = _descriptive_narrative_fallback(
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),
                 user_lang,
+                ticker_description_for_narrative,
             )
         if ton_only_narrative:
             non_ton_chain = re.search(
@@ -1578,12 +1616,14 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                     ticker_name_for_narrative,
                     str(ticker_symbol or ""),
                     user_lang,
+                    ticker_description_for_narrative,
                 )
         if not narrative_clean.strip():
             narrative_clean = _descriptive_narrative_fallback(
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),
                 user_lang,
+                ticker_description_for_narrative,
             )
         # Final safety net: never ship plain fallback phrase in ticker narrative.
         if _contains_plain_fallback_phrase(narrative_clean, user_lang):
@@ -1591,6 +1631,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 ticker_name_for_narrative,
                 str(ticker_symbol or ""),
                 user_lang,
+                ticker_description_for_narrative,
             )
         response_text = f"{ticker_facts_text}\n\n{narrative_clean}"
         return _normalize_paragraph_spacing(response_text)

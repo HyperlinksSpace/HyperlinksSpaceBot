@@ -1,4 +1,8 @@
-import { sql } from '../api/db';
+/**
+ * User helpers shared by all API routes (and local bot).
+ * Lives under api/ so Vercel bundles it with serverless functions.
+ */
+import { sql } from './db.js';
 
 export function normalizeUsername(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -14,7 +18,6 @@ export async function upsertUserFromTma(opts: {
   const { telegramUsername, locale } = opts;
   if (!telegramUsername) return;
 
-  console.log('[server/users] upsertUserFromTma start', { telegramUsername });
   await sql`
     INSERT INTO users (telegram_username, locale, created_at, updated_at, last_tma_seen_at)
     VALUES (${telegramUsername}, ${locale}, NOW(), NOW(), NOW())
@@ -23,7 +26,6 @@ export async function upsertUserFromTma(opts: {
           last_tma_seen_at = NOW(),
           updated_at    = NOW();
   `;
-  console.log('[server/users] upsertUserFromTma done', { telegramUsername });
 }
 
 export async function upsertUserFromBot(opts: {

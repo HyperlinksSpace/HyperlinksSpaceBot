@@ -7,7 +7,7 @@
  */
 
 import { Bot, type Context } from 'grammy';
-import { normalizeUsername, upsertUserFromBot } from './_users.js';
+import { normalizeUsername, upsertUserFromBot } from './users.js';
 
 interface TelegramUpdate {
   update_id: number;

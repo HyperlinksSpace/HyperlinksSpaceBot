@@ -1,9 +1,10 @@
 /**
  * Shared Grammy bot.
- * Used by bot/webhook.ts (Vercel) and scripts/run-bot-local.ts (polling).
+ * Used by scripts/run-bot-local.ts (polling) and can share logic with
+ * the serverless webhook via app/api/users.ts.
  */
 import { Bot, type Context } from 'grammy';
-import { normalizeUsername, upsertUserFromBot } from '../server/users';
+import { normalizeUsername, upsertUserFromBot } from '../api/users';
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token);

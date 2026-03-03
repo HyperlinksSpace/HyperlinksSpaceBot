@@ -3,7 +3,7 @@
  * Loaded only for POST so GET stays fast.
  */
 import crypto from 'crypto';
-import { normalizeUsername, upsertUserFromTma } from './_users.js';
+import { normalizeUsername, upsertUserFromTma } from './users.js';
 
 const LOG_TAG = '[api/telegram]';
 

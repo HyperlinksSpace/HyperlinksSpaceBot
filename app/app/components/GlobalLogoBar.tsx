@@ -1,17 +1,11 @@
 /**
- * Global logo bar matching Dart GlobalLogoBar: same layout, safe area formula,
- * fullscreen-based visibility, haptic on tap, navigate to root.
- * Uses @tma.js/sdk-react for viewport, isFullscreen, and hapticFeedback.
+ * Global logo bar: same layout and behaviour as Dart GlobalLogoBar.
+ * All Telegram data from useTelegram() (single source: Telegram.ts / Telegram.tsx).
  */
 import React, { useMemo } from "react";
-import { View, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
-import {
-  viewport,
-  hapticFeedback,
-  useLaunchParams,
-  useSignal,
-} from "@tma.js/sdk-react";
+import { useTelegram } from "./Telegram";
 import { HyperlinksSpaceLogo } from "./HyperlinksSpaceLogo";
 
 const LOGO_HEIGHT = 32;
@@ -19,59 +13,39 @@ const BOTTOM_PADDING = 10;
 const HORIZONTAL_PADDING = 15;
 const BROWSER_FALLBACK_TOP_PADDING = 30;
 
-function useLogoTopPadding(): number {
-  const safeTop = useSignal(viewport.safeAreaInsetTop);
-  const contentTop = useSignal(viewport.contentSafeAreaInsetTop);
-
+function useLogoTopPadding(
+  safeAreaInsetTop: number,
+  contentSafeAreaInsetTop: number
+): number {
   return useMemo(() => {
-    const safe = Number(safeTop ?? 0);
-    const content = Number(contentTop ?? 0);
-    if (safe === 0 && content === 0) return BROWSER_FALLBACK_TOP_PADDING;
-    const value = safe + content / 2 - 16;
+    if (safeAreaInsetTop === 0 && contentSafeAreaInsetTop === 0) {
+      return BROWSER_FALLBACK_TOP_PADDING;
+    }
+    const value = safeAreaInsetTop + contentSafeAreaInsetTop / 2 - 16;
     return Number.isFinite(value) ? value : BROWSER_FALLBACK_TOP_PADDING;
-  }, [safeTop, contentTop]);
-}
-
-function useLogoBlockHeight(): number {
-  const topPadding = useLogoTopPadding();
-  return topPadding + LOGO_HEIGHT + BOTTOM_PADDING;
-}
-
-function useShouldShowLogo(): boolean {
-  const launchParams = useLaunchParams(false);
-  const isFullscreen = useSignal(viewport.isFullscreen);
-
-  return useMemo(() => {
-    const lp = launchParams as
-      | { tgWebAppData?: { user?: unknown }; tg_web_app_data?: { user?: unknown } }
-      | undefined;
-    const hasUser =
-      (lp?.tgWebAppData?.user != null || lp?.tg_web_app_data?.user != null) &&
-      typeof (lp?.tgWebAppData?.user ?? lp?.tg_web_app_data?.user) === "object";
-    if (!hasUser) return true;
-    return isFullscreen ?? true;
-  }, [launchParams, isFullscreen]);
+  }, [safeAreaInsetTop, contentSafeAreaInsetTop]);
 }
 
 export function GlobalLogoBar() {
   const router = useRouter();
-  const topPadding = useLogoTopPadding();
-  const blockHeight = useLogoBlockHeight();
-  const shouldShow = useShouldShowLogo();
+  const {
+    isInTelegram,
+    triggerHaptic,
+    safeAreaInsetTop,
+    contentSafeAreaInsetTop,
+    isFullscreen,
+  } = useTelegram();
+
+  const topPadding = useLogoTopPadding(safeAreaInsetTop, contentSafeAreaInsetTop);
+  const blockHeight = topPadding + LOGO_HEIGHT + BOTTOM_PADDING;
+
+  const shouldShow = useMemo(() => {
+    if (!isInTelegram) return true;
+    return isFullscreen;
+  }, [isInTelegram, isFullscreen]);
 
   const onPress = () => {
-    try {
-      hapticFeedback.impactOccurred?.("light");
-    } catch {
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        try {
-          const w = window as unknown as { Telegram?: { WebApp?: { HapticFeedback?: { impactOccurred?: (s: string) => void } } } };
-          w.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.("light");
-        } catch {
-          // ignore
-        }
-      }
-    }
+    triggerHaptic("light");
     router.replace("/");
   };
 

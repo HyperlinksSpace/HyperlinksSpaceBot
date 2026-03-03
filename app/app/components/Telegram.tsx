@@ -1,0 +1,276 @@
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { init, viewport } from "@tma.js/sdk-react";
+import {
+  ensureTelegramScript,
+  getInitDataString,
+  getStartParam,
+  isAvailable,
+  readyAndExpand,
+  triggerHaptic as triggerHapticImpl,
+} from "./telegramWebApp";
+
+let sdkInitialized = false;
+function ensureSdkInitialized() {
+  if (sdkInitialized) return;
+  if (typeof window === "undefined") return;
+  try {
+    init();
+    sdkInitialized = true;
+  } catch {
+    // ignore (e.g. outside Mini App when running locally)
+  }
+}
+
+if (typeof window !== "undefined") {
+  ensureSdkInitialized();
+}
+
+/** True if we're likely inside Telegram Mini App (avoid tma.js viewport calls when false). */
+function isLikelyInTma(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return !!(window as unknown as { Telegram?: { WebApp?: unknown } }).Telegram?.WebApp;
+  } catch {
+    return false;
+  }
+}
+
+type TelegramStatus = "idle" | "loading" | "ok" | "error" | "dev";
+
+export type TelegramDebugInfo = {
+  hasWebApp: boolean;
+  webAppPollCount: number;
+  initDataLength: number | null;
+  pollCount: number;
+  apiStatus: number | null;
+  apiMessage: string | null;
+  /** URL we POST to (to verify origin/routing). */
+  apiUrl: string | null;
+  /** Ms from fetch start to response or timeout. */
+  fetchDurationMs: number | null;
+  /** Last client log line for investigation. */
+  lastLog: string | null;
+};
+
+export type TelegramContextValue = {
+  status: TelegramStatus;
+  telegramUsername: string | null;
+  error: string | null;
+  isInTelegram: boolean;
+  triggerHaptic: (style: string) => void;
+  safeAreaInsetTop: number;
+  contentSafeAreaInsetTop: number;
+  isFullscreen: boolean;
+  /** Start param from launch (query or hash). Valid per Telegram: A-Za-z0-9_- up to 512 chars. */
+  startParam: string | null;
+  /** On-screen debug (no console needed in TMA). */
+  debug: TelegramDebugInfo;
+};
+
+const defaultDebug: TelegramDebugInfo = {
+  hasWebApp: false,
+  webAppPollCount: 0,
+  initDataLength: null,
+  pollCount: 0,
+  apiStatus: null,
+  apiMessage: null,
+  apiUrl: null,
+  fetchDurationMs: null,
+  lastLog: null,
+};
+
+const WEBAPP_POLL_MS = 100;
+const WEBAPP_POLL_MAX = 50; // 5s wait for Telegram to inject WebApp
+
+const defaultContext: TelegramContextValue = {
+  status: "idle",
+  telegramUsername: null,
+  error: null,
+  isInTelegram: false,
+  triggerHaptic: () => {},
+  safeAreaInsetTop: 0,
+  contentSafeAreaInsetTop: 0,
+  isFullscreen: true,
+  startParam: null,
+  debug: defaultDebug,
+};
+
+const TelegramContext = createContext<TelegramContextValue>(defaultContext);
+
+export function useTelegram() {
+  return useContext(TelegramContext);
+}
+
+export function TelegramProvider({ children }: { children: React.ReactNode }) {
+  const [status, setStatus] = useState<TelegramStatus>("idle");
+  const [telegramUsername, setTelegramUsername] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<TelegramDebugInfo>(defaultDebug);
+  const hasRegisteredRef = useRef(false);
+  const initPollCleanupRef = useRef<(() => void) | null>(null);
+
+  const [safeAreaInsetTop, setSafeAreaInsetTop] = useState(0);
+  const [contentSafeAreaInsetTop, setContentSafeAreaInsetTop] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(true);
+
+  useEffect(() => {
+    if (!isLikelyInTma()) return;
+    try {
+      ensureSdkInitialized();
+      viewport.mount?.();
+      setSafeAreaInsetTop(viewport.safeAreaInsetTop ?? 0);
+      setContentSafeAreaInsetTop(viewport.contentSafeAreaInsetTop ?? 0);
+      setIsFullscreen(viewport.isFullscreen ?? true);
+    } catch {
+      // outside Mini App (e.g. local dev) — leave defaults
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setDebug((d) => ({ ...d, hasWebApp: false, apiMessage: "no window" }));
+      setStatus("dev");
+      return;
+    }
+
+    setStatus("loading");
+    ensureTelegramScript();
+
+    const API_TIMEOUT_MS = 15000;
+    const LOG_PREFIX = "[TMA register]";
+
+    function registerWithBackend(initData: string) {
+      if (hasRegisteredRef.current) return;
+      hasRegisteredRef.current = true;
+
+      const url = typeof window !== "undefined" ? `${window.location.origin}/api/telegram` : "/api/telegram";
+      const fetchStartedAt = Date.now();
+
+      setDebug((d) => ({
+        ...d,
+        initDataLength: initData.length,
+        apiUrl: url,
+        fetchDurationMs: null,
+        lastLog: "fetch start",
+      }));
+      console.log(`${LOG_PREFIX} fetch start url=${url} initDataLength=${initData.length}`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData }),
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          clearTimeout(timeoutId);
+          const durationMs = Date.now() - fetchStartedAt;
+          const json = await res.json().catch(() => ({}));
+          const apiMsg = json?.error ?? (json?.ok ? "ok" : String(res.status));
+
+          setDebug((d) => ({
+            ...d,
+            apiStatus: res.status,
+            apiMessage: apiMsg,
+            fetchDurationMs: durationMs,
+            lastLog: `status ${res.status} ${durationMs}ms`,
+          }));
+          console.log(`${LOG_PREFIX} response status=${res.status} durationMs=${durationMs} body=${apiMsg}`);
+
+          if (!res.ok || !json?.ok) {
+            throw new Error(json?.error || `HTTP ${res.status}`);
+          }
+          setTelegramUsername(json.telegram_username ?? null);
+          setStatus("ok");
+        })
+        .catch((e) => {
+          clearTimeout(timeoutId);
+          const durationMs = Date.now() - fetchStartedAt;
+          const isTimeout = e?.name === "AbortError";
+          const msg = isTimeout ? "timeout" : e?.message ?? "fetch error";
+          const lastLog = isTimeout
+            ? `timeout after ${durationMs}ms`
+            : `error ${durationMs}ms: ${msg}`;
+
+          setDebug((d) => ({
+            ...d,
+            apiStatus: null,
+            apiMessage: msg,
+            fetchDurationMs: durationMs,
+            lastLog,
+          }));
+          console.error(`${LOG_PREFIX} failed ${lastLog}`, e);
+
+          setError(isTimeout ? "Request timed out" : (e?.message ?? "Failed to register Telegram user"));
+          setStatus("error");
+        });
+    }
+
+    function runTmaFlow(): () => void {
+      readyAndExpand();
+      let initDataStr = getInitDataString();
+      if (initDataStr) {
+        registerWithBackend(initDataStr);
+        return () => {};
+      }
+      let pollCount = 0;
+      const initInterval = setInterval(() => {
+        pollCount += 1;
+        setDebug((d) => ({ ...d, pollCount }));
+        initDataStr = getInitDataString();
+        if (initDataStr) {
+          clearInterval(initInterval);
+          registerWithBackend(initDataStr);
+        }
+      }, WEBAPP_POLL_MS);
+      return () => clearInterval(initInterval);
+    }
+
+    let webAppPollCount = 0;
+    const webAppInterval = setInterval(() => {
+      webAppPollCount += 1;
+      setDebug((d) => ({ ...d, webAppPollCount }));
+
+      if (isAvailable()) {
+        clearInterval(webAppInterval);
+        setDebug((d) => ({ ...d, hasWebApp: true }));
+        initPollCleanupRef.current = runTmaFlow();
+        return;
+      }
+
+      if (webAppPollCount >= WEBAPP_POLL_MAX) {
+        clearInterval(webAppInterval);
+        setDebug((d) => ({ ...d, apiMessage: "no WebApp (timeout)" }));
+        setStatus("dev");
+      }
+    }, WEBAPP_POLL_MS);
+
+    return () => {
+      clearInterval(webAppInterval);
+      initPollCleanupRef.current?.();
+    };
+  }, []);
+
+  const isInTelegram = status !== "dev";
+
+  const value: TelegramContextValue = {
+    status,
+    telegramUsername,
+    error,
+    isInTelegram,
+    triggerHaptic: triggerHapticImpl,
+    safeAreaInsetTop,
+    contentSafeAreaInsetTop,
+    isFullscreen,
+    startParam: getStartParam(),
+    debug,
+  };
+
+  return (
+    <TelegramContext.Provider value={value}>
+      {children}
+    </TelegramContext.Provider>
+  );
+}

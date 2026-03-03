@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { neon, neonConfig } from '@neondatabase/serverless';
+import { neon } from '@neondatabase/serverless';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -7,9 +7,6 @@ if (!connectionString) {
   // Fail fast on the server side so misconfiguration is obvious in logs.
   throw new Error('DATABASE_URL is not set. Configure it in ./app/.env for the current Neon branch.');
 }
-
-// Cache connections across invocations in serverless environments.
-neonConfig.fetchConnectionCache = true;
 
 export const sql = neon(connectionString);
 
@@ -95,9 +92,6 @@ export function ensureSchema(): Promise<void> {
   return schemaInitPromise;
 }
 
-// Fire-and-forget initialization so that any API route importing this module
-// will attempt to create the schema on first cold start of the lambda.
-// Routes that need strong guarantees can also `await ensureSchema()` explicitly.
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-ensureSchema();
+// Schema runs at deploy via `npm run db:migrate` in buildCommand. No schema work
+// in the request path — keeps /api/telegram and other routes fast (no 504).
 

@@ -3,6 +3,10 @@
   "license": "0BSD",
   "main": "expo-router/entry",
   "version": "53.0.43",
+  "type": "module",
+  "engines": {
+    "node": ">=18 <=22"
+  },
   "scripts": {
     "prestart": "npm run db:migrate",
     "build": "expo export -p web",
@@ -12,10 +16,12 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "dev:vercel": "cross-env TS_NODE_PROJECT=api/tsconfig.json npx vercel dev",
     "lint": "expo lint",
     "draft": "npx eas-cli@latest workflow:run create-draft.yml",
     "development-builds": "npx eas-cli@latest workflow:run create-development-builds.yml",
     "deploy": "npx eas-cli@latest workflow:run deploy-to-production.yml",
+    "deploy:vercel": "npx vercel --prod",
     "bot:local": "npx tsx scripts/run-bot-local.ts",
     "set-webhook": "npx tsx scripts/set-webhook.ts",
     "db:migrate": "npx tsx scripts/migrate-db.ts"
@@ -57,6 +63,8 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
+    "vercel": "^38.0.0",
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.0",
     "concurrently": "^9.1.0",

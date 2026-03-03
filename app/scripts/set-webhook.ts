@@ -21,8 +21,8 @@ async function setWebhook(): Promise<void> {
   }
 
   if (!baseUrl) {
-    console.error('[set-webhook] BOT_TOKEN is set but no webhook URL. Set SELF_URL (e.g. https://hsbexpo.vercel.app) in Vercel env and assign to Production/Build.');
-    process.exit(1);
+    console.log('[set-webhook] Skip: no webhook URL (SELF_URL/VERCEL_URL). Set SELF_URL in Vercel env for production deploy.');
+    return;
   }
 
   const url = `${baseUrl}${WEBHOOK_PATH}`;

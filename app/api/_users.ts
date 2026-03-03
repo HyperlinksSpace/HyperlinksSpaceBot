@@ -1,0 +1,29 @@
+/**
+ * User helpers for API routes. Lives in api/ so Vercel bundles it with the function.
+ * Bot uses server/users.ts; this is a copy for the serverless bundle.
+ */
+import { sql } from './db.js';
+
+export function normalizeUsername(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let s = raw.trim();
+  if (s.startsWith('@')) s = s.slice(1);
+  return s.toLowerCase();
+}
+
+export async function upsertUserFromTma(opts: {
+  telegramUsername: string;
+  locale: string | null;
+}): Promise<void> {
+  const { telegramUsername, locale } = opts;
+  if (!telegramUsername) return;
+
+  await sql`
+    INSERT INTO users (telegram_username, locale, created_at, updated_at, last_tma_seen_at)
+    VALUES (${telegramUsername}, ${locale}, NOW(), NOW(), NOW())
+    ON CONFLICT (telegram_username) DO UPDATE
+      SET locale        = EXCLUDED.locale,
+          last_tma_seen_at = NOW(),
+          updated_at    = NOW();
+  `;
+}

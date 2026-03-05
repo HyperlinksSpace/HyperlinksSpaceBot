@@ -96,4 +96,3 @@ export function ensureSchema(): Promise<void> {
 
 // Schema runs at deploy via `npm run db:migrate` in buildCommand. No schema work
 // in the request path — keeps /api/telegram and other routes fast (no 504).
-

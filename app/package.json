@@ -10,7 +10,7 @@
   "scripts": {
     "prestart": "npm run db:migrate",
     "build": "expo export -p web",
-    "start": "npx concurrently -n expo,bot \"expo start\" \"npx tsx scripts/run-bot-local.ts\"",
+    "start": "npx concurrently -n expo,bot,vercel \"expo start\" \"npx tsx scripts/run-bot-local.ts\" \"npm run dev:vercel\"",
     "start:expo": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
@@ -34,6 +34,7 @@
     "@react-navigation/bottom-tabs": "^7.3.10",
     "@react-navigation/elements": "^2.3.8",
     "@react-navigation/native": "^7.1.6",
+    "@swap-coffee/sdk": "^1.5.4",
     "@tma.js/sdk-react": "^3.0.16",
     "expo": "~54.0.0",
     "expo-blur": "~15.0.8",
@@ -50,6 +51,7 @@
     "expo-updates": "~29.0.16",
     "expo-web-browser": "~15.0.10",
     "grammy": "^1.34.0",
+    "openai": "^6.25.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -63,15 +65,15 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
-    "cross-env": "^7.0.3",
-    "vercel": "^38.0.0",
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.0",
     "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "tsx": "^4.19.2",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vercel": "^38.0.0"
   }
 }

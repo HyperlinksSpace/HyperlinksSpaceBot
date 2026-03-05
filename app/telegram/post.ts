@@ -1,6 +1,6 @@
 /**
  * POST /api/telegram handler (init data verify + DB upsert).
- * Loaded only for POST so GET stays fast.
+ * Loaded only for POST so GET stays fast. Lives under app/telegram; api/telegram.ts imports this.
  */
 import crypto from 'crypto';
 import {
@@ -326,4 +326,3 @@ export async function handlePost(
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 }
-

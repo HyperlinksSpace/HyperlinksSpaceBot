@@ -1,6 +1,6 @@
 /**
- * User helpers shared by all API routes (and local bot).
- * Lives under api/shared so Vercel bundles it with serverless functions.
+ * User helpers shared by API routes and local bot.
+ * Lives under app/shared so route handlers import from ../shared (not under api/).
  */
 import { sql } from '../db.js';
 
@@ -44,4 +44,3 @@ export async function upsertUserFromBot(opts: {
           updated_at    = NOW();
   `;
 }
-

@@ -1,9 +1,6 @@
 /**
  * Telegram webhook handler for /api/bot (serverless).
- *
- * This file lives under api/bot so Vercel bundles it together with the
- * /api/bot function. It contains the webhook logic and delegates bot
- * behavior to createBot from ./grammy.
+ * Lives under app/bot; api/bot.ts imports this so Vercel only sees one route.
  */
 
 import { createBot } from './grammy.js';
@@ -206,4 +203,3 @@ export default async function handler(
   }
   return legacyHandler(request as NodeReq, context!);
 }
-

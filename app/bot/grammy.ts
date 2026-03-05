@@ -1,12 +1,13 @@
 /**
  * Shared Grammy bot.
- * Used by api/bot/webhook.ts (Vercel webhook) and scripts/run-bot-local.ts (polling).
+ * Used by app/bot/webhook (Vercel) and scripts/run-bot-local.ts (polling).
  */
 import { Bot, type Context } from 'grammy';
 import {
   normalizeUsername,
   upsertUserFromBot,
 } from '../shared/users.js';
+import { handleBotAiResponse } from './responder.js';
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
@@ -35,12 +36,12 @@ export function createBot(token: string): Bot {
 
   bot.on('message:text', async (ctx: Context) => {
     await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
+    await handleBotAiResponse(ctx);
   });
 
   bot.on('message', async (ctx: Context) => {
     await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
+    await handleBotAiResponse(ctx);
   });
 
   bot.catch((err) => {
@@ -49,4 +50,3 @@ export function createBot(token: string): Bot {
 
   return bot;
 }
-

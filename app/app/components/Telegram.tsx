@@ -8,6 +8,7 @@ import {
   readyAndExpand,
   triggerHaptic as triggerHapticImpl,
 } from "./telegramWebApp";
+import { buildApiUrl } from "../../shared/apiBase";
 
 let sdkInitialized = false;
 function ensureSdkInitialized() {
@@ -143,7 +144,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       if (hasRegisteredRef.current) return;
       hasRegisteredRef.current = true;
 
-      const url = typeof window !== "undefined" ? `${window.location.origin}/api/telegram` : "/api/telegram";
+      const url = buildApiUrl("/api/telegram");
       const fetchStartedAt = Date.now();
 
       setDebug((d) => ({

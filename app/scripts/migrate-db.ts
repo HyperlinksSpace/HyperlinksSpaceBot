@@ -1,4 +1,4 @@
-import { ensureSchema } from '../api/db';
+import { ensureSchema } from '../db';
 
 async function main() {
   try {

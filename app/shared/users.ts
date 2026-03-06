@@ -2,7 +2,7 @@
  * User helpers shared by API routes and local bot.
  * Lives under app/shared so route handlers import from ../shared (not under api/).
  */
-import { sql } from '../db.js';
+import { sql } from '../database/start.js';
 
 export function normalizeUsername(raw: unknown): string {
   if (typeof raw !== 'string') return '';

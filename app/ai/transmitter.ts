@@ -1,5 +1,5 @@
 import type { AiMode, AiRequestBase, AiResponseBase } from "./openai.js";
-import { callOpenAiChat } from "./openai.js";
+import { callOpenAiChat, callOpenAiChatStream } from "./openai.js";
 import {
   getTokenBySymbol,
   normalizeSymbol,
@@ -157,4 +157,102 @@ export async function transmit(request: AiRequest): Promise<AiResponse> {
     userId: request.userId,
     context: request.context,
   });
+}
+
+/** Stream AI response; onDelta(accumulatedText) is called for each chunk. Only the final OpenAI call is streamed. */
+export async function transmitStream(
+  request: AiRequest,
+  onDelta: (text: string) => void | Promise<void>,
+  opts?: { isCancelled?: () => boolean },
+): Promise<AiResponse> {
+  const mode: AiMode = request.mode ?? "chat";
+
+  if (mode === "token_info") {
+    const tokenResult = await (async () => {
+      const trimmed = request.input?.trim() ?? "";
+      const symbolCandidate = extractSymbolCandidate(trimmed);
+      if (!symbolCandidate) {
+        return null;
+      }
+      return getTokenBySymbol(symbolCandidate);
+    })();
+
+    if (!tokenResult) {
+      return {
+        ok: false,
+        provider: "openai",
+        mode: "token_info",
+        error: "Could not detect a token symbol. Try sending something like USDT.",
+      };
+    }
+    if (!tokenResult.ok) {
+      const symbolCandidate = extractSymbolCandidate(request.input?.trim() ?? "");
+      return {
+        ok: false,
+        provider: "openai",
+        mode: "token_info",
+        error:
+          tokenResult.error === "not_found"
+            ? `Token ${symbolCandidate ?? ""} was not found on TON.`
+            : "Token service is temporarily unavailable.",
+        meta: {
+          symbol: tokenResult.symbol,
+          reason: tokenResult.reason,
+          status_code: tokenResult.status_code,
+        },
+      };
+    }
+
+    const token = tokenResult.data;
+    const symbolCandidate = extractSymbolCandidate(request.input?.trim() ?? "")!;
+    const facts = buildTokenFactsBlock(symbolCandidate, token);
+    const trimmed = request.input?.trim() ?? "";
+    const promptParts = [
+      "You are a concise TON token analyst.",
+      "",
+      "Facts about the token:",
+      facts,
+      "",
+      "User question or context:",
+      trimmed,
+    ];
+    const composedInput = promptParts.join("\n");
+
+    const result = await callOpenAiChatStream(
+      "token_info",
+      {
+        input: composedInput,
+        userId: request.userId,
+        context: {
+          ...request.context,
+          symbol: symbolCandidate,
+          token,
+          source: "swap.coffee",
+        },
+      },
+      onDelta,
+      opts,
+    );
+
+    return {
+      ...result,
+      mode: "token_info",
+      meta: {
+        ...(result.meta ?? {}),
+        symbol: symbolCandidate,
+        token,
+      },
+    };
+  }
+
+  return callOpenAiChatStream(
+    mode,
+    {
+      input: request.input,
+      userId: request.userId,
+      context: request.context,
+    },
+    onDelta,
+    opts,
+  );
 }

@@ -1,12 +1,12 @@
-import 'dotenv/config';
-import { neon } from '@neondatabase/serverless';
+import "dotenv/config";
+import { neon } from "@neondatabase/serverless";
 
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
   // Fail fast on the server side so misconfiguration is obvious in logs.
   throw new Error(
-    'DATABASE_URL is not set. Configure it in ./app/.env for the current Neon branch.',
+    "DATABASE_URL is not set. Configure it in ./app/.env for the current Neon branch.",
   );
 }
 
@@ -86,7 +86,7 @@ let schemaInitPromise: Promise<void> | null = null;
 export function ensureSchema(): Promise<void> {
   if (!schemaInitPromise) {
     schemaInitPromise = runSchemaMigrations().catch((err) => {
-      console.error('[db] schema init failed', err);
+      console.error("[db] schema init failed", err);
       schemaInitPromise = null;
       throw err;
     });
@@ -96,3 +96,4 @@ export function ensureSchema(): Promise<void> {
 
 // Schema runs at deploy via `npm run db:migrate` in buildCommand. No schema work
 // in the request path — keeps /api/telegram and other routes fast (no 504).
+

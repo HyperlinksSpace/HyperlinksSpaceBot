@@ -1,6 +1,16 @@
 import type { Context } from "grammy";
 import { normalizeSymbol } from "../blockchain/coffee.js";
-import { transmit } from "../ai/transmitter.js";
+import { transmit, transmitStream } from "../ai/transmitter.js";
+
+const DRAFT_ID = 1;
+const MAX_DRAFT_TEXT_LENGTH = 4096;
+/** Throttle draft updates to avoid Telegram 429 rate limits. */
+const DRAFT_THROTTLE_MS = 450;
+/** If content grew by more than this many chars, send immediately so long tail doesn't stick. */
+const DRAFT_MIN_CHARS_TO_SEND_NOW = 200;
+
+/** Track latest generation per chat so newer messages cancel older streams. */
+const chatGenerations = new Map<number, number>();
 
 type BotSourceContext = {
   source: "bot";
@@ -43,42 +53,192 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
   const context = buildBotContext(ctx);
 
   const text = extractPlainText(ctx);
+  /** When the user writes in a topic/thread, we must send drafts and replies to the same thread. */
+  const messageThreadId =
+    typeof (ctx.message as { message_thread_id?: number } | undefined)?.message_thread_id === "number"
+      ? (ctx.message as { message_thread_id: number }).message_thread_id
+      : undefined;
+  const replyOptions = messageThreadId !== undefined ? { message_thread_id: messageThreadId } : undefined;
+
   if (!text) {
-    await ctx.reply("Send me a message or token ticker (e.g. USDT).");
+    const msg = ctx.message;
+    const hasTextOrCaption =
+      (msg && "text" in msg) || (msg && "caption" in (msg as any));
+    if (hasTextOrCaption) {
+      await ctx.reply("Send me a message or token ticker (e.g. USDT).", replyOptions);
+    }
     return;
   }
 
   const mode = looksLikeTicker(text) ? "token_info" : "chat";
-  let result = await transmit({
-    input: text,
-    userId,
-    context,
-    mode,
-  });
+  const chatId = ctx.chat?.id;
+  const isPrivate = ctx.chat?.type === "private";
+  const canStream = isPrivate && typeof chatId === "number";
 
-  // COFFEE is optional: if token service is unavailable, answer as normal chat
-  if (
-    mode === "token_info" &&
-    (!result.ok || !result.output_text) &&
-    result.error?.includes("temporarily unavailable")
-  ) {
-    result = await transmit({
-      input: text,
-      userId,
-      context,
-      mode: "chat",
-    });
+  // Cancellation: if a new message arrives from the same chat while this handler is running,
+  // only the newest generation is allowed to send drafts or replies.
+  const numericChatId =
+    typeof chatId === "number" ? chatId : undefined;
+  let generation = 0;
+  if (numericChatId !== undefined) {
+    const prev = chatGenerations.get(numericChatId) ?? 0;
+    generation = prev + 1;
+    chatGenerations.set(numericChatId, generation);
+  }
+  const isCancelled = (): boolean =>
+    numericChatId !== undefined &&
+    chatGenerations.get(numericChatId) !== generation;
+
+  let result: Awaited<ReturnType<typeof transmit>>;
+
+  if (canStream && chatId !== undefined) {
+    let lastDraft = "";
+    let lastSendTime = 0;
+    let pending: string | null = null;
+    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+    let draftsDisabled = false;
+
+    const sendDraftOnce = async (slice: string): Promise<void> => {
+      if (isCancelled() || draftsDisabled) return;
+      try {
+        await ctx.api.sendMessageDraft(chatId, DRAFT_ID, slice, replyOptions);
+      } catch (e: unknown) {
+        const err = e as { error_code?: number; parameters?: { retry_after?: number } };
+        const is429 = err?.error_code === 429;
+        if (is429) {
+          const waitMs = (err.parameters?.retry_after ?? 1) * 1000;
+          await new Promise((r) => setTimeout(r, Math.min(waitMs, 2000)));
+          try {
+            await ctx.api.sendMessageDraft(chatId, DRAFT_ID, slice, replyOptions);
+          } catch (e2) {
+            console.error("[bot][draft]", e2);
+            draftsDisabled = true;
+          }
+        } else {
+          console.error("[bot][draft]", e);
+        }
+      }
+    };
+
+    const flushDraft = async (): Promise<void> => {
+      if (isCancelled()) return;
+      if (pending === null) return;
+      const slice = pending;
+      pending = null;
+      throttleTimer = null;
+      lastDraft = slice;
+      lastSendTime = Date.now();
+      await sendDraftOnce(slice);
+    };
+
+    const sendDraft = async (accumulated: string): Promise<void> => {
+      if (isCancelled()) return;
+      const slice = accumulated.length > MAX_DRAFT_TEXT_LENGTH
+        ? accumulated.slice(0, MAX_DRAFT_TEXT_LENGTH)
+        : accumulated;
+      if (slice === lastDraft) return;
+      if (!slice.trim()) return;
+      const now = Date.now();
+      const throttleElapsed = now - lastSendTime;
+      const bigChunk = slice.length - lastDraft.length >= DRAFT_MIN_CHARS_TO_SEND_NOW;
+      const shouldSendNow =
+        throttleElapsed >= DRAFT_THROTTLE_MS || (bigChunk && slice.length > lastDraft.length);
+      if (shouldSendNow) {
+        lastDraft = slice;
+        lastSendTime = now;
+        pending = null;
+        if (throttleTimer) {
+          clearTimeout(throttleTimer);
+          throttleTimer = null;
+        }
+        await sendDraftOnce(slice);
+      } else {
+        pending = slice;
+        if (!throttleTimer) {
+          throttleTimer = setTimeout(
+            () => void flushDraft(),
+            DRAFT_THROTTLE_MS - throttleElapsed,
+          );
+        }
+      }
+    };
+
+    result = await transmitStream(
+      { input: text, userId, context, mode },
+      sendDraft,
+      { isCancelled },
+    );
+    if (isCancelled()) {
+      return;
+    }
+    if (throttleTimer) {
+      clearTimeout(throttleTimer);
+      throttleTimer = null;
+    }
+    await flushDraft();
+
+    if (
+      mode === "token_info" &&
+      (!result.ok || !result.output_text) &&
+      result.error?.includes("temporarily unavailable")
+    ) {
+      if (isCancelled()) {
+        return;
+      }
+      lastDraft = "";
+      result = await transmitStream(
+        { input: text, userId, context, mode: "chat" },
+        sendDraft,
+        { isCancelled },
+      );
+      if (isCancelled()) {
+        return;
+      }
+      if (throttleTimer) {
+        clearTimeout(throttleTimer);
+        throttleTimer = null;
+      }
+      await flushDraft();
+    }
+  } else {
+    result = await transmit({ input: text, userId, context, mode });
+    if (isCancelled()) {
+      return;
+    }
+
+    if (
+      mode === "token_info" &&
+      (!result.ok || !result.output_text) &&
+      result.error?.includes("temporarily unavailable")
+    ) {
+      if (isCancelled()) {
+        return;
+      }
+      result = await transmit({
+        input: text,
+        userId,
+        context,
+        mode: "chat",
+      });
+    }
   }
 
   if (!result.ok || !result.output_text) {
-    console.error("[bot][ai]", result.error);
-    const isTokenMode = mode === "token_info" && result.error;
-    const message = isTokenMode
-      ? result.error
-      : "AI is temporarily unavailable. Please try again in a moment.";
-    await ctx.reply(message);
+    if (isCancelled()) {
+      return;
+    }
+    const errMsg = result.error ?? "AI returned no output.";
+    console.error("[bot][ai]", errMsg);
+    const message: string =
+      mode === "token_info" && result.error
+        ? result.error
+        : "AI is temporarily unavailable. Please try again in a moment.";
+    await ctx.reply(message, replyOptions);
     return;
   }
 
-  await ctx.reply(result.output_text);
+  if (isCancelled()) {
+    return;
+  }
+  await ctx.reply(result.output_text, replyOptions);
 }

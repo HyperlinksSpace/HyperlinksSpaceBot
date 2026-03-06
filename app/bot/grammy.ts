@@ -39,7 +39,7 @@ export function createBot(token: string): Bot {
     await handleBotAiResponse(ctx);
   });
 
-  bot.on('message', async (ctx: Context) => {
+  bot.on('message:caption', async (ctx: Context) => {
     await handleUserUpsert(ctx);
     await handleBotAiResponse(ctx);
   });

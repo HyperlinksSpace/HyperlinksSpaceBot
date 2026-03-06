@@ -1,4 +1,4 @@
-import { ensureSchema } from '../db';
+import { ensureSchema } from '../database/start.js';
 
 async function main() {
   try {

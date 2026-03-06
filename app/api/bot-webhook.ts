@@ -2,13 +2,11 @@
  * Telegram webhook handler for /api/bot (serverless).
  *
  * This file lives under api/ so Vercel bundles it together with the
- * /api/bot function. It contains both the webhook logic and the minimal
- * Grammy bot needed to reply "Hello" and upsert users.
+ * /api/bot function. Telegram update handling is delegated to the shared
+ * bot implementation in app/bot/grammy-bot.ts.
  */
 
-import { Bot, type Context } from 'grammy';
-import { normalizeUsername, upsertUserFromBot } from './_users.js';
-import { handleChat } from '../bot/handler.js';
+import { createBot } from '../bot/grammy-bot.js';
 
 interface TelegramUpdate {
   update_id: number;
@@ -51,59 +49,6 @@ async function getWebhookInfo(): Promise<{ url?: string }> {
   } catch {
     return {};
   }
-}
-
-function createBot(token: string): Bot {
-  const bot = new Bot(token);
-
-  async function handleUserUpsert(ctx: Context): Promise<void> {
-    try {
-      const from = ctx.from;
-      if (!from) return;
-
-      const telegramUsername = normalizeUsername(from.username);
-      if (!telegramUsername) return;
-
-      const locale =
-        typeof from.language_code === 'string' ? from.language_code : null;
-
-      await upsertUserFromBot({ telegramUsername, locale });
-    } catch (err) {
-      console.error('[bot] upsert user failed', err);
-    }
-  }
-
-  bot.command('start', async (ctx: Context) => {
-    await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
-  });
-
-  bot.on('message:text', async (ctx: Context) => {
-    await handleUserUpsert(ctx);
-  
-    const text = ctx.message?.text;
-    if (!text) {
-      await ctx.reply('I could not read that message.');
-      return;
-    }
-  
-    const result = await handleChat({
-      messages: [{ role: "user", content: text }],
-    });
-  
-    await ctx.reply(result.text);
-  });
-
-  bot.on('message', async (ctx: Context) => {
-    await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
-  });
-
-  bot.catch((err) => {
-    console.error('[bot]', err);
-  });
-
-  return bot;
 }
 
 export async function handleRequest(request: Request): Promise<Response> {

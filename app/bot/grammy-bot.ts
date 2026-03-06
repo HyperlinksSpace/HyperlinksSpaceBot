@@ -28,25 +28,27 @@ export function createBot(token: string): Bot {
 
   bot.command('start', async (ctx: Context) => {
     await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
+    await ctx.reply('Hi. I am ready. Send any text and I will answer.');
   });
 
   bot.on('message:text', async (ctx: Context) => {
     await handleUserUpsert(ctx);
 
     const text = ctx.message?.text;
-    if (!text) return;
+    if (!text) {
+      await ctx.reply('I could not read that message.');
+      return;
+    }
 
-    const result = await handleChat({
-      messages: [{ role: "user", content: text }]
-    });
-
-    await ctx.reply(result.text);
-  });
-
-  bot.on('message', async (ctx: Context) => {
-    await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
+    try {
+      const result = await handleChat({
+        messages: [{ role: 'user', content: text }],
+      });
+      await ctx.reply(result.text);
+    } catch (err) {
+      console.error('[bot] handleChat failed', err);
+      await ctx.reply('AI is temporarily unavailable. Please try again in a moment.');
+    }
   });
 
   bot.catch((err) => {

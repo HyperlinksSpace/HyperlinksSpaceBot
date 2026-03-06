@@ -67,6 +67,15 @@ function extractTickerFromText(text: string): string | undefined {
   return undefined;
 }
 
+function extractTickerFromMessages(messages: ChatMessage[]): string | undefined {
+  for (const message of [...messages].reverse()) {
+    if (typeof message.content !== 'string') continue;
+    const symbol = extractTickerFromText(message.content);
+    if (symbol) return symbol;
+  }
+  return undefined;
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
@@ -242,9 +251,12 @@ export async function handleChat(input: HandleChatInput): Promise<HandleChatOutp
     return { text: 'I could not read that message.' };
   }
 
+  let openAiError: string | undefined;
+
   const ticker =
     normalizeSymbol(input.tokenHint || '') ||
-    extractTickerFromText(userText);
+    extractTickerFromText(userText) ||
+    extractTickerFromMessages(input.messages);
 
   let coffee: CoffeeTokenContext | null = null;
   if (ticker) {
@@ -262,6 +274,7 @@ export async function handleChat(input: HandleChatInput): Promise<HandleChatOutp
       return { text: aiText };
     }
   } catch (err) {
+    openAiError = err instanceof Error ? err.message : 'unknown_openai_error';
     console.error('[bot/handler] openai failed', err);
   }
 
@@ -272,6 +285,18 @@ export async function handleChat(input: HandleChatInput): Promise<HandleChatOutp
         coffee?.name,
         coffee?.description,
       ),
+    };
+  }
+
+  if (openAiError?.includes('openai_http_429')) {
+    return {
+      text: 'AI quota is exhausted right now. Please add credits/billing for the AI key. Meanwhile, include a token symbol (example: DOGS) and I can send a fallback brief.',
+    };
+  }
+
+  if (!openAiApiKey()) {
+    return {
+      text: 'AI key is not configured in runtime. Set OPENAI_API_KEY in Vercel environment variables.',
     };
   }
 

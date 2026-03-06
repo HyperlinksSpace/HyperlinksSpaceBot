@@ -1,4 +1,4 @@
-import { sql } from '../api/db';
+import { sql } from '../api/db.js';
 
 export function normalizeUsername(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -42,4 +42,3 @@ export async function upsertUserFromBot(opts: {
           updated_at    = NOW();
   `;
 }
-

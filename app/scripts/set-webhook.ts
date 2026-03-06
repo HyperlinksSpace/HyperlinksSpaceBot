@@ -46,12 +46,11 @@ async function setWebhook(): Promise<void> {
   }
 
   console.error('[set-webhook] Telegram setWebhook failed:', data.description ?? data);
-  process.exit(1);
+  console.error('[set-webhook] Non-fatal: continuing build without failing deployment.');
 }
 
 setWebhook()
-  .then(() => process.exit(0))
   .catch((err: Error) => {
     console.error('[set-webhook] Error:', err.message);
-    process.exit(1);
+    console.error('[set-webhook] Non-fatal: continuing build without failing deployment.');
   });

@@ -1,6 +1,8 @@
 import type { Context } from "grammy";
 import { normalizeSymbol } from "../blockchain/coffee.js";
 import { transmit, transmitStream } from "../ai/transmitter.js";
+import { normalizeUsername } from "../database/users.js";
+import { getMaxTelegramUpdateIdForThread } from "../database/messages.js";
 
 const DRAFT_ID = 1;
 const MAX_DRAFT_TEXT_LENGTH = 4096;
@@ -70,13 +72,21 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
     return;
   }
 
+  const user_telegram = normalizeUsername(from?.username);
+  const thread_id = messageThreadId ?? 0;
+  const update_id = typeof (ctx.update as { update_id?: number }).update_id === "number"
+    ? (ctx.update as { update_id: number }).update_id
+    : undefined;
+  const threadContext =
+    user_telegram && update_id !== undefined
+      ? { user_telegram, thread_id, type: "bot" as const, telegram_update_id: update_id }
+      : undefined;
+
   const mode = looksLikeTicker(text) ? "token_info" : "chat";
   const chatId = ctx.chat?.id;
   const isPrivate = ctx.chat?.type === "private";
   const canStream = isPrivate && typeof chatId === "number";
 
-  // Cancellation: if a new message arrives from the same chat while this handler is running,
-  // only the newest generation is allowed to send drafts or replies.
   const numericChatId =
     typeof chatId === "number" ? chatId : undefined;
   let generation = 0;
@@ -89,6 +99,16 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
     numericChatId !== undefined &&
     chatGenerations.get(numericChatId) !== generation;
 
+  const shouldAbortSend = async (): Promise<boolean> => {
+    if (!threadContext) return false;
+    const max = await getMaxTelegramUpdateIdForThread(
+      threadContext.user_telegram,
+      threadContext.thread_id,
+      "bot",
+    );
+    return max !== null && max !== threadContext.telegram_update_id;
+  };
+
   let result: Awaited<ReturnType<typeof transmit>>;
 
   if (canStream && chatId !== undefined) {
@@ -99,6 +119,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
     let draftsDisabled = false;
 
     const sendDraftOnce = async (slice: string): Promise<void> => {
+      if (await shouldAbortSend()) return;
       if (isCancelled() || draftsDisabled) return;
       try {
         await ctx.api.sendMessageDraft(chatId, DRAFT_ID, slice, replyOptions);
@@ -164,10 +185,11 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
     };
 
     result = await transmitStream(
-      { input: text, userId, context, mode },
+      { input: text, userId, context, mode, threadContext },
       sendDraft,
       { isCancelled },
     );
+    if (result.skipped) return;
     if (isCancelled()) {
       return;
     }
@@ -187,10 +209,17 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
       }
       lastDraft = "";
       result = await transmitStream(
-        { input: text, userId, context, mode: "chat" },
+        {
+          input: text,
+          userId,
+          context,
+          mode: "chat",
+          threadContext: threadContext ? { ...threadContext, skipClaim: true } : undefined,
+        },
         sendDraft,
         { isCancelled },
       );
+      if (result.skipped) return;
       if (isCancelled()) {
         return;
       }
@@ -201,7 +230,8 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
       await flushDraft();
     }
   } else {
-    result = await transmit({ input: text, userId, context, mode });
+    result = await transmit({ input: text, userId, context, mode, threadContext });
+    if (result.skipped) return;
     if (isCancelled()) {
       return;
     }
@@ -219,11 +249,14 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
         userId,
         context,
         mode: "chat",
+        threadContext: threadContext ? { ...threadContext, skipClaim: true } : undefined,
       });
+      if (result.skipped) return;
     }
   }
 
   if (!result.ok || !result.output_text) {
+    if (await shouldAbortSend()) return;
     if (isCancelled()) {
       return;
     }
@@ -237,6 +270,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
     return;
   }
 
+  if (await shouldAbortSend()) return;
   if (isCancelled()) {
     return;
   }

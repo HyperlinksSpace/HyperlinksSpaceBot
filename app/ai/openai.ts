@@ -2,10 +2,21 @@ import OpenAI from "openai";
 
 export type AiMode = "chat" | "token_info";
 
+export type ThreadContext = {
+  user_telegram: string;
+  thread_id: number;
+  type: "bot" | "app";
+  telegram_update_id?: number | null;
+  /** When true, skip claim insert (e.g. same handler retrying token_info -> chat); still use history and persist assistant. */
+  skipClaim?: boolean;
+};
+
 export type AiRequestBase = {
   input: string;
   userId?: string;
   context?: Record<string, unknown>;
+  /** When set, AI layer persists user/assistant and uses thread history for chat. */
+  threadContext?: ThreadContext;
 };
 
 export type AiResponseBase = {
@@ -14,6 +25,8 @@ export type AiResponseBase = {
   output_text?: string;
   error?: string;
   mode: AiMode;
+  /** True when claim insert failed (another instance or duplicate); caller should not send. */
+  skipped?: boolean;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;

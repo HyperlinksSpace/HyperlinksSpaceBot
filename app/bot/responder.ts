@@ -3,11 +3,12 @@ import { normalizeSymbol } from "../blockchain/coffee.js";
 import { transmit, transmitStream } from "../ai/transmitter.js";
 import { normalizeUsername } from "../database/users.js";
 import { getMaxTelegramUpdateIdForThread } from "../database/messages.js";
+import { mdToTelegramHtml } from "./format.js";
 
 const DRAFT_ID = 1;
 const MAX_DRAFT_TEXT_LENGTH = 4096;
 /** Throttle draft updates to avoid Telegram 429 rate limits. */
-const DRAFT_THROTTLE_MS = 450;
+const DRAFT_THROTTLE_MS = 500;
 /** If content grew by more than this many chars, send immediately so long tail doesn't stick. */
 const DRAFT_MIN_CHARS_TO_SEND_NOW = 200;
 
@@ -61,6 +62,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
       ? (ctx.message as { message_thread_id: number }).message_thread_id
       : undefined;
   const replyOptions = messageThreadId !== undefined ? { message_thread_id: messageThreadId } : undefined;
+  const replyOptionsWithHtml = { ...replyOptions, parse_mode: "HTML" as const };
 
   if (!text) {
     const msg = ctx.message;
@@ -121,8 +123,11 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
     const sendDraftOnce = async (slice: string): Promise<void> => {
       if (await shouldAbortSend()) return;
       if (isCancelled() || draftsDisabled) return;
+      const formattedSlice = mdToTelegramHtml(slice);
+      const sendDraft = (text: string, opts: Record<string, unknown>) =>
+        ctx.api.sendMessageDraft(chatId, DRAFT_ID, text, opts as Parameters<typeof ctx.api.sendMessageDraft>[3]);
       try {
-        await ctx.api.sendMessageDraft(chatId, DRAFT_ID, slice, replyOptions);
+        await sendDraft(formattedSlice, replyOptionsWithHtml);
       } catch (e: unknown) {
         const err = e as { error_code?: number; parameters?: { retry_after?: number } };
         const is429 = err?.error_code === 429;
@@ -130,13 +135,17 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
           const waitMs = (err.parameters?.retry_after ?? 1) * 1000;
           await new Promise((r) => setTimeout(r, Math.min(waitMs, 2000)));
           try {
-            await ctx.api.sendMessageDraft(chatId, DRAFT_ID, slice, replyOptions);
+            await sendDraft(formattedSlice, replyOptionsWithHtml);
           } catch (e2) {
             console.error("[bot][draft]", e2);
             draftsDisabled = true;
           }
         } else {
-          console.error("[bot][draft]", e);
+          try {
+            await sendDraft(slice, replyOptions ?? {});
+          } catch (_) {
+            console.error("[bot][draft]", e);
+          }
         }
       }
     };
@@ -274,5 +283,11 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
   if (isCancelled()) {
     return;
   }
-  await ctx.reply(result.output_text, replyOptions);
+  const formatted = mdToTelegramHtml(result.output_text);
+  try {
+    await ctx.reply(formatted, replyOptionsWithHtml);
+  } catch (e) {
+    // If Telegram rejects (e.g. invalid HTML), send as plain text
+    await ctx.reply(result.output_text, replyOptions);
+  }
 }

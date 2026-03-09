@@ -444,8 +444,15 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
           try {
             await ctx.api.editMessageText(chatId, streamSentMessageId!, finalFormatted, { parse_mode: "HTML" });
           } catch (e: unknown) {
-            if ((e as { description?: string })?.description?.includes("not modified")) return;
-            console.error("[bot][edit] final completion edit", (e as Error)?.message ?? e);
+            const err = e as { description?: string; message?: string };
+            if (err?.description?.includes("not modified")) return;
+            console.error("[bot][edit] final completion edit", err?.description ?? err?.message ?? e);
+            try {
+              await ctx.api.editMessageText(chatId, streamSentMessageId!, fullSlice, {});
+            } catch (e2: unknown) {
+              const d2 = (e2 as { description?: string })?.description;
+              console.error("[bot][edit] final completion plain fallback", d2 ?? (e2 as Error)?.message ?? e2);
+            }
           }
         });
         await sendOrEditQueue;

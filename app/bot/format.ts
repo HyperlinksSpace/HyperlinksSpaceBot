@@ -71,30 +71,62 @@ export function stripUnpairedMarkdownDelimiters(html: string): string {
   return out;
 }
 
+const TELEGRAM_HTML_TAG_RE = /<(?:(\/(?:code|pre|a|b|i))>|((?:code|pre|a|b|i)(?:\s[^>]*)?)>)/gi;
+
+/**
+ * Make HTML valid for Telegram: remove unexpected (orphan) closing tags, then
+ * append closing tags for any unclosed opens. Fixes "Unexpected end tag" errors
+ * from overlapping markdown (e.g. *a **b* c**).
+ */
+export function sanitizeTelegramHtml(html: string): string {
+  if (typeof html !== "string" || html.length === 0) return html;
+  const tags: { start: number; end: number; type: "open" | "close"; name: string }[] = [];
+  let m: RegExpExecArray | null;
+  TELEGRAM_HTML_TAG_RE.lastIndex = 0;
+  while ((m = TELEGRAM_HTML_TAG_RE.exec(html)) !== null) {
+    if (m[1] !== undefined) {
+      const name = m[1].replace(/^\//, "").toLowerCase();
+      tags.push({ start: m.index, end: m.index + m[0].length, type: "close", name });
+    } else if (m[2] !== undefined) {
+      const name = m[2].replace(/\s.*$/, "").toLowerCase();
+      tags.push({ start: m.index, end: m.index + m[0].length, type: "open", name });
+    }
+  }
+  const stack: string[] = [];
+  const orphanCloseIndices = new Set<number>();
+  for (let i = 0; i < tags.length; i++) {
+    const t = tags[i];
+    if (t.type === "open") {
+      stack.push(t.name);
+    } else {
+      if (stack.length > 0 && stack[stack.length - 1] === t.name) {
+        stack.pop();
+      } else {
+        orphanCloseIndices.add(i);
+      }
+    }
+  }
+  let out = "";
+  let pos = 0;
+  for (let i = 0; i < tags.length; i++) {
+    const t = tags[i];
+    out += html.slice(pos, t.start);
+    if (!orphanCloseIndices.has(i)) out += html.slice(t.start, t.end);
+    pos = t.end;
+  }
+  out += html.slice(pos);
+  if (stack.length > 0) {
+    out += stack.reverse().map((tag) => `</${tag}>`).join("");
+  }
+  return out;
+}
+
 /**
  * Append closing tags for any unclosed Telegram HTML tags. Use after mdToTelegramHtml
  * on partial content so we never send invalid HTML (avoids reject + flicker).
  */
 export function closeOpenTelegramHtml(html: string): string {
-  if (typeof html !== "string" || html.length === 0) return html;
-  const stack: string[] = [];
-  // Match opening <tag> or <tag ...> and closing </tag> in order (longer names first)
-  const re = new RegExp(
-    "<(?:/(code|pre|a|b|i))>|((code|pre|a|b|i)(?:\\s[^>]*)?)>",
-    "gi",
-  );
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    if (m[1] !== undefined) {
-      const tag = m[1].toLowerCase();
-      if (stack.length > 0 && stack[stack.length - 1] === tag) stack.pop();
-    } else if (m[3] !== undefined) {
-      stack.push(m[3].toLowerCase());
-    }
-  }
-  if (stack.length === 0) return html;
-  const closers = stack.reverse().map((tag) => `</${tag}>`).join("");
-  return html + closers;
+  return sanitizeTelegramHtml(html);
 }
 
 /**

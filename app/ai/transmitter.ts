@@ -186,6 +186,7 @@ async function handleTokenInfo(
       token,
       source: "swap.coffee",
     },
+    instructions: request.instructions,
   });
 
   return {
@@ -231,6 +232,7 @@ export async function transmit(request: AiRequest): Promise<AiResponse> {
     input,
     userId: request.userId,
     context: request.context,
+    instructions: request.instructions,
   });
 
   if (result.ok && result.output_text && thread) {
@@ -315,6 +317,7 @@ export async function transmitStream(
           token,
           source: "swap.coffee",
         },
+        instructions: request.instructions,
       },
       onDelta,
       opts,
@@ -351,6 +354,7 @@ export async function transmitStream(
       input,
       userId: request.userId,
       context: request.context,
+      instructions: request.instructions,
     },
     onDelta,
     opts,

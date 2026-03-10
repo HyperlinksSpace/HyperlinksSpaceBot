@@ -17,6 +17,8 @@ export type AiRequestBase = {
   context?: Record<string, unknown>;
   /** When set, AI layer persists user/assistant and uses thread history for chat. */
   threadContext?: ThreadContext;
+  /** Optional instructions for the model (e.g. length limit); passed to OpenAI native `instructions` field. */
+  instructions?: string;
 };
 
 export type AiResponseBase = {
@@ -70,6 +72,7 @@ export async function callOpenAiChat(
   try {
     const response = await client.responses.create({
       model: "gpt-5.2",
+      ...(params.instructions ? { instructions: params.instructions } : {}),
       input: `${prefix}${trimmed}`,
     });
 
@@ -126,6 +129,7 @@ export async function callOpenAiChatStream(
   try {
     const stream = client.responses.stream({
       model: "gpt-5.2",
+      ...(params.instructions ? { instructions: params.instructions } : {}),
       input: `${prefix}${trimmed}`,
     });
 

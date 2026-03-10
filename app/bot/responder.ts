@@ -13,6 +13,10 @@ import {
 /** Telegram text message length limit. */
 const MAX_MESSAGE_TEXT_LENGTH = 4096;
 
+/** Instruction passed to AI when the message comes from the bot: keep replies under 4096 chars and mention TMA for long answers. */
+const TELEGRAM_BOT_LENGTH_INSTRUCTION =
+  "Please give an answer in less than 4096 chars. If user asks for a long message or a message with more than 4096 chars add a sentence that full responses are available only in TMA and your bot you can give just a short answer that follows.";
+
 /** Split text into chunks of at most maxLen, preferring to break at newlines. */
 function chunkText(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text];
@@ -370,7 +374,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
 
     await sendOrEditOnce("…", "…");
     result = await transmitStream(
-      { input: text, userId, context, mode, threadContext },
+      { input: text, userId, context, mode, threadContext, instructions: TELEGRAM_BOT_LENGTH_INSTRUCTION },
       sendOrEdit,
       {
         isCancelled,
@@ -405,6 +409,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
           context,
           mode: "chat",
           threadContext: threadContext ? { ...threadContext, skipClaim: true } : undefined,
+          instructions: TELEGRAM_BOT_LENGTH_INSTRUCTION,
         },
         sendOrEdit,
         {
@@ -459,7 +464,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
       }
     }
   } else {
-    result = await transmit({ input: text, userId, context, mode, threadContext });
+    result = await transmit({ input: text, userId, context, mode, threadContext, instructions: TELEGRAM_BOT_LENGTH_INSTRUCTION });
     if (result.skipped) return;
     if (isCancelled()) {
       return;
@@ -479,6 +484,7 @@ export async function handleBotAiResponse(ctx: Context): Promise<void> {
         context,
         mode: "chat",
         threadContext: threadContext ? { ...threadContext, skipClaim: true } : undefined,
+        instructions: TELEGRAM_BOT_LENGTH_INSTRUCTION,
       });
       if (result.skipped) return;
     }

@@ -1,6 +1,6 @@
 ## Bot async streaming & Telegram constraints
 
-This document captures the current behavior of the Telegram bot streaming path, the issues we observed, and the gap between the ideal “multi‑segment async streaming” design and the current implementation.
+This document captures the current behavior of the Telegram bot streaming path, the issues we observed, and the gap between the ideal "multi-segment async streaming" design and the current implementation.
 
 ---
 
@@ -8,23 +8,19 @@ This document captures the current behavior of the Telegram bot streaming path, 
 
 ### Telegram constraints
 
-- **Per‑message length limit:** Telegram’s `parse_mode: "HTML"` messages must be ≤ **4096 characters** after HTML escaping and tagging.
+- **Per-message length limit:** Telegram's `parse_mode: "HTML"` messages must be ≤ **4096 characters** after HTML escaping and tagging.
 - **HTML parsing rules:** Only specific tags are allowed (`<b>`, `<i>`, `<u>`, `<s>`, `<tg-spoiler>`, `<a>`, `<code>`, `<pre>`, `<blockquote>`). All `<`, `>`, `&`, `"` must be escaped unless they are part of a valid tag or entity; otherwise Telegram returns `Bad Request: can't parse entities`.
 - **Delivery semantics:**
-  - A user’s outgoing message shows a **clock** until Telegram’s server accepts it, then switches to ✓/✓✓.
-  - Our bot’s webhook `handleRequest` must return HTTP 2xx quickly; otherwise Telegram retries and may delay/hide the user’s message.
-  - We now always return 200 immediately and process updates asynchronously in `waitUntil`, with **no per‑chat serialization** at the webhook layer (see `app/bot/webhook.ts`).
+  - A user's outgoing message shows a **clock** until Telegram's server accepts it, then switches to ✓/✓✓.
+  - Our bot's webhook `handleRequest` must return HTTP 2xx quickly; otherwise Telegram retries and may delay/hide the user's message.
+  - We return 200 immediately and process updates in `waitUntil`; updates for the **same chat** are serialized via a per-chat queue so Reply A is sent before we start processing Prompt B (see `app/bot/webhook.ts`).
 
 ### Product goals
 
-- **Bot replies must be well‑formed HTML and ≤4096 characters per message** so Telegram doesn’t reject them.
-- **No “multi‑message streaming” needed** for one reply:
-  - Each bot reply should be a **single message**, not a chain of “Part 1/2/3…”.
-  - No trailing `…` that never gets replaced.
-- **Async streaming per thread:**
-  - Multiple chats and multiple threads within a chat can stream in parallel.
-  - Within a given `(chatId, thread_id)` thread, a new user message should cancel the previous in‑flight stream so replies don’t interleave or arrive out of order.
-  - When the user sends Prompt B in the same thread while Reply A is still streaming, A should stop as soon as possible; B’s reply should start streaming without waiting for A’s handler to complete.
+- **Bot replies must be well-formed HTML and ≤4096 characters per message** so Telegram doesn't reject them.
+- **Single message preferred;** when the AI output exceeds 4096 characters, the overflow is sent as **continuation message(s)** (each ≤4096), so the user sees the full reply.
+- **Per-chat serialization at webhook:** updates for the same chat are processed one after another so Reply A is sent before we start Prompt B.
+- **Cancellation within a chat:** we track a generation counter per chat; when a new message arrives for that chat, the in-flight stream is cancelled so only the latest reply is completed.
 
 ---
 
@@ -35,32 +31,15 @@ This document captures the current behavior of the Telegram bot streaming path, 
 File: `app/ai/openai.ts`, `app/ai/transmitter.ts`
 
 - `callOpenAiChat` / `callOpenAiChatStream` wrap the OpenAI Responses API (`client.responses.create` / `client.responses.stream`).
-- They are **generic**: they only know about:
+- They accept:
   - `mode` (`"chat"` or `"token_info"`),
-  - `input` (text with history prepended),
+  - `input` (text; for token_info a prefix is prepended in openai; for chat, history is prepended in transmitter),
   - `context` (arbitrary metadata),
-  - optional `threadContext` (for DB persistence and to decide if this is a bot vs TMA call).
-- For **bot** (`threadContext.type === "bot"`), we send an `instructions` field:
-
-  ```ts
-  const isBot = params.threadContext?.type === "bot";
-  const baseInstructions =
-    mode === "token_info"
-      ? "You are a blockchain and token analyst. Answer clearly and briefly."
-      : "";
-  const botLimitInstruction = isBot
-    ? " For Telegram bot replies, the entire response must fit within 4096 characters. Prefer concise wording and omit unnecessary elaboration so the final text stays under 4096 characters."
-    : "";
-  const instructions = `${baseInstructions}${botLimitInstruction}`.trim();
-
-  const response = await client.responses.create({
-    model: "gpt-5.2",
-    ...(instructions ? { instructions } : {}),
-    input: trimmed,
-  });
-  ```
-
-- For **TMA** (`threadContext.type === "app"`), we omit the bot‑specific instruction, so TMA can receive long answers.
+  - optional `threadContext` (for DB persistence),
+  - optional `instructions` (string passed to the model; OpenAI native `instructions` field).
+- **Bot** requests are initiated from `app/bot/responder.ts`, which sets `instructions: TELEGRAM_BOT_LENGTH_INSTRUCTION` on every transmit/transmitStream call. That instruction asks the model to keep replies under 4096 chars and to mention that full responses are available in TMA when the user asks for long messages.
+- The AI layer does **not** derive instructions from `threadContext.type`; the caller (responder) supplies `instructions` when present. `transmitter` forwards `request.instructions` to the OpenAI layer.
+- For **token_info**, openai still prepends a system-style prefix to `input` ("You are a blockchain and token analyst...").
 - `transmit` / `transmitStream`:
   - Claim the user message in the DB (`insertMessage` + `telegram_update_id`), or return `skipped` if another instance already handled it.
   - For chat mode, prepend conversation history with `formatHistoryForInput`.
@@ -73,26 +52,23 @@ File: `app/bot/responder.ts`
 
 #### 2.2.1 Concurrency & cancellation
 
-- We track **per‑thread generations**:
+- We track **per-chat generations** (key is `chatId`, not thread_id):
 
   ```ts
-  const chatGenerals = new Map<string, number>();
-
-  const concurrencyKey =
-    typeof chatId === "number" ? `${chatId}:${thread_id}` : undefined;
+  const chatGenerations = new Map<number, number>();
+  const numericChatId = typeof chatId === "number" ? chatId : undefined;
   let generation = 0;
-  if (concurrencyKey !== undefined) {
-    const prev = chatGenerals.get(concurrencyKey) ?? 0;
+  if (numericChatId !== undefined) {
+    const prev = chatGenerations.get(numericChatId) ?? 0;
     generation = prev + 1;
-    chatGenerals.set(concurrencyKey, generation);
+    chatGenerations.set(numericChatId, generation);
   }
-
   const isCancelled = (): boolean =>
-    concurrencyKey !== undefined &&
-    chatGenerals.get(concurrencyKey) !== generation;
+    numericChatId !== undefined &&
+    chatGenerations.get(numericChatId) !== generation;
   ```
 
-- `shouldAbortSend()` checks the DB (`getMaxTelegramUpdateIdForThread`) for the latest user `telegram_update_id`; if the current update isn’t the latest for that thread, it returns `true`.
+- `shouldAbortSend()` checks the DB (`getMaxTelegramUpdateIdForThread`) for the latest user `telegram_update_id`; if the current update isn't the latest for that thread, it returns `true`.
 - `transmitStream` receives:
 
   ```ts
@@ -104,18 +80,19 @@ File: `app/bot/responder.ts`
 
   and uses this to abort the OpenAI stream if a newer prompt arrives.
 
-- When a stream is cancelled mid‑way, `responder.ts` calls `sendInterruptedReply`:
-  - If we already created and edited a message for this reply and have non‑empty `streamedAccumulated`, we do one last `editMessageText` (HTML) to “finish” that message and persist the partial content.
+- When a stream is cancelled mid-way, `responder.ts` calls `sendInterruptedReply`:
+  - If we already created and edited a message for this reply and have non-empty `streamedAccumulated`, we do one last `editMessageText` (HTML) to finish that message and persist the partial content.
   - If the reply was cancelled before any text was sent but we have some accumulated content, we send a single capped HTML reply with that content and persist it.
+  - If we have no content and `sendToChat` is true, we may send a single "…" reply.
 
-Together with the removal of per‑chat `chatQueue` (see below), this gives **async streaming per thread** while still ensuring “latest prompt in a thread wins.”
+Together with the per-chat queue in the webhook (see 2.2.3), replies for the same chat are serialized so Reply A is sent before we start Prompt B; within that, the generation counter ensures the latest prompt wins and in-flight streams are cancelled.
 
-#### 2.2.2 Streaming & single‑segment behavior
+#### 2.2.2 Streaming and overflow (multi-message)
 
-- We define a **single streaming segment** per reply:
+- We use a **single streaming segment** for the first 4096 characters:
 
   ```ts
-  const MAX_MESSAGE_TEXT_LENGTH = 4095; // 4096 incl. terminator
+  const MAX_MESSAGE_TEXT_LENGTH = 4096;
   let streamSentMessageId: number | null = null;
   let streamedAccumulated = "";
   ```
@@ -124,105 +101,74 @@ Together with the removal of per‑chat `chatQueue` (see below), this gives **as
   - Updates `streamedAccumulated`.
   - Computes `slice = accumulated.slice(0, MAX_MESSAGE_TEXT_LENGTH)`.
   - Formats `slice` via `mdToTelegramHtml` → `stripUnpairedMarkdownDelimiters` → `closeOpenTelegramHtml` → `truncateTelegramHtmlSafe`.
-  - Sends/edits a single Telegram message (`sendMessage` first with `"…"`, then `editMessageText` on `streamSentMessageId`), guarded by `sendOrEditQueue` and `editsDisabled`.
+  - Sends/edits a single Telegram message (first `sendMessage` with `"…"`, then `editMessageText` on `streamSentMessageId`), guarded by `sendOrEditQueue` and `editsDisabled`.
 - After `transmitStream` completes:
-
-  ```ts
-  const fullSlice = result.output_text.slice(0, MAX_MESSAGE_TEXT_LENGTH);
-  const finalFormatted = truncateTelegramHtmlSafe(
-    closeOpenTelegramHtml(
-      stripUnpairedMarkdownDelimiters(mdToTelegramHtml(fullSlice)),
-    ),
-    MAX_MESSAGE_TEXT_LENGTH,
-  );
-  // one last edit on streamSentMessageId
-  ```
-
-- If there was no streaming (non‑private chat or `canStream === false`), we call `transmit` and then send a single reply with `result.output_text` truncated to `MAX_MESSAGE_TEXT_LENGTH`.
-
-- **Multi‑message overflow has been removed**:
-  - `chunkText` and `sendLongMessage` helpers are gone.
-  - We no longer send continuation messages for text beyond 4096 chars.
+  - We flush the edit queue and perform a **final edit** on `streamSentMessageId` with the first 4096 characters from `result.output_text` (formatted as HTML, with plain fallback on error).
+  - If `result.output_text.length > MAX_MESSAGE_TEXT_LENGTH`, we call **`sendLongMessage`** with the remainder (`result.output_text.slice(MAX_MESSAGE_TEXT_LENGTH)`). Continuation messages are sent as separate Telegram messages (each chunk ≤4096), formatted with the same HTML pipeline and Markdown/plain fallback; they reply to the previous message so they appear in order.
+- **Non-streaming path:** we call `transmit`; then if the result fits in one message we send a single reply; otherwise we call `sendLongMessage` with the full `result.output_text` (it chunks and sends multiple messages, each ≤4096).
+- Helpers **`chunkText`** and **`sendLongMessage`** in responder split long text at newlines when possible and send multiple messages, replying to the previous one so the thread reads in order.
 
 #### 2.2.3 Webhook concurrency
 
-- In `app/bot/webhook.ts` we removed the old `chatQueue` that serialized updates per chat.
-- Now `handleRequest`:
+- In `app/bot/webhook.ts` we **serialize updates per chat** using a `chatQueue`:
 
   ```ts
-  const update = await request.json();
-  const updateId = update.update_id;
-  const work = ensureBotInit()
+  const chatQueue = new Map<number, Promise<void>>();
+  // ...
+  const chatId = getChatIdFromUpdate(update);
+  const prev = chatId !== undefined ? chatQueue.get(chatId) : undefined;
+  const work = (prev ?? Promise.resolve())
+    .then(() => ensureBotInit())
     .then(() => bot!.handleUpdate(update))
-    .then(() => console.log('[webhook] handled update', updateId))
-    .catch(err => console.error('[bot]', err));
+    .then(() => { console.log('[webhook] handled update', updateId); })
+    .catch((err) => { console.error('[bot]', err); });
+  const tail = work.then(() => {}, () => {});
+  if (chatId !== undefined) chatQueue.set(chatId, tail);
   waitUntil(work);
   return jsonResponse({ ok: true });
   ```
 
-- The legacy `(req, res)` handler similarly just calls `bot.handleUpdate` directly.
-
-**Implication:** multiple updates, even from the same chat, can be processed in parallel. The per‑thread `chatGenerations` + DB check in `responder.ts` is now fully responsible for avoiding mixed/out‑of‑order replies within a thread.
+- So for a given chat, the next update waits for the previous handler to finish. Reply A is sent before we start processing Prompt B, which avoids reorder flash. Different chats are still processed in parallel.
 
 ---
 
-## 3. Gaps vs. ideal multi‑segment streaming design
+## 3. Gaps vs. ideal multi-segment streaming design
 
-Your conceptual design calls for:
+The ideal design would:
 
 1. **AI always produces full `output_text`** (already true).
-2. **Bot maintains multiple segment messages per reply**:
-   - Segment 0: chars `[0..4096)`, streamed and finalized.
-   - Segment 1: chars `[4096..8192)`, streamed in a second message, etc.
-3. **After completion**, each segment is edited once more to match the exact final slice of `output_text`, so no `…` remains and no manual splitting is needed elsewhere.
+2. **Bot maintains multiple segment messages per reply:**
+   - Segment 0: chars `[0..4096)`, streamed live and finalized.
+   - Segment 1: chars `[4096..8192)`, streamed live in a second message, etc.
+3. **After completion**, each segment is edited once more to match the exact final slice of `output_text`.
 
-The **current implementation differs** in that:
+The **current implementation**:
 
-- It only ever creates/edits **one** segment per reply (`streamSentMessageId`).
-- When `result.output_text` exceeds the 4096‑char cap:
-  - We **truncate** to 4096 characters for the bot (per your current requirement that bot replies should fit in a single Telegram message).
-  - We no longer stream or send the remainder as additional segments.
-- The TMA path still gets the full `output_text` (no truncation).
+- **First segment** is streamed live (single message, up to 4096 chars) and gets a final edit from `result.output_text`.
+- **Overflow** (beyond 4096 chars) is sent **after** the stream completes via `sendLongMessage` as one or more continuation messages. We do **not** stream into the second (and further) segments live; only the first segment is streamed.
+- So the user gets the full reply (first message + continuation messages), but only the first 4096 characters are streamed; the rest is sent in one go after completion. The TMA path still gets the full `output_text` (no truncation).
 
-This is intentional based on the updated product decision: **no multi‑message replies in the bot**, just a single, concise answer that fits Telegram’s limit.
+To implement **live streaming into multiple segments**, we would need to:
 
-To implement the original multi‑segment streaming design, we would need to:
+- In `sendOrEdit`, detect when the accumulated text crosses 4096 and create a new Telegram message for the next segment, then route subsequent edits to the correct segment.
+- Maintain a `segments: { id: number; start: number; end: number }[]` (or similar) and issue a final `editMessageText` per segment on completion.
 
-- Introduce a `segments: { id: number; start: number; end: number }[]` structure in `responder.ts`.
-- Change `sendOrEdit` to:
-  - Compute which segment(s) each new delta belongs to.
-  - Create new Telegram messages when a segment fills up.
-  - Route `editMessageText` calls to the correct segment (`message_id`) instead of a single `streamSentMessageId`.
-- On completion:
-  - Re‑slice `result.output_text` into per‑segment slices.
-  - Issue a final `editMessageText` per segment.
-
-That is a non‑trivial refactor and reintroduces more complex state and error‑handling (multiple in‑flight messages per reply, segment‑level cancellation, etc.). Given the current goal (“one concise message per bot reply, no multi‑message streaming”), the simpler **single‑segment + 4096‑cap** implementation is more robust.
+That refactor adds state and edge cases (segment creation, cancellation across segments). The current approach (stream first segment, then send overflow as continuation messages) is simpler and still delivers the full reply.
 
 ---
 
 ## 4. Known issues / open questions
 
-1. **“Clock + flash” in threads:**  
-   - When a user sends Prompt B while Reply A is still streaming, Telegram may briefly show B (with a clock) below A, then insert the rest of Reply A above it when the bot’s last edit arrives. This is a **Telegram client UI behavior**: B is still pending (clock), so the client temporarily puts it at the bottom, then reflows when a server message (Reply A) arrives that belongs above it in the timeline.
-   - We mitigate resends by always returning HTTP 200 quickly from the webhook, but we cannot control how Telegram’s client orders pending vs. newly arrived messages. Removing server‑side per‑chat serialization allows B’s handler to start immediately, but the visual “flash” is ultimately client‑side.
+1. **"Clock + flash" in threads (historical vs. current):**
+   - With per-chat serialization at the webhook, Reply B does not start until Reply A's handler has finished (or at least until A's work is chained after). So we avoid overlapping replies in the same chat; the "clock + flash" reorder is largely avoided because A completes before B starts.
+   - Cancellation (generation counter) still matters when A is cancelled by B so that we don't keep editing A after B has been sent.
 
-2. **Length vs. HTML edge cases:**  
-   - Even with truncation + `truncateTelegramHtmlSafe`, we still depend on OpenAI respecting the 4096‑character instruction. If it slightly overshoots, we truncate by characters, then trim at the last `>` and call `closeOpenTelegramHtml` to avoid cutting tags in half.
-   - We’ve seen “Bad Request: can't parse entities” when HTML contained illegal constructs (e.g. unmatched tags, or using unsupported markup). `stripUnpairedMarkdownDelimiters` + `closeOpenTelegramHtml` + `truncateTelegramHtmlSafe` significantly reduce this, but there may still be pathological cases if the model emits malformed tag sequences.
+2. **Length vs. HTML edge cases:**
+   - We depend on the model respecting the 4096-character instruction; if it overshoots, we truncate, then trim at the last `>` and call `closeOpenTelegramHtml` to avoid cutting tags in half.
+   - "Bad Request: can't parse entities" can still occur on malformed HTML; `stripUnpairedMarkdownDelimiters` + `closeOpenTelegramHtml` + `truncateTelegramHtmlSafe` reduce this.
 
-3. **Segment‑level streaming not implemented:**  
-   - We only stream into the first segment and never open additional live segments.
-   - Given the 4096 limit and bot‑side truncation, this is acceptable for now, but if we later want truly long, multi‑segment live replies **within the bot**, we’ll need the segmented streaming refactor described above.
+3. **Segment-level streaming:** Only the first segment is streamed live; overflow is sent after completion. For truly long live multi-segment streaming we'd need the refactor described in §3.
 
-4. **Behavior when cancellation happens late:**  
-   - If `isCancelled()` flips very close to the end of a stream, it’s possible that:
-     - The final `onDelta` + `final completion edit` land just before we notice cancellation.
-     - The cancelled reply appears “complete” to the user even though a newer prompt has arrived.  
-   - We partially mitigate this by:
-     - Checking `shouldAbortSend()` in `sendOrEditOnce` and before sending the final completion edit.
-     - Only sending an “interrupted reply” when the cancelled reply is *not* the latest by `telegram_update_id`.
-   - This is an inherent race between network delivery and our cancellation checks; we prioritize avoiding mixed/interleaved replies over trying to fully hide late but complete replies.
+4. **Behavior when cancellation happens late:** If `isCancelled()` flips very close to the end of a stream, the final edit might still land. We check `shouldAbortSend()` in `sendOrEditOnce` and before the final completion edit to reduce this.
 
-If you want to adjust any of these behaviors (e.g. reintroduce multi‑segment streaming, change how/when we finalize a cancelled reply, or tighten/loosen the AI length constraint), we can extend this design and update `responder.ts` accordingly.  
-
+If you want to adjust any of these behaviors (e.g. live multi-segment streaming, or how we finalize a cancelled reply), we can extend this design and update `responder.ts` accordingly.

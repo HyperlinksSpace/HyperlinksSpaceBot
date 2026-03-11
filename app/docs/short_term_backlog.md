@@ -1,4 +1,11 @@
-Basic layout + AI & Search bar
+Mobile: Paste to botbar bug
+Scrolling indicator
+AI options Page
+Icons on mobile
+Fonts
+Theme with TMA integration
+AI Chat page
+
 Stop responce
 AI responce checkup in bot (message interruption on new prompt)
 Slash rotation

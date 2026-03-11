@@ -1,3 +1,4 @@
+Sto
 AI responce checkup in bot
 Slash rotation
 Min chars estimate

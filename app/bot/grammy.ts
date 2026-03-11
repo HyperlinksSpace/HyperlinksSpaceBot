@@ -31,7 +31,7 @@ export function createBot(token: string): Bot {
 
   bot.command('start', async (ctx: Context) => {
     await handleUserUpsert(ctx);
-    await ctx.reply('Hello');
+    await ctx.reply("That's @HyperlinksSpaceBot, you can use AI in bot and explore the app for more features");
   });
 
   bot.on('message:text', async (ctx: Context) => {

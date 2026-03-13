@@ -63,7 +63,7 @@ export function isAvailable(): boolean {
 
 /** Load Telegram Web App script if missing (script is not auto-injected; page must include or load it). */
 export function ensureTelegramScript(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || typeof document === "undefined") return;
   if ((window as Window).Telegram?.WebApp) return;
   if (document.querySelector('script[src*="telegram.org/js/telegram-web-app"]')) return;
 

@@ -29,6 +29,7 @@ import { useTelegram } from "./Telegram";
 import Svg, { Path } from "react-native-svg";
 import { colors, layout, icons } from "../theme";
 
+const { maxContentWidth } = layout;
 const {
   barMinHeight: BAR_MIN_HEIGHT,
   horizontalPadding: HORIZONTAL_PADDING,
@@ -39,11 +40,10 @@ const {
   maxBarHeight: MAX_BAR_HEIGHT,
 } = layout.bottomBar;
 const FONT_SIZE = 15;
-// Scroll viewport height when the bar is at its maximum. This is:
-//   MAX_BAR_HEIGHT - topPadding - bottomPadding
-// so with 190px bar and 20px top/bottom padding we get 150px, which matches
-// the Flutter behaviour where the 8th line is half-clipped.
-const SCROLL_CONTENT_HEIGHT = MAX_BAR_HEIGHT - 2 * VERTICAL_PADDING;
+// Scroll viewport height when the bar is at its maximum. Since we want the
+// input box itself to fully occupy the bar vertically (no outer gap), this is
+// equal to the max bar height.
+const SCROLL_CONTENT_HEIGHT = MAX_BAR_HEIGHT;
 const PREMADE_PROMPTS = [
   "What is the universe?",
   "Tell me about dogs token",
@@ -60,9 +60,17 @@ export function GlobalBottomBar() {
     null,
   );
   const [contentHeight, setContentHeight] = useState<number>(LINE_HEIGHT);
-  // Height of a hidden mirrored Text used only for shrink detection.
+  // Height of a hidden mirrored Text used for shrink (web) and grow (native when contentSize is unreliable).
   const [mirrorHeight, setMirrorHeight] = useState<number | null>(null);
+  // Width of the input area so the mirror Text can wrap correctly on native (iOS/Android).
+  const [inputAreaWidth, setInputAreaWidth] = useState<number | null>(null);
   const [scrollY, setScrollY] = useState(0);
+
+  const isTelegramIOSWeb =
+    Platform.OS === "web" &&
+    typeof window !== "undefined" &&
+    !!(window as any).Telegram?.WebApp &&
+    (window as any).Telegram.WebApp.platform === "ios";
 
   // Web-only: wire up a native scroll listener on the underlying textarea
   // rendered by TextInput so we can track manual scroll that React Native Web
@@ -77,12 +85,18 @@ export function GlobalBottomBar() {
     if (!el) return;
 
     const handleScroll = () => {
-      // Debug helper (disabled by default):
-      // console.log("[GlobalBottomBar] dom scrollTop:", (el as any).scrollTop);
-      const y = (el as any).scrollTop;
-      if (typeof y === "number") {
-        setScrollY(y);
-      }
+      const scrollTop = (el as HTMLTextAreaElement).scrollTop;
+      if (typeof scrollTop !== "number") return;
+      const contentH = (el as HTMLTextAreaElement).scrollHeight;
+      const clientH = (el as HTMLTextAreaElement).clientHeight;
+      const domRange = contentH - clientH;
+      // Match native: viewport is SCROLL_CONTENT_HEIGHT (150), so scroll range is contentHeight - 150.
+      const targetRange = contentH - SCROLL_CONTENT_HEIGHT;
+      const effectiveY =
+        domRange > 0 && targetRange > 0
+          ? (scrollTop * targetRange) / domRange
+          : scrollTop;
+      setScrollY(effectiveY);
     };
 
     el.addEventListener("scroll", handleScroll, { passive: true });
@@ -122,7 +136,7 @@ export function GlobalBottomBar() {
       setContentHeight(h);
       // Compute how many lines this content represents.
       const lines = Math.max(1, Math.ceil(h / LINE_HEIGHT));
-      // For 1–8 lines we rely purely on bottom alignment and growing viewport.
+      // For 1–7 lines we rely purely on bottom alignment and growing viewport.
       // Starting from the 9th line we auto-scroll so older lines move under the
       // top edge while the last line stays at the arrow baseline.
       if (lines > MAX_LINES_BEFORE_SCROLL + 1) {
@@ -186,10 +200,9 @@ export function GlobalBottomBar() {
     );
   }, [baseContentHeight, contentHeight]);
 
-  // Shrink guard: upper bound on how many lines we should allow when content
-  // shrinks. We use a hidden mirrored Text with identical typography and
-  // width to estimate how many visual lines the current value actually
-  // occupies; this tracks wrapping even without explicit line breaks.
+  // Shrink guard / native driver: we use a hidden mirrored Text with identical
+  // typography (and on native, explicit width from inputAreaWidth) to measure how
+  // many visual lines the current value occupies.
   const shrinkGuardLines = React.useMemo(() => {
     if (mirrorHeight == null) return 999;
     const approxLines = Math.max(1, Math.round(mirrorHeight / LINE_HEIGHT));
@@ -197,21 +210,25 @@ export function GlobalBottomBar() {
   }, [mirrorHeight]);
 
   // Final visual line count:
-  // - Growing uses the original height-based measurement.
-  // - Shrinking is constrained by the shrink guard so we can't keep more lines
-  //   than the current content can actually occupy.
-  const visualLines = Math.min(heightBasedLines, shrinkGuardLines);
+  // - Web: min(heightBasedLines, shrinkGuardLines) so we grow from content size and shrink from mirror.
+  // - Native: mirror drives both grow and shrink (onContentSizeChange is unreliable on iOS); fallback to heightBasedLines when mirror not yet measured.
+  const visualLines =
+    Platform.OS === "web"
+      ? Math.min(heightBasedLines, shrinkGuardLines)
+      : (mirrorHeight != null ? shrinkGuardLines : heightBasedLines);
 
-  // Dynamically clamp the intrinsic TextInput box height:
-  // - 1–7 lines: N * lineHeight (20px)
-  // - 8+ lines: cap at 8 * 20 = 160px, while the viewport stays at 150px.
-  //   This mirrors Flutter: on the 8th line the bar is 190px tall, the text
-  //   viewport is 150px, and roughly half of the 8th line is clipped.
-  // We set minHeight/height/maxHeight to the same value so RN Web's internal
-  // minHeight is fully overridden.
-  const dynamicHeight = Math.min(
-    (MAX_LINES_BEFORE_SCROLL + 1) * LINE_HEIGHT, // allow up to 8 lines (160px)
-    visualLines * LINE_HEIGHT,                   // 1*20, 2*20, ...
+  // Intrinsic TextInput box height based purely on line count, capped at 8
+  // lines (8 * 20 = 160px).
+  const intrinsicHeight = Math.min(
+    (MAX_LINES_BEFORE_SCROLL + 1) * LINE_HEIGHT,
+    visualLines * LINE_HEIGHT,
+  );
+  // Final dynamic height:
+  // - Minimum 60px (3 lines) so the bar never shrinks below 60.
+  // - Maximum 180px: above that the bar stops growing and we switch to scrolling.
+  const dynamicHeight = Math.max(
+    60,
+    Math.min(MAX_BAR_HEIGHT, intrinsicHeight),
   );
   const inputDynamicStyle = {
     minHeight: dynamicHeight,
@@ -219,28 +236,16 @@ export function GlobalBottomBar() {
     maxHeight: dynamicHeight,
   };
 
-  // Flutter behaviour:
-  // - 1–7 lines: bar grows; viewport height is N * lineHeight.
-  // - 8th line: bar and viewport are allowed to grow one extra line (190px bar, 150px viewport).
-  // - 9+ lines: bar capped at 190px; viewport fixed at _scrollModeContentHeight (150px),
-  //   text is bottom-aligned and scrolled so the last line stays on arrow baseline.
-  const clampedLines = Math.min(visualLines, MAX_LINES_BEFORE_SCROLL); // <= 7
-  const computedHeight = VERTICAL_PADDING * 2 + LINE_HEIGHT * clampedLines;
-  let barHeight = Math.max(BAR_MIN_HEIGHT, computedHeight);
-  if (visualLines > MAX_LINES_BEFORE_SCROLL) {
-    // 8+ lines: allow bar to grow to MAX_BAR_HEIGHT (190px).
-    barHeight = MAX_BAR_HEIGHT;
-  }
-  barHeight = Math.min(MAX_BAR_HEIGHT, barHeight);
+  // Bar height directly matches the input height, clamped between 60 and 180.
+  const barHeight = dynamicHeight;
   // Viewport height:
-  // - 1–7 lines: N * lineHeight
-  // - 8+ lines: fixed scroll viewport (150px)
+  // - When bar < max (<= 180): viewport is the same as the input height.
+  // - Once we reach the max (180): viewport fixed at 180 while content can grow.
   const inputContainerHeight =
-    visualLines <= MAX_LINES_BEFORE_SCROLL
-      ? LINE_HEIGHT * clampedLines
-      : SCROLL_CONTENT_HEIGHT;
-  // Scroll mode (custom scrollbar + auto-scroll) only from 9th line onward.
-  const isScrollMode = visualLines > MAX_LINES_BEFORE_SCROLL + 1;
+    barHeight < MAX_BAR_HEIGHT ? barHeight : SCROLL_CONTENT_HEIGHT;
+  // Scroll mode (custom scrollbar + auto-scroll) once the bar has reached its
+  // maximum height and the content is taller than the viewport.
+  const isScrollMode = barHeight >= MAX_BAR_HEIGHT && contentHeight > inputContainerHeight;
 
   // Scrollbar maths: mirror Flutter implementation.
   // barHeight: total bar height; viewportHeight: scroll viewport for text.
@@ -283,9 +288,10 @@ export function GlobalBottomBar() {
   }
 
   return (
-    <View style={[styles.container, { height: barHeight }]}>
-      <View style={styles.inner}>
-        <View style={styles.row}>
+    <View style={[styles.wrapper, { height: barHeight }]}>
+      <View style={[styles.container, { height: barHeight }]}>
+        <View style={styles.inner}>
+          <View style={styles.row}>
           <View style={{ flex: 1 }}>
             <View
               style={{
@@ -305,7 +311,21 @@ export function GlobalBottomBar() {
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
               >
-                <View style={{ flexGrow: 1, justifyContent: "flex-end" }}>
+                <View
+                  style={{
+                    flexGrow: 1,
+                    justifyContent: "flex-end",
+                    position: "relative", // for right-side overlay / gutter
+                  }}
+                  onLayout={
+                    Platform.OS !== "web"
+                      ? (e) => {
+                          const w = e.nativeEvent.layout.width;
+                          if (Number.isFinite(w) && w > 0) setInputAreaWidth(w);
+                        }
+                      : undefined
+                  }
+                >
                   <TextInput
                     ref={inputRef}
                     style={[styles.input, styles.inputWeb, inputDynamicStyle]}
@@ -324,6 +344,22 @@ export function GlobalBottomBar() {
                     // @ts-expect-error dataSet is a valid prop on web (used for CSS targeting)
                     dataSet={{ "ai-input": "true" }}
                   />
+                  {Platform.OS === "web" && (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        bottom: 0,
+                        right: 0,
+                        // Wider gutter on Telegram iOS webview so the
+                        // native blue scroll thumb (if drawn) sits well
+                        // away from the caret and last characters.
+                        width: isTelegramIOSWeb ? 24 : 12,
+                        backgroundColor: colors.background,
+                      }}
+                    />
+                  )}
                   <Text
                     style={[
                       styles.input,
@@ -334,6 +370,9 @@ export function GlobalBottomBar() {
                         pointerEvents: "none",
                         left: 0,
                         right: 0,
+                        // On native, give mirror explicit width so it wraps like the input and reports correct height.
+                        ...(Platform.OS !== "web" &&
+                          inputAreaWidth != null && { width: inputAreaWidth }),
                       },
                     ]}
                     numberOfLines={0}
@@ -372,8 +411,9 @@ export function GlobalBottomBar() {
           </Pressable>
         </View>
       </View>
+      </View>
       {showScrollbar && indicatorHeight > 0 && (
-        <View style={styles.scrollbarContainer}>
+        <View style={[styles.scrollbarContainer, { height: barHeight }]}>
           <View
             style={[
               styles.scrollbarIndicator,
@@ -386,17 +426,25 @@ export function GlobalBottomBar() {
   );
 }
 
+const SCROLLBAR_INSET = 5;
+
 const styles = StyleSheet.create({
+  wrapper: {
+    width: "100%",
+    position: "relative",
+  },
   container: {
     width: "100%",
+    maxWidth: maxContentWidth,
+    alignSelf: "center",
     backgroundColor: colors.background,
-    paddingVertical: VERTICAL_PADDING,
+    // Remove vertical gap outside the input; the input box itself occupies the
+    // full bar height.
+    paddingVertical: 0,
     paddingHorizontal: HORIZONTAL_PADDING,
   },
   inner: {
-    maxWidth: 600,
     width: "100%",
-    alignSelf: "center",
   },
   row: {
     flexDirection: "row",
@@ -421,9 +469,14 @@ const styles = StyleSheet.create({
   // dynamic height logic (inputDynamicStyle) instead.
   inputWeb: {
     minHeight: 0,
+    // Base gutter so the caret and last characters never sit directly in the
+    // system scrollbar lane. On Telegram iOS we add extra right padding at
+    // runtime via the overlay width (see isTelegramIOSWeb logic).
+    paddingRight: 12,
   },
   applyWrap: {
-    paddingBottom: APPLY_ICON_BOTTOM - VERTICAL_PADDING,
+    // 25px padding from the bottom edge of the bar.
+    paddingBottom: 25,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -435,9 +488,8 @@ const styles = StyleSheet.create({
   },
   scrollbarContainer: {
     position: "absolute",
-    right: 5,
+    right: SCROLLBAR_INSET,
     top: 0,
-    bottom: 0,
     alignItems: "flex-start",
     justifyContent: "flex-start",
   },

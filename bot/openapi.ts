@@ -74,9 +74,18 @@ export async function callOpenAi(messages: ChatMessage[], temperature = 0.3, mod
       signal: controller.signal,
     });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI error ${response.status}`);
+    if (!response.ok) {
+      const body = await response.text();
+      let detail = body.slice(0, 300);
+      try {
+        const parsed = JSON.parse(body) as { error?: { message?: string } };
+        if (parsed?.error?.message) detail = parsed.error.message;
+      } catch {
+        // use raw slice
       }
+      console.error(`[OpenAI] ${response.status} ${detail}`);
+      throw new Error(`OpenAI error ${response.status}: ${detail}`);
+    }
 
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;

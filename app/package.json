@@ -1,5 +1,7 @@
 {
   "name": "expo-template-default",
+  "description": "Hyperlinks Space app",
+  "author": "sraibaby",
   "license": "0BSD",
   "main": "expo-router/entry",
   "version": "53.0.43",
@@ -24,7 +26,30 @@
     "deploy:vercel": "npx vercel --prod",
     "bot:local": "npx tsx scripts/run-bot-local.ts",
     "set-webhook": "npx tsx scripts/set-webhook.ts",
-    "db:migrate": "npx tsx scripts/migrate-db.ts"
+    "db:migrate": "npx tsx scripts/migrate-db.ts",
+    "build:win": "npm run build && electron-builder --win",
+    "build:win:dir": "npm run build && electron-builder --win --config.win.target=dir",
+    "build:win:verbose": "npm run build && cross-env DEBUG=electron-builder electron-builder --win"
+  },
+  "build": {
+    "appId": "com.sraibaby.app",
+    "productName": "app",
+    "asar": false,
+    "extraMetadata": {
+      "main": "windows.cjs"
+    },
+    "files": [
+      "dist/**/*",
+      "windows.cjs",
+      "assets/icon.ico"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [{ "target": "portable", "arch": ["x64"] }]
+    },
+    "directories": {
+      "output": "release"
+    }
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -75,6 +100,8 @@
     "eslint-config-expo": "~10.0.0",
     "tsx": "^4.19.2",
     "typescript": "~5.9.2",
-    "vercel": "^38.0.0"
+    "vercel": "^38.0.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
   }
 }

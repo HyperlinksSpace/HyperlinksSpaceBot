@@ -11,7 +11,7 @@ AI Chat page
 
 Stop responce
 AI responce checkup in bot (message interruption on new prompt)
-Slash rotation
+Slash rotation, symbols and consiberations
 Min chars estimate
 App theme
 

@@ -36,7 +36,10 @@ export function GlobalLogoBar() {
     safeAreaInsetTop,
     contentSafeAreaInsetTop,
     isFullscreen,
+    themeBgReady,
   } = useTelegram();
+
+  const backgroundColor = themeBgReady ? colors.background : "transparent";
 
   const topPadding = useLogoTopPadding(safeAreaInsetTop, contentSafeAreaInsetTop);
   const blockHeight = topPadding + LOGO_HEIGHT + BOTTOM_PADDING;
@@ -52,11 +55,11 @@ export function GlobalLogoBar() {
   };
 
   if (!shouldShow) {
-    return <View style={[styles.container, { height: 0, backgroundColor: colors.background }]} />;
+    return <View style={[styles.container, { height: 0, backgroundColor }]} />;
   }
 
   return (
-    <View style={[styles.container, { height: blockHeight, backgroundColor: colors.background }]}>
+    <View style={[styles.container, { height: blockHeight, backgroundColor }]}>
       <View
         style={[
           styles.inner,

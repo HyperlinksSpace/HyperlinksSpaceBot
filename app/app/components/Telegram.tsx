@@ -62,6 +62,8 @@ export type TelegramContextValue = {
   isInTelegram: boolean;
   /** "dark" | "light" per Telegram theme; dark is default/fallback. */
   colorScheme: "dark" | "light";
+  /** True once we have a valid Telegram theme bg_color and can safely paint our custom palette. */
+  themeBgReady: boolean;
   triggerHaptic: (style: string) => void;
   safeAreaInsetTop: number;
   contentSafeAreaInsetTop: number;
@@ -93,6 +95,7 @@ const defaultContext: TelegramContextValue = {
   error: null,
   isInTelegram: false,
   colorScheme: "dark",
+  themeBgReady: false,
   triggerHaptic: () => {},
   safeAreaInsetTop: 0,
   contentSafeAreaInsetTop: 0,
@@ -118,7 +121,23 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const [safeAreaInsetTop, setSafeAreaInsetTop] = useState(0);
   const [contentSafeAreaInsetTop, setContentSafeAreaInsetTop] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(true);
-  const [colorScheme, setColorScheme] = useState<"dark" | "light">("dark");
+  const [colorScheme, setColorScheme] = useState<"dark" | "light">(() => {
+    if (typeof window === "undefined") return "dark";
+    try {
+      const tp = getInitialThemeParams();
+      const bg =
+        tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
+      return classifyThemeFromBgColor(bg);
+    } catch {
+      return "dark";
+    }
+  });
+
+  // IMPORTANT:
+  // Keep this as `false` on the very first render (SSR + client hydration),
+  // because Telegram themeParams may arrive only after `web_app_request_theme`.
+  // We will flip it to `true` only after we receive a valid bg_color.
+  const [themeBgReady, setThemeBgReady] = useState<boolean>(false);
 
   function classifyThemeFromBgColor(bgColor: string | undefined | null): "dark" | "light" {
     if (!bgColor || typeof bgColor !== "string") return "dark";
@@ -155,6 +174,15 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
+    function markThemeBgReady(): void {
+      setThemeBgReady((prev) => {
+        if (prev) return prev;
+        // eslint-disable-next-line no-console
+        console.log("[TMA theme] themeBgReady=true");
+        return true;
+      });
+    }
+
     function computeSchemeFromPayload(payload: unknown): void {
       const anyPayload = payload as unknown as {
         color_scheme?: string;
@@ -164,14 +192,19 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       const explicit = anyPayload?.color_scheme;
       if (explicit === "dark" || explicit === "light") {
         updateScheme(explicit);
+        markThemeBgReady();
         return;
       }
 
       const tp = anyPayload?.theme_params;
       const bg =
         tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
+      const hasValidBg =
+        typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
+      if (!hasValidBg) return;
       const scheme = classifyThemeFromBgColor(bg);
       updateScheme(scheme);
+      markThemeBgReady();
     }
 
     // Attach SDK-react + bridge listeners (event name is the same in both).
@@ -216,8 +249,12 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
           const tp = getInitialThemeParams();
           const bg =
             tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
+          const hasValidBg =
+            typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
+          if (!hasValidBg) return;
           const scheme = classifyThemeFromBgColor(bg);
           updateScheme(scheme);
+          markThemeBgReady();
         };
 
         (onEvent as unknown as (eventType: string, cb: () => void) => void)(
@@ -259,8 +296,12 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         const tp = getInitialThemeParams();
         const bg =
           tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
+        const hasValidBg =
+          typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
+        if (!hasValidBg) return;
         const scheme = classifyThemeFromBgColor(bg);
         updateScheme(scheme);
+        markThemeBgReady();
       } catch {
         // ignore
       }
@@ -452,7 +493,17 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
           tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
         // eslint-disable-next-line no-console
         console.log("[TMA theme] initial themeParams", tp, "bg:", bg);
-        setColorScheme(classifyThemeFromBgColor(bg));
+        const hasValidBg =
+          typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
+        if (hasValidBg) {
+          setColorScheme(classifyThemeFromBgColor(bg));
+          setThemeBgReady((prev) => {
+            if (prev) return prev;
+            // eslint-disable-next-line no-console
+            console.log("[TMA theme] themeBgReady=true");
+            return true;
+          });
+        }
       } catch {
         // ignore; keep default "dark"
       }
@@ -508,6 +559,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     error,
     isInTelegram,
     colorScheme,
+    themeBgReady,
     triggerHaptic: triggerHapticImpl,
     safeAreaInsetTop,
     contentSafeAreaInsetTop,

@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { useTelegram } from "./Telegram";
 import { layout, icons, useColors } from "../theme";
 
 const { maxContentWidth } = layout;
@@ -22,6 +23,8 @@ const MAX_INPUT_HEIGHT = (MAX_LINES_BEFORE_SCROLL + 1) * LINE_HEIGHT; // 8 lines
 
 export function GlobalBottomBarWeb() {
   const colors = useColors();
+  const { themeBgReady } = useTelegram();
+  const backgroundColor = themeBgReady ? colors.background : "transparent";
   const [value, setValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [scrollY, setScrollY] = useState(0);
@@ -253,8 +256,8 @@ export function GlobalBottomBarWeb() {
   }, [value]);
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: colors.background }]}>
-      <View style={[styles.block, { backgroundColor: colors.background }]}>
+    <View style={[styles.wrapper, { backgroundColor }]}>
+      <View style={[styles.block, { backgroundColor }]}>
         <View style={[styles.row, { height: rowHeight }]}>
           <View style={styles.inputWrap}>
             {/* eslint-disable-next-line jsx-a11y/no-autofocus */}

@@ -48,8 +48,9 @@ const PREMADE_PROMPTS = [
 
 export function GlobalBottomBar() {
   const router = useRouter();
-  const { triggerHaptic } = useTelegram();
+  const { triggerHaptic, themeBgReady } = useTelegram();
   const colors = useColors();
+  const backgroundColor = themeBgReady ? colors.background : "transparent";
   const [value, setValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
@@ -213,8 +214,8 @@ export function GlobalBottomBar() {
   );
 
   return (
-    <View style={[styles.wrapper, { height: barHeight, backgroundColor: colors.background }]}>
-      <View style={[styles.container, { height: barHeight, backgroundColor: colors.background }]}>
+    <View style={[styles.wrapper, { height: barHeight, backgroundColor }]}>
+      <View style={[styles.container, { height: barHeight, backgroundColor }]}>
         <View style={styles.inner}>
           <View style={styles.row}>
           <View style={{ flex: 1 }}>
@@ -283,7 +284,7 @@ export function GlobalBottomBar() {
                         // native blue scroll thumb (if drawn) sits well
                         // away from the caret and last characters.
                         width: isTelegramIOSWeb ? 24 : 12,
-                        backgroundColor: colors.background,
+                        backgroundColor,
                       }}
                     />
                   )}

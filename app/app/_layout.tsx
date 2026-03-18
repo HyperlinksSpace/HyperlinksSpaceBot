@@ -6,6 +6,7 @@ import { GlobalLogoBarWithFallback } from "./components/GlobalLogoBarWithFallbac
 import { GlobalBottomBar } from "./components/GlobalBottomBar";
 import { GlobalBottomBarWeb } from "./components/GlobalBottomBarWeb";
 import { useColors } from "./theme";
+import { useTelegram } from "./components/Telegram";
 
 /**
  * Three-block column layout (same as Flutter):
@@ -15,21 +16,6 @@ import { useColors } from "./theme";
  * 4. AI & Search bar (fixed at bottom)
  */
 export default function RootLayout() {
-  const colors = useColors();
-  const content = (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <GlobalLogoBarWithFallback />
-      <View style={styles.main}>
-        <Stack screenOptions={{ headerShown: false }} />
-      </View>
-      {Platform.OS === "web" ? (
-        <GlobalBottomBarWeb />
-      ) : (
-        <GlobalBottomBar />
-      )}
-    </View>
-  );
-
   return (
     <TelegramProvider>
       {Platform.OS === "ios" ? (
@@ -38,12 +24,38 @@ export default function RootLayout() {
           behavior="padding"
           keyboardVerticalOffset={0}
         >
-          {content}
+          <RootContent />
         </KeyboardAvoidingView>
       ) : (
-        content
+        <RootContent />
       )}
     </TelegramProvider>
+  );
+}
+
+function RootContent() {
+  const colors = useColors();
+  const { themeBgReady } = useTelegram();
+  const backgroundColor = themeBgReady ? colors.background : "transparent";
+
+  return (
+    <View
+      style={[
+        styles.root,
+        {
+          backgroundColor,
+          opacity: themeBgReady ? 1 : 0,
+          // Prevent dark-theme flicker from being interactable before Telegram theme arrives.
+          pointerEvents: themeBgReady ? "auto" : "none",
+        },
+      ]}
+    >
+      <GlobalLogoBarWithFallback />
+      <View style={styles.main}>
+        <Stack screenOptions={{ headerShown: false }} />
+      </View>
+      {Platform.OS === "web" ? <GlobalBottomBarWeb /> : <GlobalBottomBar />}
+    </View>
   );
 }
 

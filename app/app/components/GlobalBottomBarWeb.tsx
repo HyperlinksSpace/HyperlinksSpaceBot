@@ -18,6 +18,7 @@ const {
   maxBarHeight: MAX_BAR_HEIGHT,
 } = layout.bottomBar;
 const INNER_PADDING = 20; // gap above first line and below last line
+const AUTO_SCROLL_THRESHOLD = 30;
 const MAX_INPUT_HEIGHT = (MAX_LINES_BEFORE_SCROLL + 1) * LINE_HEIGHT; // 8 lines = 160 (text-only height)
 
 export function GlobalBottomBarWeb() {
@@ -29,6 +30,7 @@ export function GlobalBottomBarWeb() {
   const [domMirrorHeight, setDomMirrorHeight] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const domMirrorRef = useRef<HTMLDivElement | null>(null);
+  const wasNearBottomBeforeInputRef = useRef(true);
 
   // Hide native scrollbar for the textarea (same as we try for the main bar).
   useEffect(() => {
@@ -69,6 +71,10 @@ export function GlobalBottomBarWeb() {
   const handleInput = useCallback(
     (e: React.FormEvent<HTMLTextAreaElement>) => {
       const target = e.target as HTMLTextAreaElement;
+      const range = Math.max(0, target.scrollHeight - target.clientHeight);
+      const isNearBottom =
+        range <= 0 || target.scrollTop >= range - AUTO_SCROLL_THRESHOLD;
+      wasNearBottomBeforeInputRef.current = isNearBottom;
       setValue(target.value);
       requestAnimationFrame(measureAndResize);
     },
@@ -83,6 +89,8 @@ export function GlobalBottomBarWeb() {
       const contentH = el.scrollHeight;
       const clientH = el.clientHeight;
       const range = Math.max(0, contentH - clientH);
+      wasNearBottomBeforeInputRef.current =
+        range <= 0 || scrollTop >= range - AUTO_SCROLL_THRESHOLD;
       setScrollY(scrollTop);
       setDomScrollRange(range);
     };
@@ -204,7 +212,12 @@ export function GlobalBottomBarWeb() {
     const el = textareaRef.current;
     if (!el) return;
     const isAtMaxHeight = dynamicHeight >= MAX_BAR_HEIGHT;
-    if (rawLines === 7 && isAtMaxHeight && el.scrollTop === 0) {
+    if (
+      rawLines === 7 &&
+      isAtMaxHeight &&
+      el.scrollTop === 0 &&
+      wasNearBottomBeforeInputRef.current
+    ) {
       el.scrollTop = INNER_PADDING;
     }
   }, [rawLines, dynamicHeight]);
@@ -215,6 +228,7 @@ export function GlobalBottomBarWeb() {
     if (typeof document === "undefined") return;
     const el = textareaRef.current;
     if (!el || !isScrollMode) return;
+    if (!wasNearBottomBeforeInputRef.current) return;
     const range = el.scrollHeight - el.clientHeight;
     if (range <= 0) return;
     const raf = requestAnimationFrame(() => {

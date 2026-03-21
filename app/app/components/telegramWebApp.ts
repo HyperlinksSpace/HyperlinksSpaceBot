@@ -30,6 +30,12 @@ declare global {
 let cachedHashParams: URLSearchParams | null = null;
 let cachedInitDataFromHash: string | null | undefined = undefined;
 
+/** Clear cached launch params (e.g. hash was empty on first read, then populated). */
+export function resetTelegramLaunchCache(): void {
+  cachedHashParams = null;
+  cachedInitDataFromHash = undefined;
+}
+
 /** Get launch params from URL hash. Cached on first read so hash routing doesn't lose them. */
 function getLaunchParamsFromHash(): URLSearchParams | null {
   if (typeof window === "undefined") return null;
@@ -44,7 +50,11 @@ function getLaunchParamsFromHash(): URLSearchParams | null {
 function getInitDataFromHash(): string | null {
   if (cachedInitDataFromHash !== undefined) return cachedInitDataFromHash ?? null;
   const params = getLaunchParamsFromHash();
-  const raw = params?.get("tgWebAppData") ?? null;
+  // Do not cache "no hash yet" — first read can be before Mini App hash is present.
+  if (params == null) {
+    return null;
+  }
+  const raw = params.get("tgWebAppData") ?? null;
   const s = raw?.trim();
   cachedInitDataFromHash = s && s.length > 0 ? s : null;
   return cachedInitDataFromHash;
@@ -64,14 +74,39 @@ export function isAvailable(): boolean {
 }
 
 /** Load Telegram Web App script if missing (script is not auto-injected; page must include or load it). */
-export function ensureTelegramScript(): void {
+export function ensureTelegramScript(onLoad?: () => void): void {
   if (typeof window === "undefined" || typeof document === "undefined") return;
-  if ((window as Window).Telegram?.WebApp) return;
-  if (document.querySelector('script[src*="telegram.org/js/telegram-web-app"]')) return;
+  if ((window as Window).Telegram?.WebApp) {
+    onLoad?.();
+    return;
+  }
+
+  const existing = document.querySelector<HTMLScriptElement>(
+    'script[src*="telegram.org/js/telegram-web-app"]',
+  );
+  if (existing) {
+    if (existing.dataset.telegramWebAppLoaded === "1") {
+      onLoad?.();
+      return;
+    }
+    existing.addEventListener(
+      "load",
+      () => {
+        existing.dataset.telegramWebAppLoaded = "1";
+        onLoad?.();
+      },
+      { once: true },
+    );
+    return;
+  }
 
   const script = document.createElement("script");
   script.src = "https://telegram.org/js/telegram-web-app.js";
   script.async = true;
+  script.onload = () => {
+    script.dataset.telegramWebAppLoaded = "1";
+    onLoad?.();
+  };
   document.head.appendChild(script);
 }
 
@@ -129,12 +164,24 @@ export function getThemeParamsFromLaunch(): ThemeParams | null {
   const params = getLaunchParamsFromHash();
   const raw = params?.get("tgWebAppThemeParams");
   if (!raw) return null;
+  const trimmed = raw.trim();
+  const candidates = [trimmed];
   try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as ThemeParams) : null;
+    const dec = decodeURIComponent(trimmed);
+    if (dec !== trimmed) candidates.push(dec.trim());
   } catch {
-    return null;
+    // ignore
   }
+  for (const s of candidates) {
+    if (!s) continue;
+    try {
+      const parsed = JSON.parse(s);
+      if (parsed && typeof parsed === "object") return parsed as ThemeParams;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }
 
 export function getThemeParamsFromWebApp(): ThemeParams | null {
@@ -143,8 +190,109 @@ export function getThemeParamsFromWebApp(): ThemeParams | null {
   return tp && typeof tp === "object" ? (tp as ThemeParams) : null;
 }
 
+/**
+ * WebApp.themeParams first, then hash. Use after Mini App is ready (runTmaFlow, theme listeners).
+ * Do not use for first-paint bootstrap: Telegram can briefly expose stale/default **dark**
+ * `themeParams` before syncing the real client theme (e.g. light → dark flash).
+ */
 export function getInitialThemeParams(): ThemeParams | null {
   return getThemeParamsFromWebApp() ?? getThemeParamsFromLaunch();
+}
+
+/** Matches theme.ts ThemeColors shape; values are whatever Telegram sets (hex or rgb()). */
+export type TelegramCssThemeColors = {
+  background: string;
+  primary: string;
+  secondary: string;
+};
+
+/**
+ * Telegram WebApp sets --tg-theme-* on documentElement (and sometimes body) before/while JS runs.
+ * Use while React theme is not ready so we never paint our hard-coded "dark" app palette first.
+ */
+export function getThemeColorsFromTelegramCssVars(): TelegramCssThemeColors | null {
+  if (typeof document === "undefined") return null;
+  const roots = [document.documentElement, document.body];
+  for (const el of roots) {
+    const cs = getComputedStyle(el);
+    const bg = cs.getPropertyValue("--tg-theme-bg-color").trim();
+    const text = cs.getPropertyValue("--tg-theme-text-color").trim();
+    const hint = cs.getPropertyValue("--tg-theme-hint-color").trim();
+    if (bg) {
+      return {
+        background: bg,
+        primary: text || "#000000",
+        secondary: hint || "#818181",
+      };
+    }
+  }
+  return null;
+}
+
+function pickThemeParam(tp: ThemeParams | null | undefined, keys: string[]): string | null {
+  if (!tp) return null;
+  for (const k of keys) {
+    const v = tp[k];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  return null;
+}
+
+/** Sync colors from a theme_params object (WebApp.themeParams or parsed launch JSON). */
+export function getThemeColorsFromThemeParamsObject(
+  tp: ThemeParams | null | undefined,
+): TelegramCssThemeColors | null {
+  const bg = pickThemeParam(tp, ["bg_color"]);
+  if (!bg) return null;
+  const text = pickThemeParam(tp, ["text_color", "link_color"]);
+  const hint = pickThemeParam(tp, ["hint_color", "subtitle_text_color"]);
+  return {
+    background: bg,
+    primary: text || "#000000",
+    secondary: hint || "#818181",
+  };
+}
+
+/** Same as theme_params on window.Telegram.WebApp — often populated before CSS vars resolve. */
+export function getThemeColorsFromWebAppThemeParams(): TelegramCssThemeColors | null {
+  return getThemeColorsFromThemeParamsObject(getThemeParamsFromWebApp());
+}
+
+/** Launch hash tgWebAppThemeParams — for pre-ready paint only (not for themeBgReady / scheme). */
+export function getThemeColorsFromLaunchThemeParams(): TelegramCssThemeColors | null {
+  return getThemeColorsFromThemeParamsObject(getThemeParamsFromLaunch());
+}
+
+/** Luminance of #RRGGBB (same threshold as Telegram.tsx theme classification). */
+function luminanceFromHex(hex: string): number {
+  const m = hex.trim().match(/^#([0-9a-fA-F]{6})$/);
+  if (!m) return 0;
+  const h = m[1];
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Text/placeholder color from launch theme params only (sync, first paint).
+ * Matches app theme.ts light/dark primary when explicit colors are missing.
+ */
+export function getPrimaryTextColorFromLaunch(): string | null {
+  const tp = getThemeParamsFromLaunch();
+  if (!tp) return null;
+  for (const key of ["text_color", "hint_color"] as const) {
+    const v = tp[key];
+    if (typeof v === "string" && /^#([0-9a-fA-F]{6})$/.test(v.trim())) {
+      return v.trim();
+    }
+  }
+  const bgRaw = tp.bg_color ?? tp.secondary_bg_color ?? tp.section_bg_color;
+  if (typeof bgRaw === "string" && /^#([0-9a-fA-F]{6})$/.test(bgRaw.trim())) {
+    const bg = bgRaw.trim();
+    return luminanceFromHex(bg) < 128 ? "#FAFAFA" : "#111111";
+  }
+  return null;
 }
 
 export function getIsFullscreen(): boolean {

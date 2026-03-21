@@ -35,8 +35,11 @@ export default function RootLayout() {
 
 function RootContent() {
   const colors = useColors();
-  const { themeBgReady } = useTelegram();
+  const { themeBgReady, useTelegramTheme } = useTelegram();
   const backgroundColor = themeBgReady ? colors.background : "transparent";
+  // Stronger than opacity:0 — avoids one frame of dark RN-web compositing before themeBgReady.
+  const hideWebUntilTheme =
+    Platform.OS === "web" && useTelegramTheme && !themeBgReady;
 
   return (
     <View
@@ -45,8 +48,10 @@ function RootContent() {
         {
           backgroundColor,
           opacity: themeBgReady ? 1 : 0,
-          // Prevent dark-theme flicker from being interactable before Telegram theme arrives.
           pointerEvents: themeBgReady ? "auto" : "none",
+          ...(Platform.OS === "web"
+            ? { display: hideWebUntilTheme ? "none" : "flex" }
+            : {}),
         },
       ]}
     >
@@ -54,7 +59,14 @@ function RootContent() {
       <View style={styles.main}>
         <Stack screenOptions={{ headerShown: false }} />
       </View>
-      {Platform.OS === "web" ? <GlobalBottomBarWeb /> : <GlobalBottomBar />}
+      {Platform.OS === "web" ? (
+        // Avoid mounting textarea/DOM mirror before theme — kills dark flash from RN-web inputs.
+        !useTelegramTheme || themeBgReady ? (
+          <GlobalBottomBarWeb />
+        ) : null
+      ) : (
+        <GlobalBottomBar />
+      )}
     </View>
   );
 }

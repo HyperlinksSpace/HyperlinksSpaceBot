@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { init, on, viewport } from "@tma.js/sdk-react";
 import { on as onBridge } from "@tma.js/bridge";
 import {
@@ -6,8 +6,12 @@ import {
   getInitDataString,
   getStartParam,
   getInitialThemeParams,
+  getPlatformFromHash,
+  getThemeParamsFromLaunch,
+  getWebAppVersionFromHash,
   isAvailable,
   readyAndExpand,
+  resetTelegramLaunchCache,
   triggerHaptic as triggerHapticImpl,
 } from "./telegramWebApp";
 import { buildApiUrl } from "../../api/base";
@@ -38,6 +42,87 @@ function isLikelyInTma(): boolean {
   }
 }
 
+/** Sync signals only (hash / UA / WebApp presence). Do not use for API calls. */
+function isTelegramLikelyAtStartup(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    if (getThemeParamsFromLaunch() != null) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const hash = window.location.hash ?? "";
+    if (hash.includes("tgWebApp")) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    if (getPlatformFromHash() != null || getWebAppVersionFromHash() != null) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    const ua = (window.navigator?.userAgent ?? "").toLowerCase();
+    if (ua.includes("telegram")) return true;
+  } catch {
+    // ignore
+  }
+  return isAvailable();
+}
+
+function normalizeHexBg(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  if (/^#([0-9a-fA-F]{6})$/.test(s)) return s;
+  const m3 = /^#([0-9a-fA-F]{3})$/.exec(s);
+  if (m3) {
+    const x = m3[1];
+    return `#${x[0]}${x[0]}${x[1]}${x[1]}${x[2]}${x[2]}`.toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * Only `bg_color` defines the main chat background in Telegram theme_params.
+ * Do NOT fall back to secondary_bg_color / section_bg_color for light/dark app scheme:
+ * those can be dark panels while the client is in light mode → false "dark" + flash.
+ */
+function getBgColorForScheme(tp: Record<string, string> | null | undefined): string | null {
+  if (!tp) return null;
+  return normalizeHexBg(tp.bg_color);
+}
+
+function classifyThemeFromBgColor(bgColor: string | undefined | null): "dark" | "light" {
+  if (!bgColor || typeof bgColor !== "string") return "dark";
+  const m = bgColor.trim().match(/^#([0-9a-fA-F]{6})$/);
+  if (!m) return "dark";
+  const hex = m[1];
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const scheme = luminance < 128 ? "dark" : "light";
+  // eslint-disable-next-line no-console
+  console.log("[TMA theme] classify", { bgColor: bgColor.trim(), luminance, scheme });
+  return scheme;
+}
+
+/** Mini App when hash/UA says so OR init data / WebApp is present (isAvailable). */
+function isMiniAppContext(): boolean {
+  return isTelegramLikelyAtStartup() || isAvailable();
+}
+
+function initialColorSchemeFromBootstrap(): "dark" | "light" {
+  // Real scheme comes from Telegram.WebApp in runTmaFlow — never from launch hash (hash bg_color
+  // can disagree with WebApp and flash dark before "initial themeParams bg: #ffffff").
+  return "dark";
+}
+
+function initialThemeBgReadyFromBootstrap(): boolean {
+  // Must match server + client. SSR returned true here while client used false → React #418 + wrong tree.
+  return false;
+}
+
 type TelegramStatus = "idle" | "loading" | "ok" | "error" | "dev";
 
 export type TelegramDebugInfo = {
@@ -60,10 +145,17 @@ export type TelegramContextValue = {
   telegramUsername: string | null;
   error: string | null;
   isInTelegram: boolean;
+  /**
+   * Use Telegram palette (launch + colorScheme) — true when in Mini App context OR status is not dev.
+   * Differs from isInTelegram when status is "dev" but tgWebApp hash/init data exists (theme.ts must not force dark).
+   */
+  useTelegramTheme: boolean;
   /** "dark" | "light" per Telegram theme; dark is default/fallback. */
   colorScheme: "dark" | "light";
   /** True once we have a valid Telegram theme bg_color and can safely paint our custom palette. */
   themeBgReady: boolean;
+  /** False on SSR/first paint, true after client mount — keeps useColors in sync with server HTML (hydration). */
+  clientHydrated: boolean;
   triggerHaptic: (style: string) => void;
   safeAreaInsetTop: number;
   contentSafeAreaInsetTop: number;
@@ -94,8 +186,10 @@ const defaultContext: TelegramContextValue = {
   telegramUsername: null,
   error: null,
   isInTelegram: false,
+  useTelegramTheme: false,
   colorScheme: "dark",
   themeBgReady: false,
+  clientHydrated: false,
   triggerHaptic: () => {},
   safeAreaInsetTop: 0,
   contentSafeAreaInsetTop: 0,
@@ -117,53 +211,59 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const [debug, setDebug] = useState<TelegramDebugInfo>(defaultDebug);
   const hasRegisteredRef = useRef(false);
   const initPollCleanupRef = useRef<(() => void) | null>(null);
+  /** Block SDK/bridge theme events until runTmaFlow has applied WebApp theme (avoids stale dark WebApp). */
+  const tmaInitialThemeResolvedRef = useRef(false);
 
   const [safeAreaInsetTop, setSafeAreaInsetTop] = useState(0);
   const [contentSafeAreaInsetTop, setContentSafeAreaInsetTop] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(true);
-  const [colorScheme, setColorScheme] = useState<"dark" | "light">(() => {
-    if (typeof window === "undefined") return "dark";
-    try {
-      const tp = getInitialThemeParams();
-      const bg =
-        tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
-      return classifyThemeFromBgColor(bg);
-    } catch {
-      return "dark";
+  const [colorScheme, setColorScheme] = useState<"dark" | "light">(initialColorSchemeFromBootstrap);
+
+  // Client starts hidden (themeBgReady false) until plain-web unlock (useLayoutEffect) or TMA runTmaFlow.
+  const [themeBgReady, setThemeBgReady] = useState<boolean>(initialThemeBgReadyFromBootstrap);
+  const [clientHydrated, setClientHydrated] = useState(false);
+  useEffect(() => {
+    setClientHydrated(true);
+  }, []);
+
+  // Plain web: unlock immediately. TMA: do NOT paint from launch hash — it can mismatch WebApp
+  // (dark classify in hash vs bg #ffffff in WebApp); only runTmaFlow uses WebApp.themeParams.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    function unlockPlainWebIfNeeded(): void {
+      resetTelegramLaunchCache();
+      if (isMiniAppContext()) return;
+      setThemeBgReady(true);
     }
-  });
+    unlockPlainWebIfNeeded();
+    const raf = requestAnimationFrame(() => unlockPlainWebIfNeeded());
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
-  // IMPORTANT:
-  // Keep this as `false` on the very first render (SSR + client hydration),
-  // because Telegram themeParams may arrive only after `web_app_request_theme`.
-  // We will flip it to `true` only after we receive a valid bg_color.
-  const [themeBgReady, setThemeBgReady] = useState<boolean>(false);
+  // Hash changes: re-read WebApp (authoritative), not tgWebAppThemeParams from hash alone.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isMiniAppContext()) return;
+    const onHashChange = () => {
+      resetTelegramLaunchCache();
+      const bg = getBgColorForScheme(getInitialThemeParams());
+      if (bg) {
+        setColorScheme(classifyThemeFromBgColor(bg));
+        setThemeBgReady(true);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
-  function classifyThemeFromBgColor(bgColor: string | undefined | null): "dark" | "light" {
-    if (!bgColor || typeof bgColor !== "string") return "dark";
-    const m = bgColor.match(/^#([0-9a-fA-F]{6})$/);
-    if (!m) return "dark";
-    const hex = m[1];
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    // Perceptual luminance approximation; threshold picked to clearly separate Telegram dark vs light palettes.
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const scheme = luminance < 128 ? "dark" : "light";
-    // Debug log to see classification in TMA console
-    // eslint-disable-next-line no-console
-    console.log("[TMA theme] classify", { bgColor, luminance, scheme });
-    return scheme;
-  }
-
-  // Live theme updates: update `colorScheme` whenever Telegram changes theme.
-  // This is what makes our React UI (logo bar / backgrounds) repaint without reload.
+  // Live theme updates: SDK + bridge + native WebApp (no polling).
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     let cleanupSdk: (() => void) | undefined;
     let cleanupBridge: (() => void) | undefined;
     let cleanupNative: (() => void) | undefined;
+    let nativeAttached = false;
 
     function updateScheme(next: "dark" | "light") {
       setColorScheme((prev) => {
@@ -183,7 +283,18 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
+    function applyFromWebApp(): void {
+      if (!tmaInitialThemeResolvedRef.current) return;
+      const tp = getInitialThemeParams();
+      const bg = getBgColorForScheme(tp);
+      if (!bg) return;
+      const scheme = classifyThemeFromBgColor(bg);
+      updateScheme(scheme);
+      markThemeBgReady();
+    }
+
     function computeSchemeFromPayload(payload: unknown): void {
+      if (!tmaInitialThemeResolvedRef.current) return;
       const anyPayload = payload as unknown as {
         color_scheme?: string;
         theme_params?: Record<string, string>;
@@ -197,18 +308,39 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       }
 
       const tp = anyPayload?.theme_params;
-      const bg =
-        tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
-      const hasValidBg =
-        typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
-      if (!hasValidBg) return;
+      const bg = getBgColorForScheme(tp);
+      if (!bg) return;
       const scheme = classifyThemeFromBgColor(bg);
       updateScheme(scheme);
       markThemeBgReady();
     }
 
-    // Attach SDK-react + bridge listeners (event name is the same in both).
-    // These should fire on theme changes while the Mini App is open.
+    function tryAttachNativeThemeOnce(): void {
+      if (nativeAttached) return;
+      try {
+        const app = (window as Window).Telegram?.WebApp as unknown as {
+          onEvent?: (eventType: string, cb: () => void) => void;
+          offEvent?: (eventType: string, cb: () => void) => void;
+        } | null;
+        if (!app || typeof app.onEvent !== "function") return;
+
+        const handler = () => applyFromWebApp();
+        app.onEvent("themeChanged", handler);
+        nativeAttached = true;
+        cleanupNative = () => {
+          try {
+            if (typeof app.offEvent === "function") {
+              app.offEvent("themeChanged", handler);
+            }
+          } catch {
+            // ignore
+          }
+        };
+      } catch {
+        // ignore
+      }
+    }
+
     try {
       ensureSdkInitialized();
       cleanupSdk = on("theme_changed", (payload) => computeSchemeFromPayload(payload));
@@ -224,92 +356,10 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
 
-    // Native Telegram event: WebApp.onEvent('themeChanged', ...)
-    // Telegram may inject WebApp asynchronously, so we poll briefly.
-    const POLL_MS = 100;
-    const POLL_MAX = 50; // 5s
-    let pollCount = 0;
-    const intervalId = window.setInterval(() => {
-      pollCount += 1;
-      try {
-        if (!isLikelyInTma()) return;
-        const tg = (window as unknown as { Telegram?: { WebApp?: unknown } }).Telegram;
-        const app = tg?.WebApp as unknown as {
-          onEvent?: unknown;
-          offEvent?: unknown;
-        } | null;
-
-        const onEvent = app?.onEvent;
-        if (typeof onEvent !== "function") return;
-
-        // Ensure we attach only once.
-        if (cleanupNative) return;
-
-        const handler = () => {
-          const tp = getInitialThemeParams();
-          const bg =
-            tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
-          const hasValidBg =
-            typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
-          if (!hasValidBg) return;
-          const scheme = classifyThemeFromBgColor(bg);
-          updateScheme(scheme);
-          markThemeBgReady();
-        };
-
-        (onEvent as unknown as (eventType: string, cb: () => void) => void)(
-          "themeChanged",
-          handler,
-        );
-
-        const offEvent = app?.offEvent;
-        cleanupNative = () => {
-          try {
-            if (typeof offEvent === "function") {
-              (offEvent as unknown as (eventType: string, cb: () => void) => void)(
-                "themeChanged",
-                handler,
-              );
-            }
-          } catch {
-            // ignore
-          }
-        };
-      } catch {
-        // ignore
-      }
-
-      if (pollCount >= POLL_MAX) {
-        window.clearInterval(intervalId);
-      }
-    }, POLL_MS);
-
-    // Short last-resort poll: if event wiring fails in some environments,
-    // still converge to the right scheme quickly.
-    const POLL_SCHEME_MS = 500;
-    const POLL_SCHEME_MAX = 20; // 10s
-    let schemePoll = 0;
-    const schemeIntervalId = window.setInterval(() => {
-      schemePoll += 1;
-      try {
-        if (!isLikelyInTma()) return;
-        const tp = getInitialThemeParams();
-        const bg =
-          tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
-        const hasValidBg =
-          typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
-        if (!hasValidBg) return;
-        const scheme = classifyThemeFromBgColor(bg);
-        updateScheme(scheme);
-        markThemeBgReady();
-      } catch {
-        // ignore
-      }
-
-      if (schemePoll >= POLL_SCHEME_MAX) {
-        window.clearInterval(schemeIntervalId);
-      }
-    }, POLL_SCHEME_MS);
+    if (isTelegramLikelyAtStartup()) {
+      tryAttachNativeThemeOnce();
+      ensureTelegramScript(() => tryAttachNativeThemeOnce());
+    }
 
     return () => {
       try {
@@ -327,9 +377,6 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // ignore
       }
-
-      window.clearInterval(intervalId);
-      window.clearInterval(schemeIntervalId);
     };
   }, []);
 
@@ -486,16 +533,14 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     function runTmaFlow(): () => void {
       readyAndExpand();
 
-      // Initial theme: try WebApp.themeParams or tgWebAppThemeParams launch param.
+      // Initial theme: WebApp first (matches Telegram UI). Launch hash can disagree → dark flash.
       try {
-        const tp = getInitialThemeParams();
-        const bg =
-          tp?.bg_color ?? tp?.secondary_bg_color ?? tp?.section_bg_color;
+        const launchTp = getThemeParamsFromLaunch();
+        const webTp = getInitialThemeParams();
+        const bg = getBgColorForScheme(webTp) ?? getBgColorForScheme(launchTp);
         // eslint-disable-next-line no-console
-        console.log("[TMA theme] initial themeParams", tp, "bg:", bg);
-        const hasValidBg =
-          typeof bg === "string" && /^#([0-9a-fA-F]{6})$/.test(bg);
-        if (hasValidBg) {
+        console.log("[TMA theme] initial themeParams", { launch: launchTp, web: webTp }, "bg:", bg);
+        if (bg) {
           setColorScheme(classifyThemeFromBgColor(bg));
           setThemeBgReady((prev) => {
             if (prev) return prev;
@@ -506,6 +551,8 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {
         // ignore; keep default "dark"
+      } finally {
+        tmaInitialThemeResolvedRef.current = true;
       }
 
       let initDataStr = getInitDataString();
@@ -527,39 +574,64 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     }
 
     let webAppPollCount = 0;
-    const webAppInterval = setInterval(() => {
-      webAppPollCount += 1;
-      setDebug((d) => ({ ...d, webAppPollCount }));
+    let webAppInterval: ReturnType<typeof setInterval> | undefined;
 
-      if (isAvailable()) {
+    function tryAttachWebApp(): boolean {
+      if (!isAvailable()) return false;
+      if (webAppInterval != null) {
         clearInterval(webAppInterval);
-        setDebug((d) => ({ ...d, hasWebApp: true }));
-        initPollCleanupRef.current = runTmaFlow();
-        return;
+        webAppInterval = undefined;
       }
+      setDebug((d) => ({ ...d, hasWebApp: true }));
+      initPollCleanupRef.current = runTmaFlow();
+      return true;
+    }
 
-      if (webAppPollCount >= WEBAPP_POLL_MAX) {
-        clearInterval(webAppInterval);
-        setDebug((d) => ({ ...d, apiMessage: "no WebApp (timeout)" }));
-        setStatus("dev");
-      }
-    }, WEBAPP_POLL_MS);
+    // Run once immediately — avoids extra 100ms dark frame while waiting for first interval tick.
+    if (!tryAttachWebApp()) {
+      webAppInterval = setInterval(() => {
+        webAppPollCount += 1;
+        setDebug((d) => ({ ...d, webAppPollCount }));
+
+        if (tryAttachWebApp()) return;
+
+        if (webAppPollCount >= WEBAPP_POLL_MAX) {
+          if (webAppInterval != null) clearInterval(webAppInterval);
+          webAppInterval = undefined;
+          setDebug((d) => ({ ...d, apiMessage: "no WebApp (timeout)" }));
+          setStatus("dev");
+        }
+      }, WEBAPP_POLL_MS);
+    }
 
     return () => {
-      clearInterval(webAppInterval);
+      if (webAppInterval != null) clearInterval(webAppInterval);
       initPollCleanupRef.current?.();
     };
   }, []);
 
+  // Plain web only: after WebApp poll times out we set status "dev" — ensure UI is visible.
+  // Do not force themeBgReady in Mini App (would show dark before runTmaFlow applies launch theme).
+  useEffect(() => {
+    if (status !== "dev") return;
+    if (isMiniAppContext()) return;
+    setThemeBgReady(true);
+  }, [status]);
+
   const isInTelegram = status !== "dev";
+  const useTelegramTheme =
+    status !== "dev" ||
+    (typeof window !== "undefined" && (isTelegramLikelyAtStartup() || isAvailable()));
 
   const value: TelegramContextValue = {
     status,
     telegramUsername,
     error,
     isInTelegram,
+    useTelegramTheme,
     colorScheme,
     themeBgReady,
+    clientHydrated,
     triggerHaptic: triggerHapticImpl,
     safeAreaInsetTop,
     contentSafeAreaInsetTop,

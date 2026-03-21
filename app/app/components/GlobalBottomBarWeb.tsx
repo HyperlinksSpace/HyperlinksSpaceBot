@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useTelegram } from "./Telegram";
+import { getPrimaryTextColorFromLaunch } from "./telegramWebApp";
 import { layout, icons, useColors } from "../theme";
 
 const { maxContentWidth } = layout;
@@ -35,38 +36,10 @@ export function GlobalBottomBarWeb() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const domMirrorRef = useRef<HTMLDivElement | null>(null);
 
-  // Hide native scrollbar for the textarea (same as we try for the main bar).
-  // Recreate the style tag whenever the primary color changes so the
-  // placeholder color follows the current theme.
-  useEffect(() => {
-    const styleId = "global-bottom-bar-web-style";
-    if (typeof document === "undefined") return;
-
-    const existing = document.getElementById(styleId);
-    if (existing) existing.remove();
-
-    const styleEl = document.createElement("style");
-    styleEl.id = styleId;
-    styleEl.textContent = `
-      [data-global-bottom-bar-web] {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-        background-color: transparent !important;
-      }
-      [data-global-bottom-bar-web]::-webkit-scrollbar {
-        width: 0;
-        height: 0;
-      }
-      [data-global-bottom-bar-web]::placeholder {
-        color: ${colors.primary};
-        opacity: 1;
-      }
-    `;
-    document.head.appendChild(styleEl);
-    return () => {
-      document.getElementById(styleId)?.remove();
-    };
-  }, [colors.primary]);
+  // Until Telegram theme is fully applied in React, use launch hash colors (sync, no grey flash).
+  const launchPrimary =
+    typeof window !== "undefined" ? getPrimaryTextColorFromLaunch() : null;
+  const inputColor = themeBgReady ? colors.primary : (launchPrimary ?? colors.primary);
 
   const measureAndResize = useCallback(() => {
     const el = textareaRef.current;
@@ -281,14 +254,16 @@ export function GlobalBottomBarWeb() {
                 lineHeight: `${LINE_HEIGHT}px`,
                 paddingTop: INNER_PADDING,
                 paddingBottom: INNER_PADDING,
-                paddingRight: 12,
+                paddingRight: 36,
                 boxSizing: "border-box",
                 resize: "none",
                 border: "none",
                 outline: "none",
-                color: colors.primary,
+                color: inputColor,
                 backgroundColor: "transparent",
-                caretColor: colors.primary,
+                caretColor: inputColor,
+                ["--ai-placeholder-color" as string]: inputColor,
+                fontFamily: "Aeroport",
                 // Allow scroll exactly when content exceeds the visible viewport height.
                 overflow: contentHeightWithGaps > viewportHeight ? "auto" : "hidden",
               }}
@@ -299,7 +274,7 @@ export function GlobalBottomBarWeb() {
             <Svg width={icons.apply.width} height={icons.apply.height} viewBox="0 0 15 10">
               <Path
                 d="M1 5H10M6 1L10 5L6 9"
-                stroke={colors.primary}
+                stroke={inputColor}
                 strokeWidth={1.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"

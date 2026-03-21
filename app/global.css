@@ -5,12 +5,15 @@ html {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  background-color: var(--tg-theme-bg-color, transparent);
 }
 body {
   height: var(--tg-viewport-height, 100%);
   min-height: var(--tg-viewport-height, 100%);
   overflow: hidden;
   overscroll-behavior: none;
+  /* TMA: Telegram sets --tg-theme-bg-color early; fills gap before React shows the app (no dark flash). */
+  background-color: var(--tg-theme-bg-color, transparent);
 }
 
 /* TMA: --tg-viewport-height is set and updated by TMA SDK viewport.bindCssVars() on viewport_changed only. */
@@ -19,6 +22,7 @@ body {
   height: var(--tg-viewport-height, 100%);
   min-height: var(--tg-viewport-height, 100%);
   overflow: hidden;
+  background-color: var(--tg-theme-bg-color, transparent);
 }
 
 /* Hide native textarea scrollbars (React Native Web TextInput) while keeping scroll behaviour. */
@@ -40,5 +44,22 @@ textarea[data-ai-input="true"] {
   padding-bottom: 0 !important;
   border: none !important;
   box-sizing: content-box;
+}
+
+/* GlobalBottomBarWeb: placeholder uses CSS var set inline (sync with Telegram launch theme). */
+[data-global-bottom-bar-web] {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  background-color: transparent !important;
+}
+
+[data-global-bottom-bar-web]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+[data-global-bottom-bar-web]::placeholder {
+  color: var(--ai-placeholder-color, #fafafa);
+  opacity: 1;
 }
 

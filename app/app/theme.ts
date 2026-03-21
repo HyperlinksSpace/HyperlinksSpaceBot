@@ -1,3 +1,9 @@
+import {
+  getThemeColorsFromLaunchThemeParams,
+  getThemeColorsFromTelegramCssVars,
+  getThemeColorsFromWebAppThemeParams,
+} from "./components/telegramWebApp";
+
 const sharedColors = {
   secondary: "#818181",
 } as const;
@@ -27,22 +33,64 @@ export function getColorsForTheme(name: ThemeName | undefined | null): ThemeColo
   return dark;
 }
 
+/** Same on SSR and first client paint — never app dark (#111); Telegram bg shows through CSS vars. */
+const TELEGRAM_PRE_READY_FALLBACK: ThemeColors = {
+  background: "transparent",
+  primary: "rgba(0,0,0,0.35)",
+  secondary: "#818181",
+};
+
 // Convenience hook: derive palette when used in React, using Telegram theme in TMA
 // and dark theme as default/fallback elsewhere.
 export function useColors(): ThemeColors {
   // Lazy import to avoid a hard dependency when this is used outside React.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { useTelegram } = require("./components/Telegram") as {
-    useTelegram: () => { colorScheme: ThemeName; isInTelegram: boolean };
+    useTelegram: () => {
+      colorScheme: ThemeName;
+      isInTelegram: boolean;
+      useTelegramTheme: boolean;
+      themeBgReady: boolean;
+      clientHydrated: boolean;
+    };
   };
-  const { colorScheme, isInTelegram } = useTelegram();
+  const { colorScheme, isInTelegram, useTelegramTheme, themeBgReady, clientHydrated } =
+    useTelegram();
 
+  // TMA before themeBgReady: never use app dark (#111). Until clientHydrated, match SSR exactly
+  // (React #418 if server HTML used different colors / themeBgReady than first client render).
+  if (useTelegramTheme && !themeBgReady) {
+    if (!clientHydrated) {
+      return TELEGRAM_PRE_READY_FALLBACK;
+    }
+    const preReady =
+      getThemeColorsFromTelegramCssVars() ??
+      getThemeColorsFromWebAppThemeParams() ??
+      getThemeColorsFromLaunchThemeParams();
+    if (preReady) {
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log("[useColors] telegram pre-ready palette", preReady);
+      }
+      return preReady;
+    }
+    return TELEGRAM_PRE_READY_FALLBACK;
+  }
+
+  // Plain web: default dark. TMA after themeBgReady: colorScheme from WebApp.
   const themeName: ThemeName =
-    isInTelegram ? colorScheme : "dark";
+    !useTelegramTheme ? "dark" : themeBgReady ? colorScheme : "dark";
 
-  // Debug: trace final colors selection end-to-end.
-  // eslint-disable-next-line no-console
-  console.log("[useColors] resolved", { isInTelegram, colorScheme, themeName });
+  if (__DEV__) {
+    // eslint-disable-next-line no-console
+    console.log("[useColors] resolved", {
+      isInTelegram,
+      useTelegramTheme,
+      themeBgReady,
+      colorScheme,
+      themeName,
+    });
+  }
 
   return getColorsForTheme(themeName);
 }

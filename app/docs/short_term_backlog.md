@@ -1,10 +1,11 @@
 File's formats and folders structure
+Windows instant update
 Bottom bar refactor
 Username loaded without intermediate state
 AI options page
 Bottom bar icon review
 AI chat page
-App theme
+Wallet: Telegram, Connected, Unhosted
 
 Issues:
 Several chats async streaming

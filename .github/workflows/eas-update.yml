@@ -1,0 +1,64 @@
+name: Publish EAS OTA Update
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - app/**
+      - .github/workflows/eas-update.yml
+    paths-ignore:
+      - app/releases/**
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: EAS update branch
+        required: true
+        default: main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve target update branch
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            target_branch="${{ inputs.branch }}"
+          else
+            target_branch="main"
+          fi
+          echo "branch=$target_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Publish OTA update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${EXPO_TOKEN:-}" ]]; then
+            echo "EXPO_TOKEN secret is required."
+            exit 1
+          fi
+          npx eas-cli@latest update \
+            --non-interactive \
+            --branch "${{ steps.target.outputs.branch }}" \
+            --message "CI publish ${GITHUB_SHA}"

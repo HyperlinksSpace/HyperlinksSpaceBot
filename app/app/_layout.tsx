@@ -1,12 +1,14 @@
 import "../global.css";
-import { View, StyleSheet, Platform, KeyboardAvoidingView } from "react-native";
+import { View, StyleSheet, Platform, KeyboardAvoidingView, AppState, Alert } from "react-native";
 import { Stack } from "expo-router";
+import * as Updates from "expo-updates";
 import { TelegramProvider } from "./components/Telegram";
 import { GlobalLogoBarWithFallback } from "./components/GlobalLogoBarWithFallback";
 import { GlobalBottomBar } from "./components/GlobalBottomBar";
 import { GlobalBottomBarWeb } from "./components/GlobalBottomBarWeb";
 import { useColors } from "./theme";
 import { useTelegram } from "./components/Telegram";
+import { useEffect, useRef } from "react";
 
 /**
  * Three-block column layout (same as Flutter):
@@ -16,6 +18,7 @@ import { useTelegram } from "./components/Telegram";
  * 4. AI & Search bar (fixed at bottom)
  */
 export default function RootLayout() {
+  useOtaUpdateChecks();
   return (
     <TelegramProvider>
       {Platform.OS === "ios" ? (
@@ -31,6 +34,51 @@ export default function RootLayout() {
       )}
     </TelegramProvider>
   );
+}
+
+function useOtaUpdateChecks() {
+  const lastCheckAtRef = useRef(0);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    const checkForOtaUpdate = async () => {
+      const now = Date.now();
+      // Throttle checks to avoid noisy network calls while app toggles foreground quickly.
+      if (now - lastCheckAtRef.current < 10 * 60 * 1000) return;
+      lastCheckAtRef.current = now;
+
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (!result.isAvailable) return;
+
+        await Updates.fetchUpdateAsync();
+        Alert.alert(
+          "Update ready",
+          "A new version has been downloaded. Restart now to apply it?",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Restart",
+              onPress: () => {
+                void Updates.reloadAsync();
+              },
+            },
+          ],
+        );
+      } catch (error) {
+        console.warn("[updates] OTA check failed", error);
+      }
+    };
+
+    void checkForOtaUpdate();
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void checkForOtaUpdate();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 }
 
 function RootContent() {

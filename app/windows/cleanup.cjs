@@ -6,10 +6,11 @@ const releasesDir = path.join(appDir, "releases");
 const legacyReleaseDir = path.join(appDir, "release");
 const artifactsDir = path.join(releasesDir, "artifacts");
 
-// build_MMDDYYYY_HHMM
+// build_MMDDYYYY_HHMM — optional override for CI (must match build_* pattern)
 const now = new Date();
 const pad = (n) => String(n).padStart(2, "0");
-const buildName =
+const envBuildId = process.env.RELEASE_BUILD_ID?.trim();
+const defaultBuildName =
   "build_" +
   pad(now.getMonth() + 1) +
   pad(now.getDate()) +
@@ -17,6 +18,8 @@ const buildName =
   "_" +
   pad(now.getHours()) +
   pad(now.getMinutes());
+const buildName =
+  envBuildId && /^build_\d{8}_\d{4}$/.test(envBuildId) ? envBuildId : defaultBuildName;
 
 const buildDir = path.join(releasesDir, buildName);
 const devDir = path.join(buildDir, "dev");

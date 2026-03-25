@@ -1,0 +1,168 @@
+# Build Windows installer on CI (no .exe committed to git), publish GitHub Release, notify /api/releases.
+name: Windows release (CI build)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "Git tag / release id, e.g. build_03252026_1929. Leave empty to auto-name from build time."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve release id (optional)
+        id: meta
+        run: |
+          set -euo pipefail
+          rid="${{ inputs.release_id }}"
+          rid="${rid//[[:space:]]/}"
+          if [[ -n "$rid" ]]; then
+            if [[ ! "$rid" =~ ^build_[0-9]{8}_[0-9]{4}$ ]]; then
+              echo "release_id must look like build_MMDDYYYY_HHMM (e.g. build_03252026_1929)"
+              exit 1
+            fi
+            echo "release_id=$rid" >> "$GITHUB_OUTPUT"
+            echo "RELEASE_BUILD_ID=$rid" >> "$GITHUB_ENV"
+          else
+            echo "release_id=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Windows installer
+        run: npm run build:win
+
+      - name: Locate installer and release id
+        id: artifact
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          candidates=()
+          while IFS= read -r line; do
+            [[ -n "$line" ]] && candidates+=("$line")
+          done < <(ls -1 releases/build_*/HyperlinksSpaceAppInstaller.exe 2>/dev/null | sort)
+          if [[ ${#candidates[@]} -eq 0 ]]; then
+            echo "No HyperlinksSpaceAppInstaller.exe under releases/build_*/"
+            find releases -maxdepth 4 -type f 2>/dev/null || true
+            exit 1
+          fi
+          exe="${candidates[${#candidates[@]}-1]}"
+          folder="$(dirname "$exe")"
+          rid="$(basename "$folder")"
+          if [[ -n "${{ steps.meta.outputs.release_id }}" ]]; then
+            rid="${{ steps.meta.outputs.release_id }}"
+            exe="releases/$rid/HyperlinksSpaceAppInstaller.exe"
+            if [[ ! -f "$exe" ]]; then
+              echo "Expected $exe after build"
+              exit 1
+            fi
+          fi
+          echo "exe_path=$exe" >> "$GITHUB_OUTPUT"
+          echo "release_id=$rid" >> "$GITHUB_OUTPUT"
+
+      - name: Check if GitHub release already exists
+        id: exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          rid="${{ steps.artifact.outputs.release_id }}"
+          if gh release view "$rid" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release and upload installer
+        if: steps.exists.outputs.exists != 'true'
+        id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rid="${{ steps.artifact.outputs.release_id }}"
+          exe="${{ steps.artifact.outputs.exe_path }}"
+          gh release create "$rid" "$exe" \
+            --repo "${{ github.repository }}" \
+            --title "$rid" \
+            --notes "Windows installer built on GitHub Actions (workflow run ${{ github.run_id }})."
+          release_url="https://github.com/${{ github.repository }}/releases/tag/$rid"
+          echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
+
+      - name: Notify app webhook
+        if: steps.exists.outputs.exists != 'true'
+        env:
+          RELEASE_WEBHOOK_URL: ${{ secrets.RELEASE_WEBHOOK_URL }}
+          VERCEL_PROJECT_PRODUCTION_URL: ${{ vars.VERCEL_PROJECT_PRODUCTION_URL }}
+          VERCEL_PROJECT_PRODUCTION_URL_SECRET: ${{ secrets.VERCEL_PROJECT_PRODUCTION_URL }}
+          WEBHOOK_TOKEN: ${{ secrets.RELEASE_WEBHOOK_TOKEN }}
+          RELEASE_ID: ${{ steps.artifact.outputs.release_id }}
+          RELEASE_URL: ${{ steps.create.outputs.release_url }}
+          EXE_NAME: HyperlinksSpaceAppInstaller.exe
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          webhook_url="${RELEASE_WEBHOOK_URL:-}"
+          if [[ -z "$webhook_url" ]]; then
+            if [[ -n "${VERCEL_PROJECT_PRODUCTION_URL:-}" ]]; then
+              webhook_url="https://${VERCEL_PROJECT_PRODUCTION_URL}/api/releases"
+            elif [[ -n "${VERCEL_PROJECT_PRODUCTION_URL_SECRET:-}" ]]; then
+              webhook_url="https://${VERCEL_PROJECT_PRODUCTION_URL_SECRET}/api/releases"
+            fi
+          fi
+          if [[ -z "$webhook_url" ]]; then
+            echo "No webhook URL configured; skipping."
+            exit 0
+          fi
+          published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export PUBLISHED_AT="$published_at"
+          asset_url="${RELEASE_URL/\/tag\//\/download\/}/${EXE_NAME}"
+          export ASSET_URL="$asset_url"
+          payload="$(python3 -c "import json, os; print(json.dumps({'release_id': os.environ['RELEASE_ID'], 'published_at': os.environ['PUBLISHED_AT'], 'platform': 'windows', 'assets': [{'name': os.environ['EXE_NAME'], 'url': os.environ['ASSET_URL']}], 'github_release_url': os.environ['RELEASE_URL']}))")"
+          if [[ -n "${WEBHOOK_TOKEN:-}" ]]; then
+            curl --fail --show-error --silent \
+              -X POST "$webhook_url" \
+              -H "Content-Type: application/json" \
+              -H "x-release-token: $WEBHOOK_TOKEN" \
+              --data "$payload"
+          else
+            curl --fail --show-error --silent \
+              -X POST "$webhook_url" \
+              -H "Content-Type: application/json" \
+              --data "$payload"
+          fi
+
+      - name: Summary
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ "${{ steps.exists.outputs.exists }}" == "true" ]]; then
+            echo "Skipped: release already exists for ${{ steps.artifact.outputs.release_id }}."
+          else
+            echo "Published ${{ steps.artifact.outputs.release_id }} (${{ steps.artifact.outputs.exe_path }})"
+          fi

@@ -3,8 +3,6 @@
   Caption "${PRODUCT_NAME}"
 !macroend
 
-; Skip the "app is running, close it and retry" check so installation does not stop on that dialog.
-; If the app is actually running and files are locked, the install may fail with a file-in-use error
-; instead; close the app and run the installer again in that case.
-!macro customCheckAppRunning
-!macroend
+; Do not override customCheckAppRunning: the default warns if the app is still running.
+; An empty macro used to skip that check and led to "Failed to uninstall old application files"
+; when the installer ran while Electron still had files open (e.g. after clicking an update toast).

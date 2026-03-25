@@ -1,3 +1,4 @@
+Update flow<br>
 Fix relaese appearing on Electron build<br>
 Windows instant update<br>
 Bottom bar refactor<br>

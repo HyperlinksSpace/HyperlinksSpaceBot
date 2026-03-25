@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, protocol, net } = require("electron");
+const { app, BrowserWindow, Menu, protocol, net, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -17,7 +17,30 @@ function setupAutoUpdater() {
     };
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.checkForUpdatesAndNotify();
+
+    autoUpdater.on("update-downloaded", () => {
+      log("[updater] update-downloaded");
+      dialog
+        .showMessageBox({
+          type: "info",
+          title: "Update ready",
+          message: "A new version was downloaded. Restart now to install? The app will close first.",
+          buttons: ["Restart and install", "Later"],
+          defaultId: 0,
+          cancelId: 1,
+        })
+        .then(({ response }) => {
+          if (response === 0) {
+            try {
+              autoUpdater.quitAndInstall(false, true);
+            } catch (e) {
+              log(`quitAndInstall failed: ${e?.message || e}`);
+            }
+          }
+        });
+    });
+
+    void autoUpdater.checkForUpdates();
   } catch (e) {
     log(`autoUpdater failed: ${e?.message || e}`);
   }

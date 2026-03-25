@@ -8,7 +8,7 @@
     "url": "https://github.com/HyperlinksSpace/HyperlinksSpaceBot.git"
   },
   "main": "expo-router/entry",
-  "version": "53.0.47",
+  "version": "53.0.48",
   "type": "module",
   "engines": {
     "node": ">=18 <=22"
@@ -40,7 +40,7 @@
   },
   "build": {
     "appId": "com.sraibaby.app",
-    "productName": "Hyperlinks Space App Installation",
+    "productName": "Hyperlinks Space App",
     "asar": true,
     "extraMetadata": {
       "main": "windows/build.cjs"

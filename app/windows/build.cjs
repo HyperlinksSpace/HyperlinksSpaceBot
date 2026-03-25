@@ -5,6 +5,22 @@ const { pathToFileURL } = require("url");
 
 const isDev = process.env.NODE_ENV === "development";
 
+// One running instance on Windows: avoids two Electron processes during NSIS upgrade.
+if (!isDev && process.platform === "win32") {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+    process.exit(0);
+  }
+  app.on("second-instance", () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+}
+
 function setupAutoUpdater() {
   if (isDev || !app.isPackaged) return;
   try {
@@ -31,16 +47,39 @@ function setupAutoUpdater() {
         })
         .then(({ response }) => {
           if (response === 0) {
-            try {
-              autoUpdater.quitAndInstall(false, true);
-            } catch (e) {
-              log(`quitAndInstall failed: ${e?.message || e}`);
-            }
+            // NSIS must see the app fully exit before the installer overwrites files. Immediate
+            // quitAndInstall can race; a short delay reduces "cannot be closed" / uninstall errors.
+            setTimeout(() => {
+              try {
+                autoUpdater.quitAndInstall(false, true);
+              } catch (e) {
+                log(`quitAndInstall failed: ${e?.message || e}`);
+              }
+            }, 900);
           }
         });
     });
 
-    void autoUpdater.checkForUpdates();
+    let lastCheckAt = 0;
+    const markAndCheck = () => {
+      lastCheckAt = Date.now();
+      void autoUpdater.checkForUpdates();
+    };
+
+    // 1) On startup (each app launch)
+    markAndCheck();
+
+    // 2) While running: every 6 hours
+    const periodicMs = 1 * 60 * 60 * 1000;
+    setInterval(markAndCheck, periodicMs);
+
+    // 3) When user brings the app back to foreground (throttled: at most once per 30 min)
+    const minFocusGapMs = 30 * 60 * 1000;
+    app.on("browser-window-focus", () => {
+      if (Date.now() - lastCheckAt < minFocusGapMs) return;
+      log("[updater] check (window focus)");
+      markAndCheck();
+    });
   } catch (e) {
     log(`autoUpdater failed: ${e?.message || e}`);
   }

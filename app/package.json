@@ -3,6 +3,10 @@
   "description": "Hyperlinks Space app",
   "author": "sraibaby",
   "license": "0BSD",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HyperlinksSpace/HyperlinksSpaceBot.git"
+  },
   "main": "expo-router/entry",
   "version": "53.0.43",
   "type": "module",
@@ -48,7 +52,14 @@
     ],
     "win": {
       "icon": "assets/icon.ico",
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "artifactName": "HyperlinksSpaceAppInstaller.${ext}",
@@ -58,6 +69,11 @@
     },
     "directories": {
       "output": "releases/artifacts"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "HyperlinksSpace",
+      "repo": "HyperlinksSpaceBot"
     }
   },
   "dependencies": {
@@ -70,6 +86,7 @@
     "@react-navigation/native": "^7.1.6",
     "@swap-coffee/sdk": "^1.5.4",
     "@tma.js/sdk-react": "^3.0.16",
+    "electron-updater": "^6.8.3",
     "expo": "~54.0.0",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.13",
@@ -105,12 +122,12 @@
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.5",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "tsx": "^4.19.2",
     "typescript": "~5.9.2",
-    "vercel": "^38.0.0",
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "vercel": "^38.0.0"
   }
 }

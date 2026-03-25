@@ -5,6 +5,24 @@ const { pathToFileURL } = require("url");
 
 const isDev = process.env.NODE_ENV === "development";
 
+function setupAutoUpdater() {
+  if (isDev || !app.isPackaged) return;
+  try {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.logger = {
+      info: (m) => log(`[updater] ${typeof m === "string" ? m : JSON.stringify(m)}`),
+      warn: (m) => log(`[updater] ${typeof m === "string" ? m : JSON.stringify(m)}`),
+      error: (m) => log(`[updater] ${typeof m === "string" ? m : JSON.stringify(m)}`),
+      debug: (m) => log(`[updater] ${typeof m === "string" ? m : JSON.stringify(m)}`),
+    };
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.checkForUpdatesAndNotify();
+  } catch (e) {
+    log(`autoUpdater failed: ${e?.message || e}`);
+  }
+}
+
 protocol.registerSchemesAsPrivileged([
   { scheme: "app", privileges: { standard: true, supportFetchAPI: true } },
 ]);
@@ -98,6 +116,7 @@ app.whenReady().then(() => {
     });
   }
   createWindow();
+  setupAutoUpdater();
 });
 
 app.on("window-all-closed", () => {

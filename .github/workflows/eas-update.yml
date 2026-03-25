@@ -1,13 +1,6 @@
 name: Publish EAS OTA Update
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - app/**
-      - .github/workflows/eas-update.yml
-      - '!app/releases/**'
   workflow_dispatch:
     inputs:
       branch:

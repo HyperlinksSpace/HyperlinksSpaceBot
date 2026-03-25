@@ -25,6 +25,8 @@ const buildDir = path.join(releasesDir, buildName);
 const devDir = path.join(buildDir, "dev");
 
 const exeName = "HyperlinksSpaceAppInstaller.exe";
+/** Required for electron-updater (GitHub) — must be uploaded next to the installer on each release. */
+const latestYmlName = "latest.yml";
 const devArtifacts = [
   "win-unpacked",
   "builder-debug.yml",
@@ -69,6 +71,14 @@ fs.mkdirSync(devDir, { recursive: true });
 // Move installer to build folder root
 const exeDest = path.join(buildDir, exeName);
 moveIfExists(exeSrc, exeDest);
+
+const latestSrc = path.join(artifactsDir, latestYmlName);
+const latestDest = path.join(buildDir, latestYmlName);
+if (!moveIfExists(latestSrc, latestDest)) {
+  console.warn(
+    "No latest.yml in releases/artifacts/ — Windows auto-update will not work until electron-builder produces it.",
+  );
+}
 
 // Move optional/debug artifacts into dev/
 for (const name of devArtifacts) {

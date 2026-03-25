@@ -109,7 +109,12 @@ jobs:
           set -euo pipefail
           rid="${{ steps.artifact.outputs.release_id }}"
           exe="${{ steps.artifact.outputs.exe_path }}"
-          gh release create "$rid" "$exe" \
+          yml="$(dirname "$exe")/latest.yml"
+          if [[ ! -f "$yml" ]]; then
+            echo "latest.yml missing next to installer — electron-updater needs it on the GitHub Release."
+            exit 1
+          fi
+          gh release create "$rid" "$exe" "$yml" \
             --repo "${{ github.repository }}" \
             --title "$rid" \
             --notes "Windows installer built on GitHub Actions (workflow run ${{ github.run_id }})."

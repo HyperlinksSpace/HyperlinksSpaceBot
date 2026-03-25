@@ -91,8 +91,9 @@ function run(command, args, opts) {
       console.log("Running: npm run build\n");
       await run("npm", ["run", "build"], { stdio: "inherit" });
     }
-    console.log("\nRunning: electron-builder --win\n");
-    await run("npx", ["electron-builder", "--win"], { pipeOutput: true });
+    // Never publish from this script: CI has no GH_TOKEN unless set, and releases are created via gh workflow + cleanup (latest.yml).
+    console.log("\nRunning: electron-builder --win --publish never\n");
+    await run("npx", ["electron-builder", "--win", "--publish", "never"], { pipeOutput: true });
     console.log("\nRunning: windows/cleanup.cjs\n");
     await run("node", [path.join(__dirname, "cleanup.cjs")]);
   } catch (e) {

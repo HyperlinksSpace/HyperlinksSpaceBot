@@ -65,7 +65,7 @@
       "artifactName": "HyperlinksSpaceAppInstaller.${ext}",
       "shortcutName": "Hyperlinks Space App",
       "include": "windows/installer.nsh",
-      "compression": "zlib"
+      "useZip": true
     },
     "directories": {
       "output": "releases/artifacts"

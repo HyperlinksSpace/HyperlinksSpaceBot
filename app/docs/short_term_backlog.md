@@ -6,6 +6,9 @@ AI options page<br>
 Bottom bar icon review<br>
 AI chat page<br>
 Wallet: Telegram, Connected, Unhosted<br>
+Demo state<br>
+readme.md<br>
+
 
 Issues:<br>
 Several chats async streaming<br>

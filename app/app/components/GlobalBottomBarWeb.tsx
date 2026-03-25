@@ -282,7 +282,7 @@ export function GlobalBottomBarWeb() {
                 // Allow scroll exactly when content exceeds the visible viewport height.
                 overflow: contentHeightWithGaps > viewportHeight ? "auto" : "hidden",
               }}
-              placeholder={isFocused ? "" : "AI and search"}
+              placeholder={isFocused ? "" : "AI and Search"}
             />
           </View>
           <Pressable style={styles.arrowWrap} onPress={handleSend} accessibilityRole="button" accessibilityLabel="Send">

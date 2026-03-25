@@ -1,24 +1,24 @@
-File's formats and folders structure
-Windows instant update
-Bottom bar refactor
-Username loaded without intermediate state
-AI options page
-Bottom bar icon review
-AI chat page
-Wallet: Telegram, Connected, Unhosted
+File's formats and folders structure<br>
+Windows instant update<br>
+Bottom bar refactor<br>
+Username loaded without intermediate state<br>
+AI options page<br>
+Bottom bar icon review<br>
+AI chat page<br>
+Wallet: Telegram, Connected, Unhosted<br>
 
-Issues:
-Several chats async streaming
+Issues:<br>
+Several chats async streaming<br>
 
-Pull requests:
-AI responce checkup in bot (message interruption on new prompt)
-Typing in the middle of the text on large inputting
+Pull requests:<br>
+AI responce checkup in bot (message interruption on new prompt)<br>
+Typing in the middle of the text on large inputting<br>
 
-To think about:
-Selection and pointing text detalization
-    on word tapping places at the end of the word
-    zoom-in cursor placing on long tap
-Instructions.ts in AI
+To think about:<br>
+Selection and pointing text detalization<br>
+    on word tapping places at the end of the word<br>
+    zoom-in cursor placing on long tap<br>
+Instructions.ts in AI<br>
 
 Abandoned:
 Placeholder refactor

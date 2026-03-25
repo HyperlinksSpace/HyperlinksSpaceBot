@@ -41,6 +41,7 @@ const {
 const FONT_SIZE = 15;
 // Same as web: 20px gap above first line and below last line inside the input.
 const INNER_PADDING = 20;
+const AUTO_SCROLL_THRESHOLD = 30;
 const PREMADE_PROMPTS = [
   "What is the universe?",
   "Tell me about dogs token",
@@ -61,6 +62,9 @@ export function GlobalBottomBar() {
   // Width of the input area so the mirror Text can wrap correctly on native (iOS/Android).
   const [inputAreaWidth, setInputAreaWidth] = useState<number | null>(null);
   const [scrollY, setScrollY] = useState(0);
+  const scrollYRef = useRef(0);
+  const contentHeightWithGapsRef = useRef(LINE_HEIGHT + INNER_PADDING * 2);
+  const wasNearBottomBeforeResizeRef = useRef(true);
 
   const isTelegramIOSWeb =
     Platform.OS === "web" &&
@@ -131,6 +135,7 @@ export function GlobalBottomBar() {
   const onScroll = useCallback(
     (e: RnNativeEvent<NativeScrollEvent>) => {
       const y = e.nativeEvent.contentOffset.y;
+      scrollYRef.current = y;
       setScrollY(y);
     },
     [],
@@ -196,7 +201,12 @@ export function GlobalBottomBar() {
   // When the 7th line first appears (max bar height, no scroll yet), shift
   // content up by one inner padding so the last visible line aligns with the arrow (same as web).
   useEffect(() => {
-    if (rawLines === 7 && dynamicHeight >= MAX_BAR_HEIGHT && scrollY === 0) {
+    if (
+      rawLines === 7 &&
+      dynamicHeight >= MAX_BAR_HEIGHT &&
+      scrollY === 0 &&
+      wasNearBottomBeforeResizeRef.current
+    ) {
       scrollRef.current?.scrollTo({ y: INNER_PADDING, animated: false });
     }
   }, [rawLines, dynamicHeight, scrollY]);
@@ -206,7 +216,17 @@ export function GlobalBottomBar() {
   // happens after iOS has laid out the content, so scrollToEnd is effective.
   const onScrollViewContentSizeChange = useCallback(
     (_w: number, h: number) => {
-      if (h > viewportHeight && scrollRef.current) {
+      const previousScrollRange = Math.max(
+        contentHeightWithGapsRef.current - viewportHeight,
+        0,
+      );
+      const isNearBottomBeforeResize =
+        previousScrollRange <= 0 ||
+        scrollYRef.current >= previousScrollRange - AUTO_SCROLL_THRESHOLD;
+      wasNearBottomBeforeResizeRef.current = isNearBottomBeforeResize;
+      contentHeightWithGapsRef.current = h;
+
+      if (h > viewportHeight && scrollRef.current && isNearBottomBeforeResize) {
         scrollRef.current.scrollToEnd({ animated: false });
       }
     },

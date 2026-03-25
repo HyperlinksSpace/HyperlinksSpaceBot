@@ -7,7 +7,7 @@
   "version": "53.0.43",
   "type": "module",
   "engines": {
-    "node": ">=18 <=22"
+    "node": ">=18 <=24"
   },
   "scripts": {
     "prestart": "npm run db:migrate",

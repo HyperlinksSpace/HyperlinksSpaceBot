@@ -100,7 +100,7 @@ export async function callOpenAiChatStream(
   mode: AiMode,
   params: AiRequestBase,
   onDelta: (text: string) => void | Promise<void>,
-  opts?: { isCancelled?: () => boolean; getAbortSignal?: () => Promise<boolean> },
+  opts?: { signal?: AbortSignal; isCancelled?: () => boolean; getAbortSignal?: () => Promise<boolean> },
 ): Promise<AiResponseBase> {
   if (!client) {
     return {
@@ -132,12 +132,40 @@ export async function callOpenAiChatStream(
       ...(params.instructions ? { instructions: params.instructions } : {}),
       input: `${prefix}${trimmed}`,
     });
+    if (opts?.signal) {
+      if (opts.signal.aborted) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (stream as any).abort?.();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        opts.signal?.addEventListener("abort", () => {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (stream as any).abort?.();
+          } catch {
+            /* ignore */
+          }
+        });
+      }
+    }
 
     stream.on("response.output_text.delta", async (event: { snapshot?: string }) => {
+      if (opts?.signal?.aborted) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (stream as any).abort?.();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       if (opts?.isCancelled && opts.isCancelled()) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (stream as any)?.abort?.();
+          (stream as any).abort?.();
         } catch {
           /* ignore */
         }
@@ -146,7 +174,7 @@ export async function callOpenAiChatStream(
       if (opts?.getAbortSignal && (await opts.getAbortSignal())) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (stream as any)?.abort?.();
+          (stream as any).abort?.();
         } catch {
           /* ignore */
         }

@@ -17,21 +17,6 @@ CRCCheck off
   Pop $R0
 !macroend
 
-; One-time migration workaround for installations stuck in uninstall error state (: 2).
-; Keeps install in current-user mode and bypasses stale uninstall command strings.
-!macro customInit
-  SetRegView 64
-  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
-  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
-  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
-  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
-  SetRegView 32
-  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
-  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
-  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
-  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
-!macroend
-
 !macro customInstallMode
   StrCpy $isForceCurrentInstall "1"
 !macroend

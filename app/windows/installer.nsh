@@ -16,3 +16,26 @@ CRCCheck off
   nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${PRODUCT_FILENAME}.exe"'
   Pop $R0
 !macroend
+
+; One-time migration workaround for installations stuck in uninstall error state (: 2).
+; Keeps install in current-user mode and bypasses stale uninstall command strings.
+!macro customInit
+  SetRegView 64
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  SetRegView 32
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+!macroend
+
+!macro customInstallMode
+  StrCpy $isForceCurrentInstall "1"
+!macroend
+
+!macro customInstall
+  SetOverwrite on
+!macroend

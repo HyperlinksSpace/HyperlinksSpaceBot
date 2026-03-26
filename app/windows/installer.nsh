@@ -3,6 +3,12 @@
 ; multiple electron-builder users on some Windows machines.
 CRCCheck off
 
+!macro _TraceLog TEXT
+  FileOpen $0 "$TEMP\HyperlinksSpaceUpdater.log" a
+  FileWrite $0 "${TEXT}$\r$\n"
+  FileClose $0
+!macroend
+
 !macro customHeader
   Caption "${PRODUCT_NAME}"
 !macroend
@@ -20,6 +26,7 @@ CRCCheck off
 ; One-time migration workaround for installations stuck in uninstall error state (: 2).
 ; Keeps install in current-user mode and bypasses stale uninstall command strings.
 !macro customInit
+  !insertmacro _TraceLog "[installer] customInit start"
   SetRegView 64
   DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
   DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
@@ -30,12 +37,21 @@ CRCCheck off
   DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
   DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
   DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  !insertmacro _TraceLog "[installer] customInit complete"
 !macroend
 
 !macro customInstallMode
+  !insertmacro _TraceLog "[installer] customInstallMode force current-user"
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
 !macro customInstall
+  !insertmacro _TraceLog "[installer] customInstall start"
   SetOverwrite on
+  !insertmacro _TraceLog "[installer] customInstall complete"
+!macroend
+
+!macro customUnInstall
+  !insertmacro _TraceLog "[uninstaller] customUnInstall start"
+  !insertmacro _TraceLog "[uninstaller] customUnInstall complete"
 !macroend

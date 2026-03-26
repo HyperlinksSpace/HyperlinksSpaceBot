@@ -1,5 +1,4 @@
 const { app, BrowserWindow, Menu, protocol, net, dialog, Notification } = require("electron");
-const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -62,59 +61,9 @@ function setupAutoUpdater() {
     autoUpdater.autoInstallOnAppQuit = true;
     // Explicit for Windows silent installs: relaunch app after installer completes.
     autoUpdater.autoRunAppAfterInstall = true;
+    log("[updater] initialized (provider: github, autoDownload=true, interactiveInstall=true)");
 
     let installRequested = false;
-
-    function scheduleRelaunchFallback() {
-      try {
-        const exePath = app.getPath("exe");
-        // Interactive installer may not relaunch on some machines.
-        // Launch tracker via `start` so the console is independent from this process.
-        const escapedExe = exePath.replace(/'/g, "''");
-        const relaunchScript = [
-          `$exe = '${escapedExe}'`,
-          "Write-Host '[Updater] Waiting for installer to complete...' -ForegroundColor Cyan",
-          "for ($left = 45; $left -gt 0; $left -= 5) {",
-          "  Write-Host (\"[Updater] Relaunch in {0}s\" -f $left)",
-          "  Start-Sleep -Seconds 5",
-          "}",
-          "if (-not (Test-Path $exe)) { Write-Host '[Updater] App executable not found.' -ForegroundColor Red; exit 1 }",
-          "for ($attempt = 1; $attempt -le 12; $attempt++) {",
-          "  try {",
-          "    Start-Process -FilePath $exe",
-          "    Write-Host '[Updater] App relaunched.' -ForegroundColor Green",
-          "    exit 0",
-          "  } catch {",
-          "    Write-Host (\"[Updater] Relaunch attempt {0}/12 failed, retrying...\" -f $attempt) -ForegroundColor Yellow",
-          "    Start-Sleep -Seconds 5",
-          "  }",
-          "}",
-          "Write-Host '[Updater] Relaunch failed after retries.' -ForegroundColor Red",
-          "Write-Host '[Updater] Press Enter to close this window.'",
-          "[void][System.Console]::ReadLine()",
-        ].join("; ");
-        const child = spawn(process.env.ComSpec || "cmd.exe", [
-          "/c",
-          "start",
-          "\"Updater Tracker\"",
-          "powershell.exe",
-          "-NoExit",
-          "-NoProfile",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-Command",
-          relaunchScript,
-        ], {
-          detached: true,
-          stdio: "ignore",
-          windowsHide: false,
-        });
-        child.unref();
-        log("[updater] scheduled relaunch fallback");
-      } catch (e) {
-        log(`[updater] relaunch fallback schedule failed: ${e?.message || e}`);
-      }
-    }
 
     const requestInstallNow = () => {
       installRequested = true;
@@ -130,7 +79,7 @@ function setupAutoUpdater() {
 
       try {
         // Interactive mode shows NSIS progress/update UI to the user.
-        scheduleRelaunchFallback();
+        log("[updater] invoking quitAndInstall(isSilent=false, isForceRunAfter=false)");
         autoUpdater.quitAndInstall(false, false);
       } catch (e) {
         log(`quitAndInstall failed: ${e?.message || e}`);
@@ -169,12 +118,14 @@ function setupAutoUpdater() {
     });
 
     autoUpdater.on("checking-for-update", () => {
+      log("[updater] checking-for-update");
       if (manualCheckInProgress) {
         log("[updater] manual check started");
       }
     });
 
     autoUpdater.on("update-available", (info) => {
+      log(`[updater] update-available version=${info?.version || "unknown"}`);
       if (manualCheckInProgress) {
         manualCheckInProgress = false;
         void showUpdateMessage(
@@ -185,6 +136,7 @@ function setupAutoUpdater() {
     });
 
     autoUpdater.on("update-not-available", () => {
+      log("[updater] update-not-available");
       if (manualCheckInProgress) {
         manualCheckInProgress = false;
         void showUpdateMessage("No updates", "You are already on the latest version.");
@@ -192,6 +144,7 @@ function setupAutoUpdater() {
     });
 
     autoUpdater.on("error", (err) => {
+      log(`[updater] error: ${err?.message || String(err)}`);
       if (manualCheckInProgress) {
         manualCheckInProgress = false;
         void showUpdateMessage("Update check failed", err?.message || String(err));
@@ -200,6 +153,7 @@ function setupAutoUpdater() {
 
     updaterMenuApi.checkNow = async () => {
       try {
+        log("[updater] manual check requested from menu");
         manualCheckInProgress = true;
         await autoUpdater.checkForUpdates();
       } catch (e) {
@@ -213,10 +167,14 @@ function setupAutoUpdater() {
         log("[updater] before-quit for update install");
       }
     });
+    autoUpdater.on("before-quit-for-update", () => {
+      log("[updater] before-quit-for-update emitted");
+    });
 
     let lastCheckAt = 0;
     const markAndCheck = () => {
       lastCheckAt = Date.now();
+      log("[updater] scheduled checkForUpdates()");
       void autoUpdater.checkForUpdates();
     };
 

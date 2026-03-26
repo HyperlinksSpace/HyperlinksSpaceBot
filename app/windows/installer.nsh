@@ -11,6 +11,8 @@ CRCCheck off
 ; This matches a community workaround for path handling inconsistencies.
 !macro customCheckAppRunning
   !define SYSTEMROOT "$%SYSTEMROOT%"
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${_FILE}" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${_FILE}"'
+  ; electron-builder defines PRODUCT_FILENAME (process image name without ".exe").
+  ; Use it instead of the undefined electron-builder internal file var.
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${PRODUCT_FILENAME}.exe"'
   Pop $R0
 !macroend

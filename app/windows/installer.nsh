@@ -53,7 +53,6 @@ ShowUnInstDetails show
 !macro customInstall
   DetailPrint "[installer] customInstall start"
   !insertmacro _TraceLog "[installer] customInstall start"
-  AutoCloseWindow true
   SetOverwrite on
   DetailPrint "[installer] customInstall complete"
   !insertmacro _TraceLog "[installer] customInstall complete"
@@ -62,7 +61,6 @@ ShowUnInstDetails show
 !macro customUnInstall
   DetailPrint "[uninstaller] customUnInstall start"
   !insertmacro _TraceLog "[uninstaller] customUnInstall start"
-  AutoCloseWindow true
   DetailPrint "[uninstaller] customUnInstall complete"
   !insertmacro _TraceLog "[uninstaller] customUnInstall complete"
 !macroend

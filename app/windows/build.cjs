@@ -1,5 +1,4 @@
 const { app, BrowserWindow, Menu, protocol, net, dialog, Notification, ipcMain } = require("electron");
-const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -123,21 +122,6 @@ function setupAutoUpdater() {
         if (updateDialogState.installEnabled) requestInstallNow();
       });
     }
-    const scheduleHiddenRelaunchFallback = () => {
-      try {
-        const exePath = app.getPath("exe").replace(/'/g, "''");
-        const relaunchScript = `$exe='${exePath}'; Start-Sleep -Seconds 60; if (Test-Path $exe) { Start-Process -FilePath $exe }`;
-        const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", relaunchScript], {
-          detached: true,
-          stdio: "ignore",
-          windowsHide: true,
-        });
-        child.unref();
-        log("[updater] hidden relaunch fallback scheduled");
-      } catch (e) {
-        log(`[updater] relaunch fallback schedule failed: ${e?.message || e}`);
-      }
-    };
     autoUpdater.logger = {
       info: (m) => log(`[updater] ${typeof m === "string" ? m : JSON.stringify(m)}`),
       warn: (m) => log(`[updater] ${typeof m === "string" ? m : JSON.stringify(m)}`),
@@ -167,7 +151,6 @@ function setupAutoUpdater() {
 
       try {
         // Interactive mode shows NSIS progress/update UI to the user.
-        scheduleHiddenRelaunchFallback();
         log("[updater] invoking quitAndInstall(isSilent=false, isForceRunAfter=false)");
         autoUpdater.quitAndInstall(false, false);
       } catch (e) {

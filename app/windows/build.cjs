@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, protocol, net, dialog } = require("electron");
+const { app, BrowserWindow, Menu, protocol, net, dialog, Notification } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -36,8 +36,44 @@ function setupAutoUpdater() {
 
     let installRequested = false;
 
+    const requestInstallNow = () => {
+      installRequested = true;
+      log("[updater] user accepted update install");
+
+      // Ensure renderers release file locks before NSIS starts uninstall/install.
+      for (const win of BrowserWindow.getAllWindows()) {
+        try {
+          win.removeAllListeners("close");
+          win.destroy();
+        } catch (_) {}
+      }
+
+      // Keep this delay explicit: Windows AV/scanners can hold the exe briefly after close.
+      setTimeout(() => {
+        try {
+          // Silent update avoids full NSIS wizard-looking reinstall UI.
+          autoUpdater.quitAndInstall(true, true);
+        } catch (e) {
+          log(`quitAndInstall failed: ${e?.message || e}`);
+          // Fallback path: app quit still applies update because autoInstallOnAppQuit=true.
+          app.quit();
+        }
+      }, 2500);
+    };
+
     autoUpdater.on("update-downloaded", () => {
       log("[updater] update-downloaded");
+      if (Notification.isSupported()) {
+        const note = new Notification({
+          title: "Update ready",
+          body: "A new version was downloaded. Click to restart and install.",
+          silent: false,
+        });
+        note.on("click", requestInstallNow);
+        note.show();
+        return;
+      }
+
       dialog
         .showMessageBox({
           type: "info",
@@ -48,30 +84,7 @@ function setupAutoUpdater() {
           cancelId: 1,
         })
         .then(({ response }) => {
-          if (response === 0) {
-            installRequested = true;
-            log("[updater] user accepted update install");
-
-            // Ensure renderers release file locks before NSIS starts uninstall/install.
-            for (const win of BrowserWindow.getAllWindows()) {
-              try {
-                win.removeAllListeners("close");
-                win.destroy();
-              } catch (_) {}
-            }
-
-            // Keep this delay explicit: Windows AV/scanners can hold the exe briefly after close.
-            setTimeout(() => {
-              try {
-                // Silent update avoids full NSIS wizard-looking reinstall UI.
-                autoUpdater.quitAndInstall(true, true);
-              } catch (e) {
-                log(`quitAndInstall failed: ${e?.message || e}`);
-                // Fallback path: app quit still applies update because autoInstallOnAppQuit=true.
-                app.quit();
-              }
-            }, 2500);
-          }
+          if (response === 0) requestInstallNow();
         });
     });
 

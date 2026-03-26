@@ -66,10 +66,8 @@ function setupAutoUpdater() {
       }
 
       try {
-        // Use interactive install so Windows can show update progress UI.
-        // isForceRunAfter is only relevant for silent mode, but we keep it
-        // for compatibility if mode toggles again in the future.
-        autoUpdater.quitAndInstall(false, true);
+        // Interactive mode shows NSIS progress/update UI to the user.
+        autoUpdater.quitAndInstall(false, false);
       } catch (e) {
         log(`quitAndInstall failed: ${e?.message || e}`);
         // Fallback path: app quit still applies update because autoInstallOnAppQuit=true.

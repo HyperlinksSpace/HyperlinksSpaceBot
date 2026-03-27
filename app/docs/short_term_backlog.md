@@ -1,5 +1,6 @@
-installation logs
-installer repeated run (reinstallation)
+Installation logs
+Iinstaller repeated run (overwriting, force the installer to close and open the app if running)
+System menu bottom border
 Run as administrator<br>
 Update flow<br>
 Win App Fullscreen Open<br>
@@ -20,6 +21,7 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+PGP release signing
 File's formats and folders structure<br>
 Selection and pointing text detalization<br>
     on word tapping places at the end of the word<br>

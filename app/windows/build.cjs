@@ -1,4 +1,14 @@
-const { app, BrowserWindow, Menu, protocol, net, dialog, Notification, ipcMain } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  protocol,
+  net,
+  dialog,
+  Notification,
+  ipcMain,
+  nativeTheme,
+} = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -386,6 +396,8 @@ function createWindow() {
     height: 800,
     title: windowTitle,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    // Match app dark background (theme.ts); reduces flash and helps menu/client seam blend on Windows.
+    backgroundColor: "#111111",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -436,6 +448,8 @@ process.on("uncaughtException", (err) => {
 app.whenReady().then(() => {
   if (process.platform === "win32") {
     app.setAppUserModelId("com.sraibaby.app");
+    // Dark native chrome (title bar / menu area) so the OS-drawn separator under the menu reads closer to #111111.
+    nativeTheme.themeSource = "dark";
   }
   setupAppMenu();
   if (!isDev) {

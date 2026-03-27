@@ -1,19 +1,22 @@
-## In progress
+# Hyperlinks Space Program
+
+<u>**In progress.**</u>
 
 *Special note: now temporarily main development is in [`./app`](./app) folder. After refactor it'll be in root. Root contents is a design structuring outcome used for prompting and demo only.*
 
-**`./app` structure (active development area):**
-- `app` - Expo/React Telegram Mini App client (web/mobile screens, navigation, UI logic).
-- `bot` - TypeScript Telegram bot service and runtime entrypoints.
-- `database` - database startup/migration/service scripts.
-- `ai` - AI assistant service logic and model integration points.
-- `api` - backend API handlers and server-side endpoints.
-- `blockchain` - TON/blockchain interaction logic and related helpers.
-- `telegram` - Telegram-specific integration utilities and adapters.
-- `windows` - Electron desktop shell, NSIS installer config, and auto-update flow.
-- `scripts` - developer/ops scripts (local run, migration, release helpers).
-- `docs` - project and operational documentation.
-- `assets` - static assets used by app, installer, and branding.
+##[`./app`](./app) active development area
+
+- [`app`](./app/app) - Expo/React Telegram Mini App client (web/mobile screens, navigation, UI logic).
+- [`bot`](./app/bot) - TypeScript Telegram bot service and runtime entrypoints.
+- [`database`](./app/database) - database startup/migration/service scripts.
+- [`ai`](./app/ai) - AI assistant service logic and model integration points.
+- [`api`](./app/api) - backend API handlers and server-side endpoints.
+- [`blockchain`](./app/blockchain) - TON/blockchain interaction logic and related helpers.
+- [`telegram`](./app/telegram) - Telegram-specific integration utilities and adapters.
+- [`windows`](./app/windows) - Electron desktop shell, NSIS installer config, and auto-update flow.
+- [`scripts`](./app/scripts) - developer/ops scripts (local run, migration, release helpers).
+- [`docs`](./app/docs) - project and operational documentation.
+- [`assets`](./app/assets) - static assets used by app, installer, and branding.
 
 ## How to fork and contribute?
 
@@ -32,14 +35,12 @@ git checkout -b new-branch-for-an-update
 git switch -c new-branch-for-an-update
 ```
 
-3. Make a commit
+3. Make a commit (address unassigned issue or think yourself)
 
 ```
 git add . # Stage changes on this branch
 git commit -m "Describe your change" # Commit on this branch
 ```
-
-You can as well address unassigned issues if any.
 
 3. After making a commit, make a pull request, gh tool will already know the upstream remote
 
@@ -58,3 +59,11 @@ git switch -c new-branch-for-next-update # Create and switch to a new feature br
 ```
 
 **Move in loops starting from the step 3.**
+
+## Pull requests and commits requirements
+
+- Give pull requests and commits a proper name and description
+- Dedicate each pull request to an understandable area or field, each commit to a focused logical change
+- Check file changes in every commit pulled, no arbitrary files modifications should persist such as LF/CRLF line-ending conversion, broken/garbled text diffs, BOM added or removed, accidental "invisible" corruption from text filters
+- Add dependecies and packages step by step for security
+- An issue creation before a pull request would be a good practice

@@ -1,1 +1,48 @@
+# Contribution-safe normalization policy:
+# - Normalize all text files to LF in the repository.
+# - Keep binary files untouched (no EOL, no text filters, no corrupted diffs).
+# - Avoid noisy or garbled diffs from accidental encoding/filter changes.
+
+# Default: treat files as text and normalize line endings.
 * text=auto eol=lf
+
+# Windows scripts should keep CRLF in working trees.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Common binary assets: never apply text normalization/filtering.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.bmp  binary
+*.tif  binary
+*.tiff binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.7z   binary
+*.tar  binary
+*.tgz  binary
+*.rar  binary
+*.jar  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.otf  binary
+*.mp3  binary
+*.wav  binary
+*.mp4  binary
+*.mov  binary
+*.avi  binary
+*.webm binary
+
+# Git metadata and patches should always be text.
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+*.patch        text eol=lf
+*.diff         text eol=lf

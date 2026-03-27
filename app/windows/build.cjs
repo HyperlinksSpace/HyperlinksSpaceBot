@@ -84,12 +84,9 @@ function setupAutoUpdater() {
       return 0;
     };
 
-    const showUpdateMessage = async (title, message) => {
-      try {
-        const win = BrowserWindow.getAllWindows()[0];
-        await dialog.showMessageBox(win || null, { type: "info", title, message });
-      } catch (_) {}
-    };
+    const UPDATER_COMPACT_H = 150;
+    const UPDATER_EXPANDED_H = 270;
+
     const openOrFocusUpdateDialog = () => {
       if (updateDialogState.window && !updateDialogState.window.isDestroyed()) {
         updateDialogState.window.show();
@@ -98,7 +95,7 @@ function setupAutoUpdater() {
       }
       updateDialogState.window = new BrowserWindow({
         width: 420,
-        height: 240,
+        height: UPDATER_COMPACT_H,
         title: "Updater",
         resizable: false,
         minimizable: false,
@@ -109,11 +106,15 @@ function setupAutoUpdater() {
         modal: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false },
       });
-      const html = `<!doctype html><html><body style="font-family:Segoe UI,Arial,sans-serif;padding:16px;background:#fff;color:#111;">
-<div id="cv" style="font-size:12px;color:#555;margin-bottom:8px;">Current version: ${currentVersionHtml}</div>
-<div id="t" style="font-size:14px;margin-bottom:10px;">Checking for updates...</div>
-<div style="height:14px;background:#eee;border-radius:7px;overflow:hidden;margin-bottom:12px;"><div id="b" style="height:100%;width:0%;background:#2ea043;"></div></div>
-<div style="display:flex;gap:8px;justify-content:flex-end;">
+      const html = `<!doctype html><html><body style="font-family:Segoe UI,Arial,sans-serif;padding:16px;background:#111;color:#eee;margin:0;">
+<div id="cv" style="font-size:12px;color:#aaa;margin-bottom:8px;">Current version: ${currentVersionHtml}</div>
+<div id="t" style="font-size:14px;margin-bottom:10px;line-height:1.35;">Checking for updates...</div>
+<div id="progressWrap" style="display:none;margin-bottom:12px;">
+  <div style="height:14px;background:#333;border-radius:7px;overflow:hidden;">
+    <div id="b" style="height:100%;width:0%;background:#2ea043;"></div>
+  </div>
+</div>
+<div id="actionsWrap" style="display:none;flex-direction:row;gap:8px;justify-content:flex-end;">
   <button id="install" disabled style="padding:6px 12px;">Install update</button>
   <button id="close" style="padding:6px 12px;">Close</button>
 </div>
@@ -131,23 +132,40 @@ function setupAutoUpdater() {
         updateDialogState.window = null;
       });
     };
-    const updateDialogUi = ({ text, percent, installEnabled }) => {
+    /**
+     * @param {object} opts
+     * @param {string} opts.text
+     * @param {number} [opts.percent]
+     * @param {boolean} [opts.showProgress]
+     * @param {boolean} [opts.showActions] Install + Close (when false: version + text only; dismiss via window X)
+     * @param {boolean} [opts.installEnabled]
+     */
+    const updateDialogUi = ({ text, percent = 0, showProgress = false, showActions = false, installEnabled = false }) => {
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
       const safe = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
       updateDialogState.installEnabled = Boolean(installEnabled);
+      const expanded = showProgress || showActions;
+      try {
+        updateDialogState.window.setSize(420, expanded ? UPDATER_EXPANDED_H : UPDATER_COMPACT_H);
+      } catch (_) {}
       const js = `
-        const t = document.getElementById('t');
-        const b = document.getElementById('b');
-        const i = document.getElementById('install');
-        if (t) t.textContent = ${JSON.stringify(text)};
-        if (b) b.style.width = '${safe}%';
-        if (i) i.disabled = ${installEnabled ? "false" : "true"};
+        (function() {
+          const t = document.getElementById('t');
+          const progressWrap = document.getElementById('progressWrap');
+          const actionsWrap = document.getElementById('actionsWrap');
+          const b = document.getElementById('b');
+          const i = document.getElementById('install');
+          if (t) t.textContent = ${JSON.stringify(text)};
+          if (progressWrap) progressWrap.style.display = ${showProgress ? "'block'" : "'none'"};
+          if (actionsWrap) actionsWrap.style.display = ${showActions ? "'flex'" : "'none'"};
+          if (b) b.style.width = '${safe}%';
+          if (i) i.disabled = ${installEnabled ? "false" : "true"};
+        })();
       `;
       const wc = updateDialogState.window.webContents;
       const run = () => {
         wc.executeJavaScript(js).catch((e) => log(`[updater] updateDialogUi: ${e?.message || e}`));
       };
-      // data: URL load is async; scripting before did-finish-load often leaves UI stuck at 0%.
       if (wc.isLoading()) {
         wc.once("did-finish-load", run);
       } else {
@@ -210,6 +228,8 @@ function setupAutoUpdater() {
       updateDialogUi({
         text: "Update is ready. Click Install update.",
         percent: 100,
+        showProgress: true,
+        showActions: true,
         installEnabled: true,
       });
     });
@@ -229,8 +249,10 @@ function setupAutoUpdater() {
         // Custom window only (no native "Update found" dialog). Progress uses transferred/total when percent stays 0.
         openOrFocusUpdateDialog();
         updateDialogUi({
-          text: `Downloading version ${info?.version || "new"}... 0%`,
+          text: `Downloading version ${info?.version || "new"}...`,
           percent: 0,
+          showProgress: true,
+          showActions: true,
           installEnabled: false,
         });
       }
@@ -241,8 +263,14 @@ function setupAutoUpdater() {
       if (manualCheckInProgress) {
         manualCheckInProgress = false;
         manualDownloadInProgress = false;
-        closeUpdateDialog();
-        void showUpdateMessage("No updates", "You are already on the latest version.");
+        openOrFocusUpdateDialog();
+        updateDialogUi({
+          text: "You are already on the latest version.",
+          percent: 0,
+          showProgress: false,
+          showActions: false,
+          installEnabled: false,
+        });
       }
     });
     autoUpdater.on("download-progress", (progress) => {
@@ -251,6 +279,8 @@ function setupAutoUpdater() {
       updateDialogUi({
         text: `Downloading update... ${Math.round(pct)}%`,
         percent: pct,
+        showProgress: true,
+        showActions: true,
         installEnabled: false,
       });
     });
@@ -260,8 +290,14 @@ function setupAutoUpdater() {
       if (manualCheckInProgress || manualDownloadInProgress) {
         manualCheckInProgress = false;
         manualDownloadInProgress = false;
-        closeUpdateDialog();
-        void showUpdateMessage("Update check failed", err?.message || String(err));
+        openOrFocusUpdateDialog();
+        updateDialogUi({
+          text: `Update check failed: ${err?.message || String(err)}`,
+          percent: 0,
+          showProgress: false,
+          showActions: false,
+          installEnabled: false,
+        });
       }
     });
 
@@ -270,13 +306,26 @@ function setupAutoUpdater() {
         log("[updater] manual check requested from menu");
         manualCheckInProgress = true;
         manualDownloadInProgress = false;
-        closeUpdateDialog();
+        openOrFocusUpdateDialog();
+        updateDialogUi({
+          text: "Checking for updates...",
+          percent: 0,
+          showProgress: false,
+          showActions: false,
+          installEnabled: false,
+        });
         await autoUpdater.checkForUpdates();
       } catch (e) {
         manualCheckInProgress = false;
         manualDownloadInProgress = false;
-        closeUpdateDialog();
-        await showUpdateMessage("Update check failed", e?.message || String(e));
+        openOrFocusUpdateDialog();
+        updateDialogUi({
+          text: `Update check failed: ${e?.message || String(e)}`,
+          percent: 0,
+          showProgress: false,
+          showActions: false,
+          installEnabled: false,
+        });
       }
     };
 

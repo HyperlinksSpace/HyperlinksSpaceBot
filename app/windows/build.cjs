@@ -50,6 +50,29 @@ function setupAutoUpdater() {
     const { autoUpdater } = require("electron-updater");
     let manualCheckInProgress = false;
     let manualDownloadInProgress = false;
+    const currentVersion = app.getVersion();
+    const currentVersionHtml = String(currentVersion)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/"/g, "&quot;");
+
+    /** Prefer percent; fall back to transferred/total (Windows often reports 0% early). */
+    const progressPercent = (progress) => {
+      if (!progress || typeof progress !== "object") return 0;
+      const p = progress.percent;
+      if (typeof p === "number" && !Number.isNaN(p) && p > 0) {
+        return Math.max(0, Math.min(100, p));
+      }
+      const total = progress.total;
+      const transferred = progress.transferred ?? 0;
+      if (typeof total === "number" && total > 0) {
+        return Math.max(0, Math.min(100, (100 * transferred) / total));
+      }
+      if (typeof p === "number" && !Number.isNaN(p)) {
+        return Math.max(0, Math.min(100, p));
+      }
+      return 0;
+    };
 
     const showUpdateMessage = async (title, message) => {
       try {
@@ -65,7 +88,7 @@ function setupAutoUpdater() {
       }
       updateDialogState.window = new BrowserWindow({
         width: 420,
-        height: 210,
+        height: 240,
         title: "Updater",
         resizable: false,
         minimizable: false,
@@ -77,6 +100,7 @@ function setupAutoUpdater() {
         webPreferences: { nodeIntegration: true, contextIsolation: false },
       });
       const html = `<!doctype html><html><body style="font-family:Segoe UI,Arial,sans-serif;padding:16px;background:#fff;color:#111;">
+<div id="cv" style="font-size:12px;color:#555;margin-bottom:8px;">Current version: ${currentVersionHtml}</div>
 <div id="t" style="font-size:14px;margin-bottom:10px;">Checking for updates...</div>
 <div style="height:14px;background:#eee;border-radius:7px;overflow:hidden;margin-bottom:12px;"><div id="b" style="height:100%;width:0%;background:#2ea043;"></div></div>
 <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -99,7 +123,7 @@ function setupAutoUpdater() {
     };
     const updateDialogUi = ({ text, percent, installEnabled }) => {
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
-      const safe = Math.max(0, Math.min(100, Math.round(percent)));
+      const safe = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
       updateDialogState.installEnabled = Boolean(installEnabled);
       const js = `
         const t = document.getElementById('t');
@@ -109,7 +133,16 @@ function setupAutoUpdater() {
         if (b) b.style.width = '${safe}%';
         if (i) i.disabled = ${installEnabled ? "false" : "true"};
       `;
-      updateDialogState.window.webContents.executeJavaScript(js).catch(() => {});
+      const wc = updateDialogState.window.webContents;
+      const run = () => {
+        wc.executeJavaScript(js).catch((e) => log(`[updater] updateDialogUi: ${e?.message || e}`));
+      };
+      // data: URL load is async; scripting before did-finish-load often leaves UI stuck at 0%.
+      if (wc.isLoading()) {
+        wc.once("did-finish-load", run);
+      } else {
+        run();
+      }
     };
     const closeUpdateDialog = () => {
       if (updateDialogState.window && !updateDialogState.window.isDestroyed()) updateDialogState.window.close();
@@ -183,16 +216,13 @@ function setupAutoUpdater() {
       if (manualCheckInProgress) {
         manualCheckInProgress = false;
         manualDownloadInProgress = true;
+        // Custom window only (no native "Update found" dialog). Progress uses transferred/total when percent stays 0.
         openOrFocusUpdateDialog();
         updateDialogUi({
           text: `Downloading version ${info?.version || "new"}... 0%`,
           percent: 0,
           installEnabled: false,
         });
-        void showUpdateMessage(
-          "Update found",
-          `Version ${info?.version || "new"} is available. Download progress is shown in a separate window.`
-        );
       }
     });
 
@@ -206,10 +236,10 @@ function setupAutoUpdater() {
       }
     });
     autoUpdater.on("download-progress", (progress) => {
-      if (!manualDownloadInProgress) return;
-      const pct = progress?.percent ?? 0;
+      if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
+      const pct = progressPercent(progress);
       updateDialogUi({
-        text: `Downloading update... ${Math.max(0, Math.min(100, Math.round(pct)))}%`,
+        text: `Downloading update... ${Math.round(pct)}%`,
         percent: pct,
         installEnabled: false,
       });
@@ -217,7 +247,7 @@ function setupAutoUpdater() {
 
     autoUpdater.on("error", (err) => {
       log(`[updater] error: ${err?.message || String(err)}`);
-      if (manualCheckInProgress) {
+      if (manualCheckInProgress || manualDownloadInProgress) {
         manualCheckInProgress = false;
         manualDownloadInProgress = false;
         closeUpdateDialog();

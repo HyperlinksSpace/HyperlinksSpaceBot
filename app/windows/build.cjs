@@ -279,7 +279,13 @@ async function downloadToFile(netFetch, url, destPath, onProgress) {
  * apparent stalls streaming huge files through Node). Fall back to extract-zip.
  * Pulse callback keeps the updater UI moving during large single-file writes (e.g. app.asar).
  */
-async function extractPortableZipToDir(zipPath, extractDir, logFn, pulse, unpackLo, unpackHi) {
+/**
+ * @param {object} [opts]
+ * @param {string} [opts.verifyExeBase] If set, after system tar succeeds we require resolveZipAppContentRoot
+ *   to find the app; otherwise we clear and fall back to extract-zip (tar can exit 0 with a bad tree for some zips).
+ */
+async function extractPortableZipToDir(zipPath, extractDir, logFn, pulse, unpackLo, unpackHi, opts = {}) {
+  const verifyExeBase = opts.verifyExeBase;
   const runExtractZip = async () => {
     logUpdater("extract", `extract-zip (yauzl) → ${extractDir}`);
     const extractZip = require("extract-zip");
@@ -354,6 +360,21 @@ async function extractPortableZipToDir(zipPath, extractDir, logFn, pulse, unpack
           clearInterval(hb);
         }
         logFn(`[updater] system tar done in ${Date.now() - t0}ms`);
+        if (verifyExeBase) {
+          const root = resolveZipAppContentRoot(extractDir, verifyExeBase);
+          if (!root) {
+            logFn(
+              `[updater] system tar left no recognizable main exe (wanted basename like ${verifyExeBase}); clearing extract dir and using extract-zip`,
+            );
+            logUpdater("extract", "tar output verification failed → extract-zip");
+            try {
+              fs.rmSync(extractDir, { recursive: true, force: true });
+            } catch (_) {}
+            fs.mkdirSync(extractDir, { recursive: true });
+            await runExtractZip();
+            return;
+          }
+        }
         return;
       } catch (e) {
         logFn(`[updater] system tar failed (${e?.message || e}); clearing partial extract, retrying with extract-zip`);
@@ -381,18 +402,49 @@ function sha512Base64OfFile(filePath) {
 function resolveZipAppContentRoot(extractDir, exeBaseName) {
   const direct = path.join(extractDir, exeBaseName);
   if (fs.existsSync(direct)) return extractDir;
-  let entries = [];
-  try {
-    entries = fs.readdirSync(extractDir, { withFileTypes: true });
-  } catch (_) {
-    return null;
+
+  /** Names to treat as the main app exe (portable zip vs running binary name can differ). */
+  const altNames = new Set([exeBaseName]);
+  if (process.platform === "win32") {
+    altNames.add("Hyperlinks Space App.exe");
+    altNames.add("HyperlinksSpaceApp.exe");
   }
-  for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    const sub = path.join(extractDir, ent.name);
-    if (fs.existsSync(path.join(sub, exeBaseName))) return sub;
-  }
-  return null;
+
+  const matchesMainExe = (fileName) => {
+    const lower = fileName.toLowerCase();
+    for (const n of altNames) {
+      if (lower === n.toLowerCase()) return true;
+    }
+    return false;
+  };
+
+  /** Prefer shallowest match; skip common subtrees that are not the main exe. */
+  const hits = [];
+  const MAX_DEPTH = 6;
+  const walk = (dir, depth) => {
+    if (depth > MAX_DEPTH) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const ent of entries) {
+      if (!ent.isFile()) continue;
+      if (!/\.exe$/i.test(ent.name)) continue;
+      if (matchesMainExe(ent.name)) hits.push({ root: dir, depth });
+    }
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const n = ent.name.toLowerCase();
+      if (n === "resources" || n === "locales") continue;
+      walk(path.join(dir, ent.name), depth + 1);
+    }
+  };
+  walk(extractDir, 0);
+  if (hits.length === 0) return null;
+  hits.sort((a, b) => a.depth - b.depth || a.root.length - b.root.length);
+  return hits[0].root;
 }
 
 /**
@@ -841,6 +893,7 @@ function setupAutoUpdater() {
           ...partial,
         });
       };
+      let versionsPrepareOk = false;
       try {
         const meta = await resolveWindowsZipSidecarMeta((u) => net.fetch(u), currentVersion);
         if (meta.version !== remoteV) {
@@ -909,7 +962,9 @@ function setupAutoUpdater() {
           percent: UNPACK_PROGRESS_LO,
         });
 
-        await extractPortableZipToDir(zipPath, extractDir, log, pushUi, UNPACK_PROGRESS_LO, UNPACK_PROGRESS_HI);
+        await extractPortableZipToDir(zipPath, extractDir, log, pushUi, UNPACK_PROGRESS_LO, UNPACK_PROGRESS_HI, {
+          verifyExeBase: exeBase,
+        });
 
         pushUi({ text: "Finalizing…", percent: 98 });
 
@@ -936,9 +991,13 @@ function setupAutoUpdater() {
             }).show();
           } catch (_) {}
         }
+        versionsPrepareOk = true;
       } catch (e) {
-        logUpdater("prepare", `FAILED ${e?.message || e}`);
-        log(`[updater] versions sidecar failed: ${e?.message || e}`);
+        const errMsg = e?.message || e;
+        const errStack = typeof e?.stack === "string" ? e.stack : "";
+        logUpdater("prepare", `FAILED ${errMsg}`);
+        log(`[updater] versions sidecar failed: ${errMsg}`);
+        if (errStack) log(`[updater] versions sidecar stack: ${errStack.split("\n").slice(0, 8).join(" | ")}`);
         log(
           `[updater] Ensure latest GitHub release includes latest.yml, ${WIN_PORTABLE_ZIP_PREFIX}<version>.zip (zip build), and optionally zip-latest.yml from cleanup for sha512.`,
         );
@@ -960,7 +1019,12 @@ function setupAutoUpdater() {
         }
       } finally {
         zipPrepareInFlight = false;
-        logUpdater("prepare", "zipPrepareInFlight=false");
+        logUpdater(
+          "prepare",
+          versionsPrepareOk
+            ? "zipPrepareInFlight=false (success)"
+            : "zipPrepareInFlight=false (incomplete — look for prepare FAILED above)",
+        );
       }
     };
 

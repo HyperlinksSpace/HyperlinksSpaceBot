@@ -1,3 +1,5 @@
+Updater text area style
+Logs on installation
 Installer on update
 Downloading update... 8% - changes the text for a while for smth
 Show update install dialog only when program is not in the tray

@@ -114,7 +114,10 @@ function resolveZipAppContentRoot(extractDir, exeBaseName) {
   return null;
 }
 
-/** Remove obsolete staged-update dirs (older than running app). Runs async after delay. */
+/**
+ * After a successful version switch, remove staged builds older than the running app
+ * (and same-version leftovers if the apply script already removed the folder).
+ */
 function scheduleVersionsFolderCleanup() {
   if (isDev || !app.isPackaged || process.platform !== "win32") return;
   const current = app.getVersion();
@@ -131,6 +134,7 @@ function scheduleVersionsFolderCleanup() {
             continue;
           }
           if (!st.isDirectory()) continue;
+          // Staging for builds older than the running app (previous releases).
           if (compareSemverLike(name, current) < 0) {
             fs.rmSync(full, { recursive: true, force: true });
             log(`[updater] removed old staged folder (${label}): ${name}`);
@@ -336,13 +340,13 @@ function setupAutoUpdater() {
     };
 
     const useWinVersionsSidecar = process.platform === "win32";
-    let installUsesNsisFallback = false;
     let zipPrepareInFlight = false;
     let zipReadyVersion = null;
     let zipStagingContentPath = null;
 
     autoUpdater.autoDownload = !useWinVersionsSidecar;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Windows: never install a downloaded NSIS on quit — in-app Update uses staged zip + robocopy only.
+    autoUpdater.autoInstallOnAppQuit = !useWinVersionsSidecar;
     autoUpdater.autoRunAppAfterInstall = true;
     log(
       `[updater] initialized (github, winVersions=${useWinVersionsSidecar}, autoDownload=${autoUpdater.autoDownload})`,
@@ -353,7 +357,7 @@ function setupAutoUpdater() {
     const syncZipReadyUi = (v) => {
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
       updateDialogUi({
-        text: `Update ${v} is ready. Click Update.`,
+        text: `Update ${v} is ready. Click Update to close and open the new version.`,
         percent: 100,
         showProgress: true,
         showActions: true,
@@ -404,7 +408,6 @@ function setupAutoUpdater() {
       if (bestVer && bestContent) {
         zipReadyVersion = bestVer;
         zipStagingContentPath = bestContent;
-        installUsesNsisFallback = false;
         log(`[updater] restored staging from disk: ${bestVer} -> ${bestContent}`);
       }
     };
@@ -423,7 +426,6 @@ function setupAutoUpdater() {
         return;
       }
       zipPrepareInFlight = true;
-      installUsesNsisFallback = false;
       const uiManual = Boolean(opts?.uiManual);
       const uiActive =
         uiManual || (updateDialogState.window && !updateDialogState.window.isDestroyed());
@@ -454,7 +456,9 @@ function setupAutoUpdater() {
           log(`[updater] zip-latest version ${meta.version} vs feed ${remoteV} (using zip manifest)`);
         }
 
-        pushUi({ text: `Downloading ${meta.version}...`, percent: 0 });
+        // One bar: download + verify + unpack = "prepare" until Update is enabled.
+        const PROGRESS_DOWNLOAD_CAP = 72;
+        pushUi({ text: "Downloading and preparing update… 0%", percent: 0 });
 
         const versionsRoot = getVersionsStagingRoot();
         const versionDir = path.join(versionsRoot, meta.version);
@@ -471,22 +475,28 @@ function setupAutoUpdater() {
           zipUrl,
           zipPath,
           (received, total) => {
-            const pct = total > 0 ? (100 * received) / total : 0;
+            const dl = total > 0 ? received / total : 0;
+            const dlPct = total > 0 ? Math.round(100 * dl) : 0;
+            const overall = Math.min(PROGRESS_DOWNLOAD_CAP, Math.round(PROGRESS_DOWNLOAD_CAP * dl));
             pushUi({
-              text: `Downloading ${meta.version}... ${total > 0 ? Math.round(pct) : 0}%`,
-              percent: pct,
+              text: `Downloading and preparing update… ${dlPct}%`,
+              percent: overall,
             });
           },
         );
 
+        pushUi({ text: "Verifying update…", percent: PROGRESS_DOWNLOAD_CAP + 2 });
+
         const hash = sha512Base64OfFile(zipPath);
         if (hash !== meta.sha512) throw new Error("zip sha512 mismatch");
 
-        pushUi({ text: `Unpacking update ${meta.version}...`, percent: 100 });
+        pushUi({ text: "Installing update (unpacking files)…", percent: PROGRESS_DOWNLOAD_CAP + 8 });
 
         const AdmZip = require("adm-zip");
         const zip = new AdmZip(zipPath);
         zip.extractAllTo(extractDir, true);
+
+        pushUi({ text: "Finalizing…", percent: 98 });
 
         const contentRoot = resolveZipAppContentRoot(extractDir, exeBase);
         if (!contentRoot) throw new Error("extracted update has no app executable");
@@ -511,27 +521,23 @@ function setupAutoUpdater() {
       } catch (e) {
         log(`[updater] versions sidecar failed: ${e?.message || e}`);
         log(
-          "[updater] For instant apply: attach zip-latest.yml and HyperlinksSpaceApp_<version>.zip from cleanup output to the GitHub latest release.",
+          "[updater] Publish zip-latest.yml + HyperlinksSpaceApp_<version>.zip next to latest.yml on the latest GitHub release (see cleanup build output).",
         );
         zipStagingContentPath = null;
         zipReadyVersion = null;
-        installUsesNsisFallback = true;
-        pushUi({ text: "Using standard installer download...", percent: 0 });
-        try {
-          await autoUpdater.downloadUpdate();
-        } catch (e2) {
-          log(`[updater] NSIS fallback download failed: ${e2?.message || e2}`);
-          manualDownloadInProgress = false;
-          if (uiActive) {
-            openOrFocusUpdateDialog();
-            updateDialogUi({
-              text: `Update failed: ${e?.message || String(e)}`,
-              percent: 0,
-              showProgress: false,
-              showActions: true,
-              installEnabled: false,
-            });
-          }
+        manualDownloadInProgress = false;
+        const hint =
+          `Sidecar update failed: ${e?.message || String(e)}. ` +
+          `Add zip-latest.yml and the app zip from your build to https://github.com/${UPDATE_GITHUB_OWNER}/${UPDATE_GITHUB_REPO}/releases/latest`;
+        if (uiActive) {
+          openOrFocusUpdateDialog();
+          updateDialogUi({
+            text: hint,
+            percent: 0,
+            showProgress: false,
+            showActions: true,
+            installEnabled: false,
+          });
         }
       } finally {
         zipPrepareInFlight = false;
@@ -612,11 +618,6 @@ function setupAutoUpdater() {
       suppressQuitForUpdateInstall = true;
 
       const useVersionsApply = canApplyVersionsStaging();
-      if (!useVersionsApply && useWinVersionsSidecar) {
-        log(
-          `[updater] NSIS path: no valid versions staging (ready=${zipReadyVersion} staging=${zipStagingContentPath} nsisFallback=${installUsesNsisFallback})`,
-        );
-      }
 
       if (useVersionsApply) {
         try {
@@ -624,8 +625,12 @@ function setupAutoUpdater() {
         } catch (e) {
           log(`[updater] applyVersionsStagedUpdate failed: ${e?.message || e}`);
           suppressQuitForUpdateInstall = false;
-          installUsesNsisFallback = true;
-          void autoUpdater.downloadUpdate().catch(() => {});
+          void dialog.showMessageBox({
+            type: "error",
+            title: "Hyperlinks Space App",
+            message: `Could not apply update: ${e?.message || String(e)}`,
+            buttons: ["OK"],
+          });
           return;
         }
         for (const win of BrowserWindow.getAllWindows()) {
@@ -635,6 +640,22 @@ function setupAutoUpdater() {
           } catch (_) {}
         }
         app.quit();
+        return;
+      }
+
+      // Windows packaged: only the staged-zip path — never launch the NSIS wizard from this button.
+      if (useWinVersionsSidecar) {
+        suppressQuitForUpdateInstall = false;
+        log(
+          `[updater] Update click ignored: no staged build (ready=${zipReadyVersion} path=${zipStagingContentPath})`,
+        );
+        void dialog.showMessageBox({
+          type: "info",
+          title: "Hyperlinks Space App",
+          message:
+            "The quick update is not ready yet. Keep the app open until download and unpack finish, or ensure the latest GitHub release includes zip-latest.yml and HyperlinksSpaceApp_<version>.zip from your Windows build (cleanup folder).",
+          buttons: ["OK"],
+        });
         return;
       }
 
@@ -668,12 +689,11 @@ function setupAutoUpdater() {
     autoUpdater.on("update-downloaded", () => {
       log("[updater] update-downloaded");
       manualDownloadInProgress = false;
-      // Do not prefer NSIS over versions/ staging when both exist (download can finish after staging).
-      if (canApplyVersionsStaging()) {
-        log("[updater] update-downloaded: keeping versions staging path (ignoring NSIS for apply)");
+      // Windows uses zip sidecar only; ignore NSIS installer download for in-app UX.
+      if (useWinVersionsSidecar) {
+        log("[updater] update-downloaded: ignored on Windows (NSIS not used for Update button)");
         return;
       }
-      installUsesNsisFallback = true;
       openOrFocusUpdateDialog();
       updateDialogUi({
         text: "Update is ready. Click Update.",
@@ -700,7 +720,7 @@ function setupAutoUpdater() {
         openOrFocusUpdateDialog();
         updateDialogUi({
           text: useWinVersionsSidecar
-            ? `Preparing version ${info?.version || "new"}...`
+            ? `Downloading and preparing version ${info?.version || "new"}…`
             : `Downloading version ${info?.version || "new"}...`,
           percent: 0,
           showProgress: true,
@@ -730,6 +750,7 @@ function setupAutoUpdater() {
     });
     let downloadProgressLoggedSample = false;
     autoUpdater.on("download-progress", (progress) => {
+      if (useWinVersionsSidecar) return;
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
       if (!downloadProgressLoggedSample) {
         downloadProgressLoggedSample = true;

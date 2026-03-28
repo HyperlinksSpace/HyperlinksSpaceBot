@@ -558,11 +558,15 @@ function setupAutoUpdater() {
       else send();
     };
 
+    /** Set after syncZipReadyUi / stagingHasMainExe; enables main-process installEnabled when opening the dialog. */
+    let refreshUpdaterDialogIfStagedReady = () => {};
+
     const openOrFocusUpdateDialog = () => {
       if (updateDialogState.window && !updateDialogState.window.isDestroyed()) {
         updateDialogState.window.show();
         updateDialogState.window.focus();
         sendUpdaterLogInitToDialog();
+        refreshUpdaterDialogIfStagedReady();
         return;
       }
       updateDialogState.window = new BrowserWindow({
@@ -630,6 +634,7 @@ function setupAutoUpdater() {
       updateDialogState.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
       updateDialogState.window.webContents.once("did-finish-load", () => {
         sendUpdaterLogInitToDialog();
+        refreshUpdaterDialogIfStagedReady();
       });
       updateDialogState.window.once("ready-to-show", () => {
         if (updateDialogState.window && !updateDialogState.window.isDestroyed()) updateDialogState.window.show();
@@ -683,8 +688,11 @@ function setupAutoUpdater() {
     };
     if (!updateDialogState.ipcBound) {
       updateDialogState.ipcBound = true;
+      // Do not gate on installEnabled: it can stay false if syncZipReadyUi ran while the dialog
+      // was not open (startup update-available skip path). Renderer still enables the button via IPC.
       ipcMain.on("updater-install-click", () => {
-        if (updateDialogState.installEnabled) requestInstallNow();
+        logUpdater("ipc", "updater-install-click received");
+        requestInstallNow();
       });
     }
     const logUpdaterChannel = (m) => {
@@ -741,6 +749,12 @@ function setupAutoUpdater() {
       } catch (_) {
         return false;
       }
+    };
+
+    refreshUpdaterDialogIfStagedReady = () => {
+      if (!useWinVersionsSidecar || !zipReadyVersion || !zipStagingContentPath) return;
+      if (!stagingHasMainExe(zipStagingContentPath)) return;
+      syncZipReadyUi(zipReadyVersion);
     };
 
     const getVersionsStagingRoot = () => path.join(app.getPath("userData"), "pending-update-versions");
@@ -1030,7 +1044,6 @@ function setupAutoUpdater() {
       installRequested = true;
       log("[updater] user accepted update install");
       logUpdater("ipc", "requestInstallNow (Update button)");
-      closeUpdateDialog();
 
       suppressQuitForUpdateInstall = true;
 
@@ -1041,6 +1054,7 @@ function setupAutoUpdater() {
       );
 
       if (useVersionsApply) {
+        closeUpdateDialog();
         try {
           applyVersionsStagedUpdate();
         } catch (e) {
@@ -1081,6 +1095,8 @@ function setupAutoUpdater() {
         });
         return;
       }
+
+      closeUpdateDialog();
 
       try {
         if (process.platform === "win32" && Notification.isSupported()) {

@@ -14,6 +14,11 @@ Var oldMenuDirectory
 !include "multiUser.nsh"
 !include "allowOnlyOneInstallerInstance.nsh"
 
+; Resolve project windows\ next to this script (avoid mixed D:\path\app/windows\... in one !include).
+!ifdef PROJECT_DIR
+  !addincludedir "${PROJECT_DIR}/windows"
+!endif
+
 !ifdef BUILD_UNINSTALLER
   !ifmacrodef customUnInstallSection
     !define MUI_COMPONENTSPAGE_NODESC
@@ -124,7 +129,7 @@ Section "install" INSTALL_SECTION_ID
       !endif
     !endif
     ; Stock: !include "installSection.nsh"
-    !include "${PROJECT_DIR}/windows/installSection-with-logging.nsh"
+    !include "installSection-with-logging.nsh"
   !endif
 SectionEnd
 

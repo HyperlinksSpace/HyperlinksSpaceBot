@@ -17,8 +17,12 @@ CRCCheck off
 ; assistedInstaller.nsh runs !ifmacrodef customPageAfterChangeDir immediately *before* MUI_PAGE_INSTFILES.
 ; common.nsh sets ShowInstDetails nevershow; customHeader runs *after* assistedInstaller, so
 ; ShowInstDetails show there is too late for page layout. Emit ShowInstDetails show here.
-; On the InstFiles SHOW callback also call SetDetailsView show — that is what actually expands the
-; detail log at runtime (SetDetailsPrint alone does not; see NSIS Reference/SetDetailsView).
+; Root cause (NSIS Source/exehead/Ui.c InstProc WM_INITDIALOG): ShowInstDetails nevershow sets
+; CH_FLAGS_DETAILS_NEVERSHOW so the ListView (IDC_LIST1 / dlg 1016) is never ShowWindow'd, the
+; "Show details" control is hidden and insthwndbutton is cleared — no UI path to open the log.
+; SetDetailsView toggles exehead globals insthwnd/insthwndbutton; under MUI that can miss the
+; real child HWND. Mirror MUI InstFiles SHOW: FindWindow inner #32770, GetDlgItem 1016 then
+; ShowWindow SW_SHOWNA (8); hide 1027. SetDetailsView + SetDetailsPrint still help DetailPrint.
 ; Omit when BUILD_UNINSTALLER: the uninstaller pass has no installer InstFiles page; an unreferenced
 ; Function triggers NSIS warning 6010 and electron-builder fails (warnings as errors).
 !ifndef BUILD_UNINSTALLER
@@ -29,6 +33,11 @@ CRCCheck off
 
 Function HspInstFilesShow
   ; Match installSection: do not gate on ${Silent} here.
+  FindWindow $0 "#32770" "" $HWNDPARENT
+  GetDlgItem $1 $0 1016
+  GetDlgItem $2 $0 1027
+  ShowWindow $2 0
+  ShowWindow $1 8
   SetDetailsView show
   SetDetailsPrint both
 FunctionEnd

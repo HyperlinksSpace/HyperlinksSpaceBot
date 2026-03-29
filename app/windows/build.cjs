@@ -1031,10 +1031,12 @@ function setupAutoUpdater() {
     const applyVersionsStagedUpdate = () => {
       const installDir = path.dirname(process.execPath);
       const exeName = path.basename(process.execPath);
+      const applyLogPath = path.join(app.getPath("userData"), "hsp-update-apply.log");
       logUpdater(
         "apply",
         `applyVersionsStagedUpdate installDir=${installDir} exe=${exeName} staging=${zipStagingContentPath} version=${zipReadyVersion} pid=${process.pid}`,
       );
+      logUpdater("apply", `helper log (next run): ${applyLogPath}`);
       const planPath = path.join(app.getPath("temp"), `hsp-update-plan-${Date.now()}.json`);
       const stagingVersionDirToRemove = zipReadyVersion
         ? path.join(getVersionsStagingRoot(), zipReadyVersion)
@@ -1046,37 +1048,66 @@ function setupAutoUpdater() {
         waitPid: process.pid,
         appliedVersion: zipReadyVersion,
         stagingVersionDirToRemove,
+        logPath: applyLogPath,
       };
       fs.writeFileSync(planPath, JSON.stringify(plan), "utf8");
       logUpdater("apply", `wrote plan ${planPath} ${safeJson(plan)}`);
 
       const ps1Path = path.join(app.getPath("temp"), `hsp-apply-versions-${Date.now()}.ps1`);
+      /**
+       * Wait for main PID to exit, then delay before file copy + relaunch so Electron's Windows
+       * single-instance mutex and file locks are released (otherwise the new process can exit
+       * immediately with !requestSingleInstanceLock and the user sees no window).
+       */
       const ps1Body = [
         "param([string]$PlanPath)",
         '$ErrorActionPreference = "Stop"',
         "$plan = Get-Content -LiteralPath $PlanPath -Encoding UTF8 -Raw | ConvertFrom-Json",
-        "$deadline = (Get-Date).AddSeconds(120)",
-        "while ((Get-Process -Id $plan.waitPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {",
-        "  Start-Sleep -Milliseconds 200",
+        "$LogFile = $plan.logPath",
+        "function Write-ApplyLog([string]$m) {",
+        "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
+        '  Add-Content -LiteralPath $LogFile -Value ("[$ts] " + $m) -Encoding UTF8',
         "}",
-        "$src = $plan.stagingContent",
-        "$dst = $plan.installDir",
-        "Get-ChildItem -LiteralPath $src -Force | ForEach-Object {",
-        "  if ($_.Name -ne 'versions') {",
-        "    $target = Join-Path $dst $_.Name",
-        "    if ($_.PSIsContainer) {",
-        "      $p = Start-Process -FilePath robocopy.exe -ArgumentList @($_.FullName, $target, '/MIR', '/R:6', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -Wait -PassThru -NoNewWindow",
-        "      if ($p.ExitCode -gt 7) { exit 1 }",
-        "    } else {",
-        "      Copy-Item -LiteralPath $_.FullName -Destination $target -Force",
+        "try {",
+        '  Write-ApplyLog "apply start waitPid=$($plan.waitPid) exe=$($plan.exeName)"',
+        "  $deadline = (Get-Date).AddSeconds(120)",
+        "  while ((Get-Process -Id $plan.waitPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {",
+        "    Start-Sleep -Milliseconds 200",
+        "  }",
+        '  Write-ApplyLog "parent process ended (or timeout); mutex/file settle delay 4s"',
+        "  Start-Sleep -Seconds 4",
+        "  $src = $plan.stagingContent",
+        "  $dst = $plan.installDir",
+        '  Write-ApplyLog "robocopy/copy from $src to $dst"',
+        "  Get-ChildItem -LiteralPath $src -Force | ForEach-Object {",
+        "    if ($_.Name -ne 'versions') {",
+        "      $target = Join-Path $dst $_.Name",
+        "      if ($_.PSIsContainer) {",
+        "        $p = Start-Process -FilePath robocopy.exe -ArgumentList @($_.FullName, $target, '/MIR', '/R:6', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -Wait -PassThru -NoNewWindow",
+        '        Write-ApplyLog ("robocopy dir " + $_.Name + " exit=" + $p.ExitCode)',
+        "        if ($p.ExitCode -gt 7) { throw \"robocopy failed exit $($p.ExitCode) for $($_.FullName)\" }",
+        "      } else {",
+        "        Copy-Item -LiteralPath $_.FullName -Destination $target -Force",
+        '        Write-ApplyLog ("copied file " + $_.Name)',
+        "      }",
         "    }",
         "  }",
+        "  if ($plan.stagingVersionDirToRemove -and (Test-Path -LiteralPath $plan.stagingVersionDirToRemove)) {",
+        "    Remove-Item -LiteralPath $plan.stagingVersionDirToRemove -Recurse -Force",
+        '    Write-ApplyLog "removed staging dir"',
+        "  }",
+        "  $exePath = Join-Path $dst $plan.exeName",
+        '  Write-ApplyLog "relaunch $exePath"',
+        "  if (-not (Test-Path -LiteralPath $exePath)) { throw \"main exe missing after apply: $exePath\" }",
+        "  Start-Process -FilePath $exePath -WorkingDirectory $dst",
+        '  Write-ApplyLog "Start-Process returned (GUI may take a moment)"',
+        "  try { Remove-Item -LiteralPath $PlanPath -Force } catch {}",
+        '  Write-ApplyLog "apply done"',
+        "} catch {",
+        '  Write-ApplyLog ("FATAL: " + $_.Exception.Message)',
+        "  try { Remove-Item -LiteralPath $PlanPath -Force } catch {}",
+        "  exit 1",
         "}",
-        "if ($plan.stagingVersionDirToRemove -and (Test-Path -LiteralPath $plan.stagingVersionDirToRemove)) {",
-        "  Remove-Item -LiteralPath $plan.stagingVersionDirToRemove -Recurse -Force",
-        "}",
-        'Start-Process -FilePath (Join-Path $dst $plan.exeName)',
-        "try { Remove-Item -LiteralPath $PlanPath -Force } catch {}",
         "",
       ].join("\r\n");
       fs.writeFileSync(ps1Path, ps1Body, "utf8");

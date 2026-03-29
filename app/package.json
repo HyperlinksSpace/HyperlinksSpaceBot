@@ -8,7 +8,7 @@
     "url": "https://github.com/HyperlinksSpace/HyperlinksSpaceBot.git"
   },
   "main": "expo-router/entry",
-  "version": "53.0.1311",
+  "version": "53.0.1312",
   "type": "module",
   "engines": {
     "node": ">=18 <=22"
@@ -90,7 +90,8 @@
       "allowToChangeInstallationDirectory": false
     },
     "directories": {
-      "output": "releases/artifacts"
+      "output": "releases/artifacts",
+      "buildResources": "windows"
     },
     "publish": {
       "provider": "github",

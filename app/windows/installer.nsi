@@ -4,7 +4,8 @@
 ;
 ; Do not set build.nsis.script to a fork of installer.nsi: electron-builder then skips the
 ; uninstaller prebuild and never defines UNINSTALLER_OUT_FILE, which breaks installApplicationFiles
-; (empty File source). Use the default template plus this file and build/installSection.nsh.
+; (empty File source). Use the default template plus this file and windows/installSection.nsh
+; (directories.buildResources must be "windows" so NSIS finds the override).
 ;
 ; Window title only (no " Setup" suffix).
 ; Workaround for intermittent NSIS self-update/uninstall failures reported by

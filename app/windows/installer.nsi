@@ -14,8 +14,8 @@ Var oldMenuDirectory
 !include "multiUser.nsh"
 !include "allowOnlyOneInstallerInstance.nsh"
 
-; Only windows/nsis — NOT windows/, or installer.nsh here shadows electron-builder's
-; include/installer.nsh and breaks installApplicationFiles (malformed File command).
+; Only windows/nsis — NOT windows/. Project hooks must be installer-custom.nsh, not
+; installer.nsh, or !include installer.nsh in the section below resolves to the wrong file.
 !ifdef PROJECT_DIR
   !addincludedir "${PROJECT_DIR}/windows/nsis"
 !endif

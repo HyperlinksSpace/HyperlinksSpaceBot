@@ -1,4 +1,7 @@
-; Custom NSIS: window title only (no " Setup" suffix).
+; Custom NSIS hooks for electron-builder (must NOT be named installer.nsh — that name
+; shadows templates/nsis/include/installer.nsh when NSIS resolves !include installer.nsh
+; from installSection-with-logging.nsh).
+; Window title only (no " Setup" suffix).
 ; Workaround for intermittent NSIS self-update/uninstall failures reported by
 ; multiple electron-builder users on some Windows machines.
 CRCCheck off

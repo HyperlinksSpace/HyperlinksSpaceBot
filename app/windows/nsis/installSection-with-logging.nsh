@@ -3,7 +3,8 @@
 ; instead of SetDetailsPrint none which hides all output.
 ;
 ; Must live under windows/nsis/ (not windows/) so !addincludedir does not shadow
-; electron-builder's include/installer.nsh with windows/installer.nsh.
+; electron-builder's include/installer.nsh. The project hooks file must not be named
+; installer.nsh (see windows/installer-custom.nsh).
 
 !include installer.nsh
 

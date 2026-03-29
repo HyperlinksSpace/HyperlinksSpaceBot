@@ -11,12 +11,11 @@
 
 InitPluginsDir
 
-${IfNot} ${Silent}
-  SetDetailsPrint both
-  ; 7-Zip extraction does not stream filenames into the NSIS list (unlike File commands).
-  ; Explicit DetailPrint lines are required for any visible log during install.
-  DetailPrint "Step 1/10 - Preparing ${PRODUCT_NAME} ${VERSION}..."
-${EndIf}
+; Do not wrap DetailPrint in ${IfNot} ${Silent}: on some builds ${Silent} evaluates in a way that
+; skips all section DetailPrint lines while the InstFiles SHOW hook still runs (only one line visible).
+SetDetailsPrint both
+; 7-Zip extraction does not stream filenames into the NSIS list (unlike File commands).
+DetailPrint "Step 1/10 - Preparing ${PRODUCT_NAME} ${VERSION}..."
 
 ; Installed layout: $INSTDIR\versions\<VERSION>\* and $INSTDIR\current → junction to that folder.
 ; For upgrade checks, prefer an existing versioned or legacy flat exe.
@@ -31,9 +30,7 @@ ${EndIf}
 # must be called before uninstallOldVersion
 !insertmacro setLinkVars
 
-${IfNot} ${Silent}
-  DetailPrint "Step 2/10 - Checking that ${PRODUCT_NAME} is not running..."
-${EndIf}
+DetailPrint "Step 2/10 - Checking that ${PRODUCT_NAME} is not running..."
 
 !ifdef ONE_CLICK
   !ifdef HEADER_ICO
@@ -73,9 +70,7 @@ ${if} $isTryToKeepShortcuts == "true"
   ${endIf}
 ${EndIf}
 
-${IfNot} ${Silent}
-  DetailPrint "Step 3/10 - Checking for a previous installation and uninstalling the old build if needed..."
-${EndIf}
+DetailPrint "Step 3/10 - Checking for a previous installation and uninstalling the old build if needed..."
 !insertmacro uninstallOldVersion SHELL_CONTEXT
 !insertmacro handleUninstallResult SHELL_CONTEXT
 
@@ -84,9 +79,7 @@ ${if} $installMode == "all"
   !insertmacro handleUninstallResult HKEY_CURRENT_USER
 ${endIf}
 
-${IfNot} ${Silent}
-  DetailPrint "Step 4/10 - Creating versioned install folder versions\${VERSION}..."
-${EndIf}
+DetailPrint "Step 4/10 - Creating versioned install folder versions\${VERSION}..."
 CreateDirectory "$INSTDIR\versions"
 SetOutPath "$INSTDIR\versions\${VERSION}"
 
@@ -94,36 +87,24 @@ SetOutPath "$INSTDIR\versions\${VERSION}"
   File /oname=uninstallerIcon.ico "${UNINSTALLER_ICON}"
 !endif
 
-${IfNot} ${Silent}
-  DetailPrint "Step 5/10 - Extracting application package with 7-Zip (longest step; file names are not listed)..."
-${EndIf}
+DetailPrint "Step 5/10 - Extracting application package with 7-Zip (longest step; file names are not listed)..."
 !insertmacro installApplicationFiles
-${IfNot} ${Silent}
-  DetailPrint "Step 6/10 - Extraction finished."
-  DetailPrint "Step 7/10 - Pointing 'current' at versions\${VERSION} (directory junction)..."
-${EndIf}
+DetailPrint "Step 6/10 - Extraction finished."
+DetailPrint "Step 7/10 - Pointing 'current' at versions\${VERSION} (directory junction)..."
 ; Directory junction so shortcuts and the updater always use …\current\<exe>
 IfFileExists "$INSTDIR\current" hspRemoveOldCurrent hspMklinkCurrent
 hspRemoveOldCurrent:
-  ${IfNot} ${Silent}
-    DetailPrint "  (removing existing junction or folder: $INSTDIR\current)"
-  ${EndIf}
+  DetailPrint "  (removing existing junction or folder: $INSTDIR\current)"
   nsExec::ExecToLog '"$SYSDIR\cmd.exe" /c rmdir "$INSTDIR\current"'
   Pop $R9
 hspMklinkCurrent:
-${IfNot} ${Silent}
-  DetailPrint "  (creating junction: current -> versions\${VERSION})"
-${EndIf}
+DetailPrint "  (creating junction: current -> versions\${VERSION})"
 nsExec::ExecToLog '"$SYSDIR\cmd.exe" /c mklink /J "$INSTDIR\current" "$INSTDIR\versions\${VERSION}"'
 Pop $R9
 StrCpy $appExe "$INSTDIR\current\${APP_EXECUTABLE_FILENAME}"
-${IfNot} ${Silent}
-  DetailPrint "Step 8/10 - Writing install location and Add/Remove Programs registry entries..."
-${EndIf}
+DetailPrint "Step 8/10 - Writing install location and Add/Remove Programs registry entries..."
 !insertmacro registryAddInstallInfo
-${IfNot} ${Silent}
-  DetailPrint "Step 9/10 - Creating Start Menu and desktop shortcuts..."
-${EndIf}
+DetailPrint "Step 9/10 - Creating Start Menu and desktop shortcuts..."
 !insertmacro addStartMenuLink $keepShortcuts
 !insertmacro addDesktopLink $keepShortcuts
 
@@ -134,16 +115,12 @@ ${else}
 ${endIf}
 
 !ifmacrodef registerFileAssociations
-  ${IfNot} ${Silent}
-    DetailPrint "Registering file associations..."
-  ${EndIf}
+  DetailPrint "Registering file associations..."
   !insertmacro registerFileAssociations
 !endif
 
 !ifmacrodef customInstall
-  ${IfNot} ${Silent}
-    DetailPrint "Step 10/10 - Running final install hooks..."
-  ${EndIf}
+  DetailPrint "Step 10/10 - Running final install hooks..."
   !insertmacro customInstall
 !endif
 

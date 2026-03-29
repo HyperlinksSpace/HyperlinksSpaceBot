@@ -25,9 +25,8 @@ CRCCheck off
 !macroend
 
 Function HspInstFilesShow
+  ; Match installSection: do not gate on ${Silent} here. Only ensure details are enabled; steps come from the section.
   SetDetailsPrint both
-  ; Short header so the list is never empty before installSection DetailPrint runs (ASCII only for NSIS Unicode builds).
-  DetailPrint "Installation in progress - see steps below."
 FunctionEnd
 !endif
 

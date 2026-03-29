@@ -2,8 +2,6 @@
 ; Workaround for intermittent NSIS self-update/uninstall failures reported by
 ; multiple electron-builder users on some Windows machines.
 CRCCheck off
-ShowInstDetails show
-ShowUnInstDetails show
 
 !macro _TraceLog TEXT
   FileOpen $0 "$TEMP\HyperlinksSpaceUpdater.log" a
@@ -13,6 +11,11 @@ ShowUnInstDetails show
 
 !macro customHeader
   Caption "${PRODUCT_NAME}"
+  ; common.nsh forces nevershow; restore after so the InstFiles page can show a live log (like the updater).
+  ShowInstDetails show
+  !ifdef BUILD_UNINSTALLER
+    ShowUninstDetails show
+  !endif
 !macroend
 
 ; Override process check to use quoted SYSTEMROOT-based tool paths.

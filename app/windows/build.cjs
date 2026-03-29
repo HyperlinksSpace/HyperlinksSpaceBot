@@ -1055,27 +1055,32 @@ function setupAutoUpdater() {
 
       const ps1Path = path.join(app.getPath("temp"), `hsp-apply-versions-${Date.now()}.ps1`);
       /**
-       * Wait for main PID to exit, then delay before file copy + relaunch so Electron's Windows
-       * single-instance mutex and file locks are released (otherwise the new process can exit
-       * immediately with !requestSingleInstanceLock and the user sees no window).
+       * Short settle after PID exit (handles + mutex), then MT robocopy. Total time is still
+       * dominated by bytes copied; true sub-second is only possible with a different strategy
+       * (e.g. versioned install dir + junction swap, or launch from staging).
        */
+      const settleMs = Math.min(
+        5000,
+        Math.max(0, parseInt(process.env.HSP_UPDATE_SETTLE_MS || "400", 10) || 400),
+      );
       const ps1Body = [
         "param([string]$PlanPath)",
         '$ErrorActionPreference = "Stop"',
         "$plan = Get-Content -LiteralPath $PlanPath -Encoding UTF8 -Raw | ConvertFrom-Json",
         "$LogFile = $plan.logPath",
+        `$settleMs = ${settleMs}`,
         "function Write-ApplyLog([string]$m) {",
         "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
         '  Add-Content -LiteralPath $LogFile -Value ("[$ts] " + $m) -Encoding UTF8',
         "}",
         "try {",
-        '  Write-ApplyLog "apply start waitPid=$($plan.waitPid) exe=$($plan.exeName)"',
+        '  Write-ApplyLog "apply start waitPid=$($plan.waitPid) exe=$($plan.exeName) settleMs=$settleMs"',
         "  $deadline = (Get-Date).AddSeconds(120)",
         "  while ((Get-Process -Id $plan.waitPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {",
-        "    Start-Sleep -Milliseconds 200",
+        "    Start-Sleep -Milliseconds 50",
         "  }",
-        '  Write-ApplyLog "parent process ended (or timeout); mutex/file settle delay 4s"',
-        "  Start-Sleep -Seconds 4",
+        `  Write-ApplyLog "parent process ended (or timeout); settle delay ${settleMs}ms (override with env HSP_UPDATE_SETTLE_MS)"`,
+        "  if ($settleMs -gt 0) { Start-Sleep -Milliseconds $settleMs }",
         "  $src = $plan.stagingContent",
         "  $dst = $plan.installDir",
         '  Write-ApplyLog "robocopy/copy from $src to $dst"',
@@ -1083,7 +1088,7 @@ function setupAutoUpdater() {
         "    if ($_.Name -ne 'versions') {",
         "      $target = Join-Path $dst $_.Name",
         "      if ($_.PSIsContainer) {",
-        "        $p = Start-Process -FilePath robocopy.exe -ArgumentList @($_.FullName, $target, '/MIR', '/R:6', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -Wait -PassThru -NoNewWindow",
+        "        $p = Start-Process -FilePath robocopy.exe -ArgumentList @($_.FullName, $target, '/MIR', '/MT:16', '/R:2', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -Wait -PassThru -NoNewWindow",
         '        Write-ApplyLog ("robocopy dir " + $_.Name + " exit=" + $p.ExitCode)',
         "        if ($p.ExitCode -gt 7) { throw \"robocopy failed exit $($p.ExitCode) for $($_.FullName)\" }",
         "      } else {",
@@ -1111,7 +1116,7 @@ function setupAutoUpdater() {
         "",
       ].join("\r\n");
       fs.writeFileSync(ps1Path, ps1Body, "utf8");
-      logUpdater("apply", `wrote ps1 ${ps1Path}`);
+      logUpdater("apply", `wrote ps1 ${ps1Path} settleMs=${settleMs}`);
 
       const child = spawn(
         "powershell.exe",

@@ -14,6 +14,14 @@
 ; multiple electron-builder users on some Windows machines.
 CRCCheck off
 
+; electron-builder defines BUILD_RESOURCES_DIR (absolute path to directories.buildResources). Push it onto
+; the include stack here so common.nsh / installSection.nsh resolve from windows/ even if NSIS stdin/cwd
+; search order would otherwise pick templates/nsis/*.nsh first.
+!ifndef BUILD_RESOURCES_DIR
+  !error "HSP NSIS: BUILD_RESOURCES_DIR missing (electron-builder should define it)."
+!endif
+!addincludedir "${BUILD_RESOURCES_DIR}"
+
 ; InstFiles log: (1) windows/common.nsh — ShowInstDetails show after stock common (compile-time).
 ; (2) Here — ShowInstDetails show again immediately before MUI_PAGE_INSTFILES (assistedInstaller.nsh).
 ; (3) HspInstFilesShow — SetDetailsView show + SetDetailsPrint both on MUI InstFiles SHOW (runtime;

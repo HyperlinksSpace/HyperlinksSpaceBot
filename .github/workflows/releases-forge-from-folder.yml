@@ -4,7 +4,6 @@ name: Windows release (Forge CI build)
 on:
   workflow_dispatch:
     # No manual inputs: release tag/build folder id is computed from current UTC time.
-    # Format: build_MMDDYYYY_HHMM_forge (e.g. build_03252026_1929_forge)
 
 permissions:
   contents: write
@@ -44,26 +43,19 @@ jobs:
           echo "release_id=$rid" >> "$GITHUB_OUTPUT"
           echo "RELEASE_BUILD_ID=$rid" >> "$GITHUB_ENV"
 
-      - name: Clean Forge output for deterministic artifact selection
-        run: |
-          set -euo pipefail
-          rm -rf "releases/forge/artifacts" "releases/forge/${{ steps.meta.outputs.release_id }}"
+      - name: Build Forge Windows artifacts
+        env:
+          ELECTRON_PUBLISH: never
+        run: npm run make:win:forge
 
-          - name: Build Forge Windows artifacts
-        # Добавляем env здесь, чтобы Forge не пытался сам сделать Release на GitHub
-          env:
-            ELECTRON_PUBLISH: never
-          run: npm run make:win:forge
-  
-
-      - name: Locate Forge artifacts deterministically and normalize names
+      - name: Locate Forge artifacts and normalize names
         id: artifact
         run: |
           set -euo pipefail
           shopt -s globstar nullglob
 
           rid="${{ steps.meta.outputs.release_id }}"
-          stage_dir="releases/forge/$rid"
+          stage_dir="releases/$rid"
           mkdir -p "$stage_dir"
 
           forge_root="releases/forge/artifacts"
@@ -73,85 +65,43 @@ jobs:
           fi
 
           # Collect outputs under Forge make folders.
-          exes_all=( "$forge_root"/**/make/**/*.exe )
-          zips_all=( "$forge_root"/**/make/**/*.zip )
-          ymls_all=( "$forge_root"/**/make/**/latest.yml )
-          zip_ymls_all=( "$forge_root"/**/make/**/zip-latest.yml )
+          exes=( "$forge_root"/**/make/**/*.exe )
+          zips=( "$forge_root"/**/make/**/*.zip )
+          ymls=( "$forge_root"/**/make/**/latest.yml )
+          zip_ymls=( "$forge_root"/**/make/**/zip-latest.yml )
 
-          # Choose installer exe deterministically: require exactly one installer-like match.
-          installer_candidates=()
-          for f in "${exes_all[@]}"; do
+          # Pick installer exe (prefer names that look like setup/installer).
+          exe=""
+          for f in "${exes[@]}"; do
             b="$(basename "$f")"
             lb="${b,,}"
             if [[ "$lb" == *setup*.exe || "$lb" == *installer*.exe ]]; then
-              installer_candidates+=( "$f" )
+              exe="$f"
+              break
             fi
           done
-          if [[ ${#installer_candidates[@]} -ne 1 ]]; then
-            echo "Expected exactly one installer-like exe, got ${#installer_candidates[@]}"
-            printf 'Candidates:\n- %s\n' "${installer_candidates[@]:-<none>}"
-            exit 1
+          if [[ -z "$exe" && ${#exes[@]} -gt 0 ]]; then
+            exe="${exes[0]}"
           fi
-          exe="${installer_candidates[0]}"
-          if [[ ! -f "$exe" ]]; then
+          if [[ -z "$exe" || ! -f "$exe" ]]; then
             echo "No Forge Windows installer .exe found under $forge_root/**/make/"
             exit 1
           fi
 
-          # Version source of truth: latest.yml if present, otherwise zip name.
-          app_version=""
-          yml=""
-          if [[ ${#ymls_all[@]} -gt 1 ]]; then
-            echo "Expected at most one latest.yml, got ${#ymls_all[@]}"
-            printf 'latest.yml files:\n- %s\n' "${ymls_all[@]}"
-            exit 1
-          elif [[ ${#ymls_all[@]} -eq 1 ]]; then
-            yml="${ymls_all[0]}"
-            app_version="$(python3 -c "import pathlib, re, sys; t=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8', errors='ignore'); m=re.search(r'(?m)^version:\\s*(.+)$', t); print((m.group(1).strip() if m else ''))" "$yml")"
-            if [[ -z "$app_version" ]]; then
-              echo "Could not parse version from $yml"
-              exit 1
-            fi
-          fi
-
-          # Match zip by parsed version (if available), otherwise require exactly one zip.
+          # Prefer portable zip if present.
           zip=""
-          if [[ -n "$app_version" ]]; then
-            zip_version_candidates=()
-            for z in "${zips_all[@]}"; do
-              zb="$(basename "$z")"
-              if [[ "$zb" == HyperlinksSpaceApp_"$app_version".zip ]]; then
-                zip_version_candidates+=( "$z" )
-              fi
-            done
-            if [[ ${#zip_version_candidates[@]} -gt 1 ]]; then
-              echo "Multiple zips matched version $app_version"
-              printf 'Zip candidates:\n- %s\n' "${zip_version_candidates[@]}"
-              exit 1
-            elif [[ ${#zip_version_candidates[@]} -eq 1 ]]; then
-              zip="${zip_version_candidates[0]}"
-            fi
-          elif [[ ${#zips_all[@]} -eq 1 ]]; then
-            zip="${zips_all[0]}"
-            zip_b="$(basename "$zip")"
-            app_version="$(echo "$zip_b" | sed -E 's/^HyperlinksSpaceApp_(.+)\.zip$/\1/')"
-            if [[ -z "$app_version" || "$app_version" == "$zip_b" ]]; then
-              app_version=""
-            fi
-          elif [[ ${#zips_all[@]} -gt 1 ]]; then
-            echo "Multiple zip artifacts found and no version source to disambiguate."
-            printf 'Zip files:\n- %s\n' "${zips_all[@]}"
-            exit 1
+          if [[ ${#zips[@]} -gt 0 ]]; then
+            zip="${zips[0]}"
           fi
 
-          # Optional zip-latest.yml: choose uniquely.
+          yml=""
+          if [[ ${#ymls[@]} -gt 0 ]]; then
+            yml="${ymls[0]}"
+          fi
+
           zip_yml=""
-          if [[ ${#zip_ymls_all[@]} -gt 1 ]]; then
-            echo "Expected at most one zip-latest.yml, got ${#zip_ymls_all[@]}"
-            printf 'zip-latest.yml files:\n- %s\n' "${zip_ymls_all[@]}"
-            exit 1
-          elif [[ ${#zip_ymls_all[@]} -eq 1 ]]; then
-            zip_yml="${zip_ymls_all[0]}"
+          if [[ ${#zip_ymls[@]} -gt 0 ]]; then
+            zip_yml="${zip_ymls[0]}"
           fi
 
           stamp="${rid#build_}"
@@ -194,7 +144,6 @@ jobs:
           echo "yml_name=$yml_name" >> "$GITHUB_OUTPUT"
           echo "zip_yml_path=$zip_yml_out" >> "$GITHUB_OUTPUT"
           echo "zip_yml_name=$zip_yml_name" >> "$GITHUB_OUTPUT"
-          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
           echo "release_id=$rid" >> "$GITHUB_OUTPUT"
 
       - name: Check if GitHub release already exists
@@ -210,90 +159,6 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Preflight checks and artifact summary
-        if: steps.exists.outputs.exists != 'true'
-        id: preflight
-        run: |
-          set -euo pipefail
-          rid="${{ steps.artifact.outputs.release_id }}"
-          exe="${{ steps.artifact.outputs.exe_path }}"
-          zip="${{ steps.artifact.outputs.zip_path }}"
-          yml="${{ steps.artifact.outputs.yml_path }}"
-          zip_yml="${{ steps.artifact.outputs.zip_yml_path }}"
-          stage_dir="releases/forge/$rid"
-
-          [[ -d "$stage_dir" ]] || { echo "Stage dir missing: $stage_dir"; exit 1; }
-          [[ -f "$exe" ]] || { echo "Installer missing: $exe"; exit 1; }
-
-          exe_name="$(basename "$exe")"
-          [[ "$exe_name" == HyperlinksSpaceAppInstaller_*_forge.exe ]] || {
-            echo "Unexpected forge installer name: $exe_name"; exit 1;
-          }
-
-          if [[ -n "$zip" ]]; then
-            [[ -f "$zip" ]] || { echo "Forge zip path set but file missing: $zip"; exit 1; }
-            zip_name="$(basename "$zip")"
-            [[ "$zip_name" == *_forge.zip ]] || {
-              echo "Unexpected forge zip name: $zip_name"; exit 1;
-            }
-            zip_version="$(echo "$zip_name" | sed -E 's/^HyperlinksSpaceApp_(.+)_forge\.zip$/\1/')"
-            if [[ -z "$zip_version" || "$zip_version" == "$zip_name" ]]; then
-              zip_version="unknown"
-            fi
-          else
-            zip_name=""
-            zip_version="unknown"
-          fi
-
-          parsed_version="${{ steps.artifact.outputs.app_version }}"
-          if [[ -z "$parsed_version" ]]; then
-            parsed_version="unknown"
-          fi
-          if [[ "$zip_version" != "unknown" && "$parsed_version" != "unknown" && "$zip_version" != "$parsed_version" ]]; then
-            echo "Version mismatch: zip=$zip_version parsed=$parsed_version"
-            exit 1
-          fi
-          app_version="$parsed_version"
-          if [[ "$app_version" == "unknown" && "$zip_version" != "unknown" ]]; then
-            app_version="$zip_version"
-          fi
-          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
-
-          if [[ -n "$yml" ]]; then
-            [[ -f "$yml" ]] || { echo "Forge yml path set but file missing: $yml"; exit 1; }
-            [[ "$(basename "$yml")" == "latest_forge.yml" ]] || {
-              echo "Unexpected forge yml name: $(basename "$yml")"; exit 1;
-            }
-          fi
-          if [[ -n "$zip_yml" ]]; then
-            [[ -f "$zip_yml" ]] || { echo "Forge zip yml path set but file missing: $zip_yml"; exit 1; }
-            [[ "$(basename "$zip_yml")" == "zip-latest_forge.yml" ]] || {
-              echo "Unexpected forge zip yml name: $(basename "$zip_yml")"; exit 1;
-            }
-          fi
-
-          echo "Preflight OK (forge):"
-          echo "  release_id: $rid"
-          echo "  app_version: $app_version"
-          echo "  stage_dir: $stage_dir"
-          echo "  installer: $exe"
-          if [[ -n "$zip" ]]; then
-            echo "  portable_zip: $zip"
-          else
-            echo "  portable_zip: (none)"
-          fi
-          if [[ -n "$yml" ]]; then
-            echo "  latest_yml: $yml"
-          else
-            echo "  latest_yml: (none)"
-          fi
-          if [[ -n "$zip_yml" ]]; then
-            echo "  zip_latest_yml: $zip_yml"
-          else
-            echo "  zip_latest_yml: (none)"
-          fi
-          echo "  metadata_policy: Forge intentionally uses latest_forge.yml and zip-latest_forge.yml."
 
       - name: Create GitHub release and upload Forge artifacts
         if: steps.exists.outputs.exists != 'true'
@@ -324,12 +189,10 @@ jobs:
             upload+=( "$zip_yml" )
           fi
 
-          echo "Publishing release $rid (app_version=${{ steps.preflight.outputs.app_version }})"
-          printf 'Assets:\n- %s\n' "${upload[@]}"
           gh release create "$rid" "${upload[@]}" \
             --repo "${{ github.repository }}" \
             --title "$rid" \
-            --notes "Windows Forge build on GitHub Actions (workflow run ${{ github.run_id }}). Assets are Forge artifacts normalized with _forge suffix."
+            --notes "Windows Forge build on GitHub Actions. Assets are Forge artifacts normalized with _forge suffix."
           release_url="https://github.com/${{ github.repository }}/releases/tag/$rid"
           echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
 
@@ -364,23 +227,7 @@ jobs:
           export ASSET_URL="$asset_url"
           payload="$(python3 -c "import json, os; print(json.dumps({'release_id': os.environ['RELEASE_ID'], 'published_at': os.environ['PUBLISHED_AT'], 'platform': 'windows', 'assets': [{'name': os.environ['EXE_NAME'], 'url': os.environ['ASSET_URL']}], 'github_release_url': os.environ['RELEASE_URL']}))")"
           if [[ -n "${WEBHOOK_TOKEN:-}" ]]; then
-            curl --fail --show-error --silent \
-              -X POST "$webhook_url" \
-              -H "Content-Type: application/json" \
-              -H "x-release-token: $WEBHOOK_TOKEN" \
-              --data "$payload"
+            curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer ${WEBHOOK_TOKEN}" -d "$payload" "$webhook_url"
           else
-            curl --fail --show-error --silent \
-              -X POST "$webhook_url" \
-              -H "Content-Type: application/json" \
-              --data "$payload"
-          fi
-
-      - name: Summary
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [[ "${{ steps.exists.outputs.exists }}" == "true" ]]; then
-            echo "Skipped: release already exists for ${{ steps.artifact.outputs.release_id }}."
-          else
-            echo "Published Forge release ${{ steps.artifact.outputs.release_id }} (${{ steps.artifact.outputs.exe_path }})"
+            curl -X POST -H "Content-Type: application/json" -d "$payload" "$webhook_url"
           fi

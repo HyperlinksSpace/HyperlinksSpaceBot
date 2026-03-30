@@ -32,6 +32,8 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+Optional cleanup of legacy Forge v5 deps
+Workflows dry mode (build check without releasing)
 Move Telegram folder contents to API
 https://www.npmjs.com/package/electron-log
 PGP release signing

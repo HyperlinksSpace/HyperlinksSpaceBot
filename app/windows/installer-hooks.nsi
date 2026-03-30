@@ -84,6 +84,76 @@ FunctionEnd
   DetailPrint "${MSG}"
   !insertmacro HspAppendUpdaterLog "${MSG}"
 !macroend
+
+Var HspFinishLogEdit
+
+; Load %TEMP%\HyperlinksSpaceUpdater.log into $R8 (size-capped for NSIS string limits).
+Function HspFinishPageReadLog
+  Call HspEnsureUpdaterLogPath
+  IfFileExists "$HspLogFile" hspFinishLogExists hspFinishLogMissing
+hspFinishLogMissing:
+  StrCpy $R8 "No installation log file was found.$\r$\n"
+  Return
+hspFinishLogExists:
+  StrCpy $R8 ""
+  StrCpy $R3 "0"
+  FileOpen $R0 "$HspLogFile" r
+  FileRead $R0 $1
+  IfErrors hspFinishLogClose
+hspFinishLogLoop:
+  IntCmp $R3 400 hspFinishLogTrunc 0 0
+  StrLen $2 $R8
+  IntCmp $2 6800 hspFinishLogTrunc 0 0
+  StrCpy $R8 "$R8$1$\r$\n"
+  IntOp $R3 $R3 + 1
+  FileRead $R0 $1
+  IfErrors hspFinishLogClose hspFinishLogLoop
+hspFinishLogTrunc:
+  StrCpy $R8 "$R8$\r$\n... (truncated)"
+hspFinishLogClose:
+  FileClose $R0
+  Return
+FunctionEnd
+
+; Child EDIT on the MUI finish page so the user can read the same log we mirror to %TEMP%.
+Function HspFinishPageShow
+  StrCpy $HspFinishLogEdit ""
+  Call HspFinishPageReadLog
+  ; WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|ES_READONLY|ES_WANTRETURN
+  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50201844, i 128, i 128, i 360, i 172, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
+  IntCmp $0 0 hspFinishShowDone
+  StrCpy $HspFinishLogEdit $0
+  StrCpy $9 $0
+  StrCpy $1 $R8
+  System::Call "user32::SetWindowTextW(i r9, t r1)"
+hspFinishShowDone:
+FunctionEnd
+
+Function HspFinishPageLeave
+  StrCmp $HspFinishLogEdit "" +4
+  StrCpy $0 $HspFinishLogEdit
+  System::Call "user32::DestroyWindow(i r0)"
+  StrCpy $HspFinishLogEdit ""
+FunctionEnd
+
+; Replaces stock assistedInstaller.nsh finish block: optional Run + MUI_PAGE_FINISH with log viewer.
+!macro customFinishPage
+  !ifndef HIDE_RUN_AFTER_FINISH
+    Function StartApp
+      ${if} ${isUpdated}
+        StrCpy $1 "--updated"
+      ${else}
+        StrCpy $1 ""
+      ${endif}
+      ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
+    FunctionEnd
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !endif
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
+  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
+  !insertmacro MUI_PAGE_FINISH
+!macroend
 !endif
 
 !ifdef BUILD_UNINSTALLER

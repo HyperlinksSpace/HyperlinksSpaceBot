@@ -636,10 +636,9 @@ function setupAutoUpdater() {
       return 0;
     };
 
-    // Tight chrome: content + padding only (title bar is extra OS chrome).
+    // Single content height: always leave room for the activity log so it is not clipped when progress/actions hide.
     const UPDATER_LOG_PANEL = 108;
-    const UPDATER_COMPACT_H = 128 + UPDATER_LOG_PANEL;
-    const UPDATER_EXPANDED_H = 198 + UPDATER_LOG_PANEL;
+    const UPDATER_DIALOG_H = 198 + UPDATER_LOG_PANEL;
 
     const sendUpdaterLogInitToDialog = () => {
       const w = updateDialogState.window;
@@ -675,7 +674,7 @@ function setupAutoUpdater() {
       }
       updateDialogState.window = new BrowserWindow({
         width: 420,
-        height: UPDATER_COMPACT_H,
+        height: UPDATER_DIALOG_H,
         useContentSize: true,
         title: "Updater",
         resizable: false,
@@ -720,9 +719,8 @@ function setupAutoUpdater() {
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
       const safe = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
       updateDialogState.installEnabled = Boolean(installEnabled);
-      const expanded = showProgress || showActions;
       try {
-        updateDialogState.window.setSize(420, expanded ? UPDATER_EXPANDED_H : UPDATER_COMPACT_H);
+        updateDialogState.window.setSize(420, UPDATER_DIALOG_H);
       } catch (_) {}
       const payload = {
         text,

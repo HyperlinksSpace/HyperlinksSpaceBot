@@ -47,6 +47,13 @@ Function HspInstFilesShow
   SetDetailsPrint listonly
 FunctionEnd
 
+; After all sections finish, NSIS often collapses the InstFiles list (text-only status). Re-open the list
+; so the install log stays readable until the user clicks Next to the finish page.
+Function .onInstSuccess
+  SetDetailsView show
+  SetDetailsPrint listonly
+FunctionEnd
+
 Var HspLogFile
 Var HspLogHandle
 Function HspEnsureUpdaterLogPath

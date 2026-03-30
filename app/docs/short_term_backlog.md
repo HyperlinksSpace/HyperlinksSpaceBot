@@ -1,4 +1,3 @@
-Telegram to API
 Fluent installer progress bar
 Updater text area style
 Logs on installation
@@ -33,6 +32,8 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+Move Telegram folder contents to API
+https://www.npmjs.com/package/electron-log
 PGP release signing
 File's formats and folders structure<br>
 Selection and pointing text detalization<br>

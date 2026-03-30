@@ -99,83 +99,33 @@ FunctionEnd
 
 Var HspFinishLogEdit
 
-; Load %TEMP%\HyperlinksSpaceUpdater.log into $R8. Show the *tail* (last HSP_LOG_TAIL_LINES lines) if the file is long;
-; cap total size near NSIS string limits (~8k TCHAR) for SetWindowText on the finish page.
-!define HSP_LOG_TAIL_LINES 1200
-!define HSP_LOG_MAX_CHARS 7800
-
-Function HspFinishPageReadLog
-  Call HspEnsureUpdaterLogPath
-  IfFileExists "$HspLogFile" hspFinishLogExists hspFinishLogMissing
-hspFinishLogMissing:
-  StrCpy $R8 "No installation log file was found.$\r$\n"
-  Return
-hspFinishLogExists:
-  ; Pass 1: count lines (for tail selection).
-  StrCpy $R3 0
-  FileOpen $R0 "$HspLogFile" r
-  hspFinishCountLoop:
-    FileRead $R0 $1
-    IfErrors hspFinishCountDone
-    IntOp $R3 $R3 + 1
-    Goto hspFinishCountLoop
-  hspFinishCountDone:
-  FileClose $R0
-
-  ; If line count > HSP_LOG_TAIL_LINES, skip leading lines so the finish page shows the *latest* entries.
-  IntCmp $R3 ${HSP_LOG_TAIL_LINES} hspFinishEq hspFinishLt hspFinishGt
-  hspFinishLt:
-    StrCpy $R2 0
-    StrCpy $R5 0
-    Goto hspFinishBuild
-  hspFinishEq:
-    StrCpy $R2 0
-    StrCpy $R5 0
-    Goto hspFinishBuild
-  hspFinishGt:
-    IntOp $R2 $R3 - ${HSP_LOG_TAIL_LINES}
-    StrCpy $R5 $R2
-
-  hspFinishBuild:
-  StrCpy $R8 ""
-  IntCmp $R5 0 hspFinishSkipPrefix
-  StrCpy $R8 "... ($R5 earlier lines not shown)$\r$\n"
-  hspFinishSkipPrefix:
-  FileOpen $R0 "$HspLogFile" r
-  hspFinishLineLoop:
-    FileRead $R0 $1
-    IfErrors hspFinishReadDone
-    IntCmp $R2 0 hspFinishAppendLine
-    IntOp $R2 $R2 - 1
-    Goto hspFinishLineLoop
-  hspFinishAppendLine:
-    StrLen $4 $R8
-    StrLen $6 $1
-    IntOp $7 $4 + $6
-    IntOp $7 $7 + 2
-    IntCmp $7 ${HSP_LOG_MAX_CHARS} hspFinishDoAppend hspFinishDoAppend hspFinishCharCap
-  hspFinishDoAppend:
-    StrCpy $R8 "$R8$1$\r$\n"
-    Goto hspFinishLineLoop
-  hspFinishCharCap:
-    StrCpy $R8 "$R8$\r$\n... (truncated to ${HSP_LOG_MAX_CHARS} chars for display)"
-  hspFinishReadDone:
-  FileClose $R0
-  Return
-FunctionEnd
-
-; Child EDIT on the MUI finish page so the user can read the same log we mirror to %TEMP%.
+; Child EDIT on the MUI finish page: stream the log file in with EM_REPLACESEL so the full file is shown (not limited by NSIS StrCpy size).
 Function HspFinishPageShow
   StrCpy $HspFinishLogEdit ""
-  Call HspFinishPageReadLog
+  Call HspEnsureUpdaterLogPath
   ; WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|ES_READONLY|ES_WANTRETURN
-  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50201844, i 128, i 128, i 360, i 172, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
+  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50201844, i 128, i 128, i 360, i 220, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
   IntCmp $0 0 hspFinishShowDone
   StrCpy $HspFinishLogEdit $0
   StrCpy $9 $0
-  StrCpy $1 $R8
-  System::Call "user32::SetWindowTextW(i r9, t r1)"
-hspFinishShowDone:
+  ; EM_SETLIMITTEXT: raise default cap so large logs fit (WCHAR count).
+  System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
+  IfFileExists "$HspLogFile" hspFinishFillFile
+  System::Call "user32::SetWindowTextW(i r9, w \"No installation log file was found.\")"
+  Goto hspFinishShowDone
+  hspFinishFillFile:
+  FileOpen $R0 "$HspLogFile" r
+  hspFinishReadLoop:
+    FileRead $R0 $1
+    IfErrors hspFinishFileDone
+    System::Call "user32::SendMessageW(i r9, i 0x000E, i 0, i 0) i.r4"
+    System::Call "user32::SendMessageW(i r9, i 0xB1, i r4, i r4)"
+    StrCpy $2 "$1$\r$\n"
+    System::Call "user32::SendMessageW(i r9, i 0xC2, i 1, t r2)"
+    Goto hspFinishReadLoop
+  hspFinishFileDone:
+  FileClose $R0
+  hspFinishShowDone:
 FunctionEnd
 
 Function HspFinishPageLeave

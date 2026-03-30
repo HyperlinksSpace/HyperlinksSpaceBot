@@ -45,7 +45,10 @@ jobs:
 
       - name: Build Forge Windows artifacts
         env:
+          # Принудительно отключаем публикацию для electron-builder внутри Forge
           ELECTRON_PUBLISH: never
+          # Дополнительная заглушка: передаем пустой конфиг публикаций в формате JSON
+          EP_PUBLISH_CONFIG: '{"provider":"none"}'
         run: npm run make:win:forge
 
       - name: Locate Forge artifacts and normalize names

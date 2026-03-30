@@ -1,5 +1,5 @@
 ; Fork of app-builder-lib/templates/nsis/installSection.nsh (electron-builder).
-; Debug: if the Installing list stays empty, open %TEMP%\HyperlinksSpaceUpdater.log — HspInstallDetailPrint
+; Debug: if the Installing list stays empty, open %TEMP%\HyperlinksSpaceInstall.log — HspInstallDetailPrint
 ; mirrors each milestone there (proves NSIS ran the line even when the UI list does not repaint).
 ;
 ; Source lives here (not app/build/). package.json sets directories.buildResources to
@@ -98,14 +98,14 @@ hspRemoveOldCurrent:
   Pop $R9
   StrCpy $R8 "  (rmdir exit code: $R9)"
   DetailPrint "$R8"
-  Call HspAppendUpdaterLogVar
+  Call HspAppendInstallerMirrorLogVar
 hspMklinkCurrent:
 !insertmacro HspInstallDetailPrint "  (creating junction: current -> versions\${VERSION})"
 nsExec::ExecToLog '"$SYSDIR\cmd.exe" /c mklink /J "$INSTDIR\current" "$INSTDIR\versions\${VERSION}"'
 Pop $R9
 StrCpy $R8 "  (mklink exit code: $R9)"
 DetailPrint "$R8"
-Call HspAppendUpdaterLogVar
+Call HspAppendInstallerMirrorLogVar
 StrCpy $appExe "$INSTDIR\current\${APP_EXECUTABLE_FILENAME}"
 !insertmacro HspInstallDetailPrint "Step 8/10 - Writing install location and Add/Remove Programs registry entries..."
 !insertmacro registryAddInstallInfo

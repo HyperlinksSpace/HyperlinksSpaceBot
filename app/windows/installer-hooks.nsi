@@ -31,8 +31,9 @@ CRCCheck off
 !endif
 !addincludedir "${BUILD_RESOURCES_DIR}"
 
-; Timestamped lines in %TEMP%\HyperlinksSpaceUpdater.log (FileWrite — no NSIS logging build / LogSet).
-; Uninstaller prebuild (BUILD_UNINSTALLER): Call may only target un.* functions; use Var un.* for log path.
+; Installer Finish page reads $HspLogFile (see HspEnsureInstallerMirrorLogPath). Use a dedicated filename so
+; the running app/updater never truncates it — they may reuse %TEMP%\HyperlinksSpaceUpdater.log for updater UX.
+; Uninstaller prebuild (BUILD_UNINSTALLER): separate un.* path below; no NSIS LogSet in stock electron-builder.
 
 ; InstFiles log: (1) windows/common.nsh — ShowInstDetails show after stock common (compile-time).
 ; (2) Here — ShowInstDetails show again immediately before MUI_PAGE_INSTFILES (assistedInstaller.nsh).
@@ -60,17 +61,17 @@ FunctionEnd
 
 Var HspLogFile
 Var HspLogHandle
-Function HspEnsureUpdaterLogPath
+Function HspEnsureInstallerMirrorLogPath
   StrCmp $HspLogFile "" hspSetLogPath hspLogPathDone
 hspSetLogPath:
-  StrCpy $HspLogFile "$TEMP\HyperlinksSpaceUpdater.log"
+  StrCpy $HspLogFile "$TEMP\HyperlinksSpaceInstall.log"
 hspLogPathDone:
 FunctionEnd
 
 ; Append in three writes: avoids one huge FileWrite string mixing $R0-$R6, colons, and runtime $VAR\path
 ; (NSIS recommends ${INSTDIR}\file when a path follows a variable; mixed literals have misparsed before).
-!macro HspAppendUpdaterLog TEXT
-  Call HspEnsureUpdaterLogPath
+!macro HspAppendInstallerMirrorLog TEXT
+  Call HspEnsureInstallerMirrorLogPath
   ${GetTime} "" "L" $R0 $R1 $R2 $R3 $R4 $R5 $R6
   ; FileFunc GetTime (local): $R0=day $R1=month $R2=year $R3=weekday name (unused) $R4:$R5:$R6=time
   StrCpy $R7 "[$R2-$R1-$R0 $R4:$R5:$R6] "
@@ -81,17 +82,17 @@ FunctionEnd
   FileClose $HspLogHandle
 !macroend
 
-; Re-assert list mode + mirror to HyperlinksSpaceUpdater.log (debug when MUI listbox stays empty).
+; Re-assert list mode + mirror to %TEMP%\HyperlinksSpaceInstall.log (debug when MUI listbox stays empty).
 !macro HspInstallDetailPrint MSG
   SetDetailsPrint listonly
   SetDetailsView show
   DetailPrint "${MSG}"
-  !insertmacro HspAppendUpdaterLog "${MSG}"
+  !insertmacro HspAppendInstallerMirrorLog "${MSG}"
 !macroend
 
-; Append one line to the temp log; message body must be in $R8 (timestamp added here). Used when the text includes runtime $variables.
-Function HspAppendUpdaterLogVar
-  Call HspEnsureUpdaterLogPath
+; Append one line to the install mirror log; message body must be in $R8 (timestamp added here).
+Function HspAppendInstallerMirrorLogVar
+  Call HspEnsureInstallerMirrorLogPath
   ${GetTime} "" "L" $R0 $R1 $R2 $R3 $R4 $R5 $R6
   StrCpy $R7 "[$R2-$R1-$R0 $R4:$R5:$R6] "
   FileOpen $HspLogHandle "$HspLogFile" a
@@ -106,7 +107,7 @@ Var HspFinishLogEdit
 ; Child EDIT on the MUI finish page: stream the log file in with EM_REPLACESEL so the full file is shown (not limited by NSIS StrCpy size).
 Function HspFinishPageShow
   StrCpy $HspFinishLogEdit ""
-  Call HspEnsureUpdaterLogPath
+  Call HspEnsureInstallerMirrorLogPath
   ; WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|ES_READONLY|ES_WANTRETURN
   System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50201844, i 128, i 128, i 360, i 220, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
   IntCmp $0 0 hspFinishShowDone
@@ -183,6 +184,10 @@ FunctionEnd
   FileWrite $un.HspLogHandle "$\r$\n"
   FileClose $un.HspLogHandle
 !macroend
+; customUnInstall uses the same macro name as the installer build (HspAppendInstallerMirrorLog).
+!macro HspAppendInstallerMirrorLog TEXT
+  !insertmacro HspAppendUpdaterLog "${TEXT}"
+!macroend
 !endif
 
 !macro customHeader
@@ -207,10 +212,10 @@ FunctionEnd
 ; One-time migration workaround for installations stuck in uninstall error state (: 2).
 ; Keeps install in current-user mode and bypasses stale uninstall command strings.
 ; DetailPrint in .onInit runs before the InstFiles page exists (insthwnd not set) — lines do not appear
-; in the Installing list; use HspAppendUpdaterLog or MessageBox for debug there if needed.
+; in the Installing list; use HspAppendInstallerMirrorLog or MessageBox for debug there if needed.
 !macro customInit
   DetailPrint "[installer] customInit start"
-  !insertmacro HspAppendUpdaterLog "[installer] customInit start"
+  !insertmacro HspAppendInstallerMirrorLog "[installer] customInit start"
   SetRegView 64
   DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
   DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
@@ -222,7 +227,7 @@ FunctionEnd
   DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
   DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
   DetailPrint "[installer] customInit complete"
-  !insertmacro HspAppendUpdaterLog "[installer] customInit complete"
+  !insertmacro HspAppendInstallerMirrorLog "[installer] customInit complete"
 !macroend
 
 !macro customInstallMode
@@ -230,13 +235,23 @@ FunctionEnd
   SetDetailsPrint listonly
   SetDetailsView show
   DetailPrint "[installer] customInstallMode force current-user"
-  !insertmacro HspAppendUpdaterLog "[installer] customInstallMode force current-user"
+  !insertmacro HspAppendInstallerMirrorLog "[installer] customInstallMode force current-user"
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
 ; NSIS 3.0.x ExecShell only accepts SW_SHOW* names, not a numeric nShowCmd — use ShellExecuteW for SW_SHOWNOACTIVATE (4).
 Function HspShellOpenExeNoActivate
   System::Call "shell32::ShellExecuteW(i 0, w \"open\", w \"$INSTDIR\${PRODUCT_FILENAME}.exe\", w \"\", w \"$INSTDIR\", i 4) i.r0"
+  ; Mirror to install log + DetailPrint (replaces old "ExecShell: open …" line in the listbox-only view).
+  IntCmp $0 32 hspShellExecBad hspShellExecBad hspShellExecOk
+hspShellExecBad:
+  StrCpy $R8 "ShellExecuteW failed (result=$0): $INSTDIR\${PRODUCT_FILENAME}.exe"
+  Goto hspShellExecDone
+hspShellExecOk:
+  StrCpy $R8 "ShellExecuteW ok (SW_SHOWNOACTIVATE): $INSTDIR\${PRODUCT_FILENAME}.exe"
+hspShellExecDone:
+  DetailPrint "$R8"
+  Call HspAppendInstallerMirrorLogVar
 FunctionEnd
 
 !macro customInstall
@@ -245,21 +260,26 @@ FunctionEnd
   SetDetailsPrint listonly
   SetDetailsView show
   DetailPrint "[installer] customInstall start"
-  !insertmacro HspAppendUpdaterLog "[installer] customInstall start"
+  !insertmacro HspAppendInstallerMirrorLog "[installer] customInstall start"
   SetOverwrite on
   ; Start the app as soon as files are installed (parallel with the rest of the wizard). nShowCmd 4 = SW_SHOWNOACTIVATE.
   IfFileExists "$INSTDIR\${PRODUCT_FILENAME}.exe" 0 hspCustomInstallSkipLaunch
   Call HspShellOpenExeNoActivate
+  Goto hspCustomInstallAfterLaunch
   hspCustomInstallSkipLaunch:
+  StrCpy $R8 "Skipped launch: $INSTDIR\${PRODUCT_FILENAME}.exe not found"
+  DetailPrint "$R8"
+  Call HspAppendInstallerMirrorLogVar
+  hspCustomInstallAfterLaunch:
   DetailPrint "[installer] customInstall complete"
-  !insertmacro HspAppendUpdaterLog "[installer] customInstall complete"
+  !insertmacro HspAppendInstallerMirrorLog "[installer] customInstall complete"
 !macroend
 
 !macro customUnInstall
   SetDetailsPrint listonly
   SetDetailsView show
   DetailPrint "[uninstaller] customUnInstall start"
-  !insertmacro HspAppendUpdaterLog "[uninstaller] customUnInstall start"
+  !insertmacro HspAppendInstallerMirrorLog "[uninstaller] customUnInstall start"
   DetailPrint "[uninstaller] customUnInstall complete"
-  !insertmacro HspAppendUpdaterLog "[uninstaller] customUnInstall complete"
+  !insertmacro HspAppendInstallerMirrorLog "[uninstaller] customUnInstall complete"
 !macroend

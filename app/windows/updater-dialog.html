@@ -80,8 +80,18 @@
           );
           const installBtn = document.getElementById("install");
           if (installBtn) {
-            installBtn.addEventListener("click", () => {
-              ipcRenderer.send("updater-install-click");
+            installBtn.addEventListener("click", async () => {
+              appendLogLine("[ui] Update clicked — sending to main process…");
+              try {
+                const r = await ipcRenderer.invoke("updater-install-now");
+                if (r && r.ok === false) {
+                  appendLogLine("[ui] Main refused: " + (r.err || "unknown"));
+                }
+              } catch (e) {
+                const msg = e && e.message ? e.message : String(e);
+                appendLogLine("[ui] IPC invoke failed: " + msg + " (trying legacy send)");
+                ipcRenderer.send("updater-install-click");
+              }
             });
           } else {
             ipcRenderer.send("updater-renderer-error", "install button #install missing");

@@ -683,7 +683,7 @@ function setupAutoUpdater() {
         maximizable: false,
         show: false,
         autoHideMenuBar: true,
-        parent: BrowserWindow.getAllWindows()[0] || undefined,
+        // No parent: a child window + showMessageBox(modal to child) often leaves alerts behind the main frame.
         modal: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
       });
@@ -751,12 +751,36 @@ function setupAutoUpdater() {
       updateDialogState.window = null;
       updateDialogState.installEnabled = false;
     };
+
+    /** Prefer main/browser window so native dialogs are not hidden behind a frame owned as child. */
+    const focusMainWindowForDialog = () => {
+      const all = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+      const mainLike = all.find((w) => w !== updateDialogState.window) ?? all[0];
+      try {
+        if (mainLike) {
+          if (mainLike.isMinimized()) mainLike.restore();
+          mainLike.focus();
+        }
+      } catch (_) {}
+      return mainLike ?? null;
+    };
+
     if (!updateDialogState.ipcBound) {
       updateDialogState.ipcBound = true;
-      // Do not gate on installEnabled: it can stay false if syncZipReadyUi ran while the dialog
-      // was not open (startup update-available skip path). Renderer still enables the button via IPC.
+      // invoke/handle is more reliable than send for click→main from file:// updater pages on some Electron builds.
+      ipcMain.handle("updater-install-now", () => {
+        logUpdater("ipc", "updater-install-now (invoke)");
+        try {
+          requestInstallNow();
+          return { ok: true };
+        } catch (e) {
+          const m = e?.message || String(e);
+          log(`[updater] requestInstallNow threw: ${m}`);
+          return { ok: false, err: m };
+        }
+      });
       ipcMain.on("updater-install-click", () => {
-        logUpdater("ipc", "updater-install-click received");
+        logUpdater("ipc", "updater-install-click received (legacy send)");
         requestInstallNow();
       });
       ipcMain.on("updater-renderer-error", (_e, msg) => {
@@ -1257,12 +1281,14 @@ function setupAutoUpdater() {
         } catch (e) {
           log(`[updater] applyVersionsStagedUpdate failed: ${e?.message || e}`);
           suppressQuitForUpdateInstall = false;
-          void dialog.showMessageBox({
+          const mw = focusMainWindowForDialog();
+          const errOpts = {
             type: "error",
             title: "Hyperlinks Space App",
             message: `Could not apply update: ${e?.message || String(e)}`,
             buttons: ["OK"],
-          });
+          };
+          void (mw ? dialog.showMessageBox(mw, errOpts) : dialog.showMessageBox(errOpts));
           return;
         }
         for (const win of BrowserWindow.getAllWindows()) {
@@ -1292,10 +1318,6 @@ function setupAutoUpdater() {
             "utf8",
           );
         } catch (_) {}
-        const dlgParent =
-          updateDialogState.window && !updateDialogState.window.isDestroyed()
-            ? updateDialogState.window
-            : BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || undefined;
         const boxOpts = {
           type: "info",
           title: "Hyperlinks Space App",
@@ -1303,8 +1325,13 @@ function setupAutoUpdater() {
             "The quick update is not ready yet. Keep the app open until download and unpack finish, or ensure the latest GitHub release includes zip-latest.yml and HyperlinksSpaceApp_<version>.zip from your Windows build (cleanup folder).",
           buttons: ["OK"],
         };
-        if (dlgParent) void dialog.showMessageBox(dlgParent, boxOpts);
-        else void dialog.showMessageBox(boxOpts);
+        try {
+          if (updateDialogState.window && !updateDialogState.window.isDestroyed()) {
+            updateDialogState.window.hide();
+          }
+        } catch (_) {}
+        const mw = focusMainWindowForDialog();
+        void (mw ? dialog.showMessageBox(mw, boxOpts) : dialog.showMessageBox(boxOpts));
         return;
       }
 

@@ -1,10 +1,9 @@
-# Build Windows installer on CI (no .exe committed to git), publish GitHub Release, notify /api/releases.
-name: .exe build
+# Build Windows installer with Electron Forge on CI, publish GitHub Release, notify /api/releases.
+name: forge .exe build
 
 on:
   workflow_dispatch:
     # No manual inputs: release tag/build folder id is computed from current UTC time.
-    # Format: build_MMDDYYYY_HHMM (e.g. build_03252026_1929)
 
 permissions:
   contents: write
@@ -40,33 +39,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rid="build_$(date -u +%m%d%Y_%H%M)"
+          rid="build_$(date -u +%m%d%Y_%H%M)_forge"
           echo "release_id=$rid" >> "$GITHUB_OUTPUT"
           echo "RELEASE_BUILD_ID=$rid" >> "$GITHUB_ENV"
 
-      - name: Build Windows installer
-        run: npm run build:win
+      - name: Build Forge Windows artifacts
+        env:
+          ELECTRON_PUBLISH: never
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run make:win:forge
 
-      # cleanup.cjs writes releases/builder/<build_id>/ (installer at root; zip + yml in dev/).
-      # Stage flat copies under releases/electron/<build_id>/ for GitHub upload.
-      - name: Locate electron-builder artifacts and stage under releases/electron
+      # forge-cleanup writes releases/forge/<build_id>_forge/ (installer at root; zip + yml in dev/).
+      # Stage flat copies under releases/electron/<build_id>_forge/ for GitHub upload.
+      - name: Locate Forge artifacts and stage under releases/electron
         id: artifact
         run: |
           set -euo pipefail
           rid="${{ steps.meta.outputs.release_id }}"
-          src_dir="releases/builder/$rid"
+          src_dir="releases/forge/$rid"
           dev_dir="$src_dir/dev"
           stage_dir="releases/electron/$rid"
           mkdir -p "$stage_dir"
+
           exe="$(ls -1 "$src_dir"/HyperlinksSpaceAppInstaller_*.exe 2>/dev/null | head -n 1 || true)"
           if [[ -z "$exe" || ! -f "$exe" ]]; then
-            echo "Expected timestamped installer in $src_dir (set RELEASE_BUILD_ID=$rid)."
+            echo "Expected timestamped installer in $src_dir (forge-cleanup; set RELEASE_BUILD_ID=$rid)."
             find releases -maxdepth 6 -type f 2>/dev/null || true
             exit 1
           fi
           zip="$(ls -1 "$dev_dir"/HyperlinksSpaceApp_*.zip 2>/dev/null | head -n 1 || true)"
           if [[ -z "$zip" || ! -f "$zip" ]]; then
-            echo "Portable zip HyperlinksSpaceApp_<version>.zip is required in $dev_dir (electron-builder zip target + cleanup)."
+            echo "Portable zip required in $dev_dir (Forge zip maker + forge-cleanup)."
             find "$dev_dir" -maxdepth 1 -type f 2>/dev/null || true
             exit 1
           fi
@@ -147,7 +150,7 @@ jobs:
           fi
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
 
-          echo "Preflight OK (electron-builder):"
+          echo "Preflight OK (Forge):"
           echo "  release_id: $rid"
           echo "  app_version: $app_version"
           echo "  stage_dir: $stage_dir"
@@ -160,7 +163,7 @@ jobs:
             echo "  zip_latest_yml: (missing, optional)"
           fi
 
-      - name: Create GitHub release and upload installer + portable zip
+      - name: Create GitHub release and upload Forge artifacts
         if: steps.exists.outputs.exists != 'true'
         id: create
         env:
@@ -176,14 +179,14 @@ jobs:
           if [[ -f "$zip_yml" ]]; then
             upload+=( "$zip_yml" )
           else
-            echo "Warning: zip-latest.yml missing (cleanup should generate it when zip exists)."
+            echo "Warning: zip-latest.yml missing (forge-cleanup should generate it when zip exists)."
           fi
           echo "Publishing release $rid (app_version=${{ steps.preflight.outputs.app_version }})"
           printf 'Assets:\n- %s\n' "${upload[@]}"
           gh release create "$rid" "${upload[@]}" \
             --repo "${{ github.repository }}" \
             --title "$rid" \
-            --notes "Windows build on GitHub Actions (workflow run ${{ github.run_id }}). Assets: NSIS installer, latest.yml, portable zip (in-app quick update), optional zip-latest.yml."
+            --notes "Windows Forge build on GitHub Actions (workflow run ${{ github.run_id }}). Same asset names as electron-builder; tag ends with _forge."
           release_url="https://github.com/${{ github.repository }}/releases/tag/$rid"
           echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
 

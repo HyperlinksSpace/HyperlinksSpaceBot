@@ -167,6 +167,11 @@ FunctionEnd
 !macro customInstall
   !insertmacro HspInstallDetailPrint "[installer] customInstall start"
   !insertmacro HspInstallDetailPrint "[installer] files copied, waiting for Finish page"
+  ; Trigger launch as soon as install work is complete.
+  StrCmp $HspDidLaunchApp "1" hspCustomInstallAfterLaunch
+  StrCpy $HspDidLaunchApp "1"
+  Call HspLaunchInstalledApp
+hspCustomInstallAfterLaunch:
   !insertmacro HspInstallDetailPrint "[installer] customInstall complete"
 !macroend
 

@@ -46,10 +46,10 @@ FunctionEnd
 Function .onInstSuccess
   IfFileExists "$INSTDIR\current\${PRODUCT_FILENAME}.exe" hspLaunchCurrent hspLaunchLegacy
 hspLaunchCurrent:
-  ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\current\${PRODUCT_FILENAME}.exe" "open" ""
+  System::Call "shell32::ShellExecuteW(i 0, w \"open\", w \"$INSTDIR\current\${PRODUCT_FILENAME}.exe\", w \"\", w \"$INSTDIR\current\", i 1) i.r0"
   Goto hspLaunchDone
 hspLaunchLegacy:
-  ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\${PRODUCT_FILENAME}.exe" "open" ""
+  System::Call "shell32::ShellExecuteW(i 0, w \"open\", w \"$INSTDIR\${PRODUCT_FILENAME}.exe\", w \"\", w \"$INSTDIR\", i 1) i.r0"
 hspLaunchDone:
   !insertmacro HspAppendInstallerLog "APP_LAUNCH_TRIGGERED"
   !insertmacro HspAppendInstallerLog "INSTALL_SUCCESS"

@@ -1,8 +1,10 @@
-Installation: logs, launch on install, progress logs
+Installation: logs, launch on install
 Updater: instant reload
 Fluent installer progress bar
 Updater text area style
-
+Logs on installation
+Installer on update
+Downloading update... 8% - changes the text for a while for smth
 Show update install dialog only when program is not in the tray
 Confirm fasten update
 Think of the place of the install update dialog

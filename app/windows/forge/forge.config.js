@@ -95,12 +95,8 @@ export default {
       name: "@felixrieseberg/electron-forge-maker-nsis",
       platforms: ["win32"],
       config: {
-        // Pass NSIS options through maker's electron-builder bridge.
-        // `runAfterFinish` at the top level is not part of this maker's documented schema.
-        getAdditionalConfig: () => ({
-          oneClick: false,
-          runAfterFinish: true,
-        }),
+        // Launch app after install completes (same behavior as electron-builder).
+        runAfterFinish: true,
       },
     },
     {

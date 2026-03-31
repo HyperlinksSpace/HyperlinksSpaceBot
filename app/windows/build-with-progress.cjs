@@ -21,13 +21,11 @@ function relForConfig(p) {
 // 7z step: electron-builder runs 7za with -bd (no progress output), so we estimate by time.
 const ESTIMATED_7Z_SECONDS = 100;
 const PROGRESS_BAR_WIDTH = 24;
-const canAnimateProgress = process.stdout.isTTY && !isVerbose;
 
 let progressInterval = null;
 let progressStartTime = null;
 
 function startProgressBar() {
-  if (!canAnimateProgress) return;
   if (progressStartTime !== null) return;
   progressStartTime = Date.now();
   progressInterval = setInterval(() => {
@@ -40,7 +38,6 @@ function startProgressBar() {
 }
 
 function stopProgressBar(finalPct = 100) {
-  if (!canAnimateProgress) return;
   if (progressInterval) {
     clearInterval(progressInterval);
     progressInterval = null;

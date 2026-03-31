@@ -84,7 +84,7 @@ FunctionEnd
 
 ; Re-assert list mode + mirror to %TEMP%\HyperlinksSpaceInstall.log (debug when MUI listbox stays empty).
 !macro HspInstallDetailPrint MSG
-  SetDetailsPrint both
+  SetDetailsPrint listonly
   SetDetailsView show
   DetailPrint "${MSG}"
   !insertmacro HspAppendInstallerMirrorLog "${MSG}"
@@ -156,7 +156,6 @@ FunctionEnd
       ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
     FunctionEnd
     !define MUI_FINISHPAGE_RUN
-    !define MUI_FINISHPAGE_RUN_CHECKED
     !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
   !endif
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
@@ -260,15 +259,21 @@ FunctionEnd
 
 !macro customInstall
   ; electron-builder calls this after other install steps; keep listbox output on for final hooks.
-  ; Do not launch app here: we launch from Finish page run option (checked by default) to avoid
-  ; duplicate launches and keep installer page transitions/progress behavior stable.
-  SetDetailsPrint both
+  ; Launching the app here does not end the installer: section completes, then MUI shows InstFiles → Finish.
+  SetDetailsPrint listonly
   SetDetailsView show
   DetailPrint "[installer] customInstall start"
   !insertmacro HspAppendInstallerMirrorLog "[installer] customInstall start"
   SetOverwrite on
-  DetailPrint "Waiting for Finish page to launch the app..."
-  !insertmacro HspAppendInstallerMirrorLog "Waiting for Finish page to launch the app..."
+  ; Start the app as soon as files are installed (parallel with the rest of the wizard). nShowCmd 4 = SW_SHOWNOACTIVATE.
+  IfFileExists "$INSTDIR\${PRODUCT_FILENAME}.exe" 0 hspCustomInstallSkipLaunch
+  Call HspShellOpenExeNoActivate
+  Goto hspCustomInstallAfterLaunch
+  hspCustomInstallSkipLaunch:
+  StrCpy $R8 "Skipped launch: $INSTDIR\${PRODUCT_FILENAME}.exe not found"
+  DetailPrint "$R8"
+  Call HspAppendInstallerMirrorLogVar
+  hspCustomInstallAfterLaunch:
   DetailPrint "[installer] customInstall complete"
   !insertmacro HspAppendInstallerMirrorLog "[installer] customInstall complete"
 !macroend

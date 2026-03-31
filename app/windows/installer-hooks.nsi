@@ -5,6 +5,14 @@
 
 !include "FileFunc.nsh"
 
+!ifdef BUILD_UNINSTALLER
+!macro HspAppendInstallerLog TEXT
+!macroend
+!macro HspInstallDetailPrint MSG
+!macroend
+!endif
+
+!ifndef BUILD_UNINSTALLER
 Var HspLogFile
 Var HspLogHandle
 Var HspFinishLogEdit
@@ -80,6 +88,7 @@ Function HspFinishPageLeave
   System::Call "user32::DestroyWindow(i r0)"
   StrCpy $HspFinishLogEdit ""
 FunctionEnd
+!endif
 
 !macro customHeader
   Caption "${PRODUCT_NAME}"
@@ -131,6 +140,7 @@ FunctionEnd
 !macroend
 
 !macro customFinishPage
+  !ifndef BUILD_UNINSTALLER
   !ifndef HIDE_RUN_AFTER_FINISH
     Function StartApp
       ${if} ${isUpdated}
@@ -147,6 +157,7 @@ FunctionEnd
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
   !insertmacro MUI_PAGE_FINISH
+  !endif
 !macroend
 
 !macro customUnInstall

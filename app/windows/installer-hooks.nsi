@@ -89,17 +89,13 @@ Function HspFinishPageShow
   Call HspLaunchInstalledApp
 hspSkipAutoLaunch:
   StrCpy $HspFinishLogEdit ""
-  ; Use RichEdit so selection/copy shortcuts (Ctrl+A/Ctrl+C) work reliably.
-  System::Call "kernel32::LoadLibraryW(w \"Msftedit.dll\") i.r8"
-  System::Call "user32::CreateWindowExW(i 0, w \"RICHEDIT50W\", w \"\", i 0x50A11044, i 128, i 128, i 360, i 220, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
+  ; Use a regular multiline Edit control for native text-cursor selection behavior.
+  ; Style: child + visible + tabstop + border + vscroll + hscroll + multiline + auto scroll.
+  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50B101C4, i 128, i 128, i 360, i 220, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
   IntCmp $0 0 hspFinishShowDone
   StrCpy $HspFinishLogEdit $0
   StrCpy $9 $0
   System::Call "user32::SetFocus(i r9)"
-  ; EM_SETREADONLY: keep content non-editable while still selectable/copyable.
-  System::Call "user32::SendMessageW(i r9, i 0x00CF, i 1, i 0)"
-  ; EM_SETEVENTMASK: enable keyboard and mouse selection notifications.
-  System::Call "user32::SendMessageW(i r9, i 0x0445, i 0, i 0x07000000)"
   System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
   IfFileExists "$HspLogFile" hspFinishFillFile
   System::Call "user32::SetWindowTextW(i r9, w \"No installation log file was found.\")"
@@ -116,6 +112,8 @@ hspFinishReadLoop:
   Goto hspFinishReadLoop
 hspFinishFileDone:
   FileClose $R0
+  ; Keep content non-editable while still selectable/copyable.
+  System::Call "user32::SendMessageW(i r9, i 0x00CF, i 1, i 0)"
 hspFinishShowDone:
 FunctionEnd
 

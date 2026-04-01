@@ -137,12 +137,14 @@ hspSkipAutoLaunch:
   System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
   Call HspLoadFinishLog
   ; Poll the mirrored log file so new lines appear while finish page is open.
-  nsDialogs::CreateTimer HspRefreshFinishLogTimer 400
+  GetFunctionAddress $8 HspRefreshFinishLogTimer
+  nsDialogs::CreateTimer $8 400
 hspFinishShowDone:
 FunctionEnd
 
 Function HspFinishPageLeave
-  nsDialogs::KillTimer HspRefreshFinishLogTimer
+  GetFunctionAddress $8 HspRefreshFinishLogTimer
+  nsDialogs::KillTimer $8
   StrCpy $HspIsRefreshingLog "0"
   StrCmp $HspFinishLogEdit "" +3
   StrCpy $0 $HspFinishLogEdit

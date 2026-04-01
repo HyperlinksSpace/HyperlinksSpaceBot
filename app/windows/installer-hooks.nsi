@@ -56,13 +56,7 @@ hspInstSuccessAfterLaunch:
 FunctionEnd
 
 Function HspLaunchInstalledApp
-  ; Match stock behavior as closely as possible: prefer launchLink set by installSection.nsh.
-  IfFileExists "$launchLink" hspLaunchViaLink hspLaunchViaExe
-hspLaunchViaLink:
-  ExecShell "open" "$launchLink"
-  !insertmacro HspAppendInstallerLog "APP_LAUNCH_TRIGGERED(link)"
-  Return
-hspLaunchViaExe:
+  ; Keep Forge/electron-builder compatibility: avoid $launchLink (not always defined).
   IfFileExists "$INSTDIR\current\${PRODUCT_FILENAME}.exe" hspLaunchCurrent hspLaunchLegacy
 hspLaunchCurrent:
   ExecShell "open" "$INSTDIR\current\${PRODUCT_FILENAME}.exe"

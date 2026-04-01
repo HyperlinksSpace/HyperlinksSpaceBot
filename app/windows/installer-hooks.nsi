@@ -76,26 +76,55 @@ Function .onInstFailed
   !insertmacro HspAppendInstallerLog "INSTALL_FAILED"
 FunctionEnd
 
-; Hide all standard NSIS/MUI footer controls (child IDs 1–24): Next, Install, Cancel, Back, etc.
-; Close the window with the title-bar [X] only. (Keep oneClick=false so custom finish page + hooks still apply.)
+; Hide every child window of class "Button" under a dialog (MUI footer uses real Button HWNDs; IDs are not always 1–3).
+Function HspHideButtonsUnderParent
+  Pop $R6
+  Push $R1
+  Push $R2
+  StrCpy $R1 0
+hspBtnEnum:
+  System::Call "user32::FindWindowExW(i r6, i r1, w \"Button\", i 0) i.r2"
+  IntCmp $R2 0 hspBtnEnumDone
+  System::Call "user32::ShowWindow(i r2, i 0)"
+  StrCpy $R1 $R2
+  Goto hspBtnEnum
+hspBtnEnumDone:
+  Pop $R2
+  Pop $R1
+FunctionEnd
+
+; Try each plausible parent: MUI inner dialog, then nested #32770 children (electron-builder / NSIS layout).
 Function HspHideWizardPushButtons
+  Push $R6
   Push $R7
-  Push $R8
-  StrCpy $R7 1
-hspHideBtnLoop:
-  GetDlgItem $R8 $HWNDPARENT $R7
-  IntCmp $R8 0 hspHideBtnNext
-  System::Call "user32::ShowWindow(i r8, i 0)"
-hspHideBtnNext:
-  IntOp $R7 $R7 + 1
-  IntCmp $R7 25 hspHideBtnDone hspHideBtnLoop
-hspHideBtnDone:
-  Pop $R8
+  ; Allow layout to create controls (footer sometimes appears after first paint).
+  Sleep 75
+  Push $HWNDPARENT
+  Call HspHideButtonsUnderParent
+  ; Footer bar is sometimes on the parent of the page dialog (not a child of $HWNDPARENT).
+  System::Call "user32::GetParent(i $HWNDPARENT) i.r6"
+  IntCmp $R6 0 hsp32770
+  Push $R6
+  Call HspHideButtonsUnderParent
+hsp32770:
+  FindWindow $R6 "#32770" "" $HWNDPARENT
+  IntCmp $R6 0 hspTry32770_2
+  Push $R6
+  Call HspHideButtonsUnderParent
+hspTry32770_2:
+  FindWindow $R7 "#32770" "" $HWNDPARENT $R6
+  IntCmp $R7 0 hspHideWizDone
+  Push $R7
+  Call HspHideButtonsUnderParent
+hspHideWizDone:
   Pop $R7
+  Pop $R6
 FunctionEnd
 
 ; Installing page: hide footer buttons as soon as the page is shown (install runs without Next/Install).
 Function HspInstFilesPageShow
+  Call HspHideWizardPushButtons
+  Sleep 75
   Call HspHideWizardPushButtons
 FunctionEnd
 
@@ -139,6 +168,8 @@ hspSkipAutoLaunch:
   System::Call "user32::SetFocus(i r9)"
   System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
   Call HspLoadMirroredLogIntoEdit
+  Call HspHideWizardPushButtons
+  Sleep 75
   Call HspHideWizardPushButtons
 hspFinishShowDone:
 FunctionEnd

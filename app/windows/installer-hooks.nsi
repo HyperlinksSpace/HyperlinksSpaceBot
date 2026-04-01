@@ -140,12 +140,21 @@ FunctionEnd
 
 !macro customCheckAppRunning
   !define SYSTEMROOT "$%SYSTEMROOT%"
-  !insertmacro HspInstallDetailPrint "[installer] attempting to stop running app process (current user)"
+  !insertmacro HspInstallDetailPrint "[installer] attempting to stop running app processes (current user)"
+  ; Different packaging paths may use different exe names, so terminate both candidates.
   nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" >nul 2>&1'
   Pop $R1
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" >nul 2>&1'
+  Pop $R2
   Sleep 1200
   nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${PRODUCT_FILENAME}.exe"'
   Pop $R0
+  StrCmp $R0 "0" hspCheckPackageName
+  Goto hspCheckDone
+hspCheckPackageName:
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${APP_PACKAGE_NAME}.exe"'
+  Pop $R0
+hspCheckDone:
 !macroend
 
 !macro customInit

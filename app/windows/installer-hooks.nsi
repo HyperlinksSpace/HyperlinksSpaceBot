@@ -79,8 +79,34 @@ Function .onInstFailed
 FunctionEnd
 
 Function HspInstFilesShow
-  SetDetailsView show
+  Call HspEnsureInstallerLogPath
+  ; Use the installation page itself as the copyable log surface.
+  SetDetailsView hide
   SetDetailsPrint both
+  StrCmp $HspFinishLogEdit "" +2
+  Goto hspInstShowFocusOnly
+  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50B101C4, i 16, i 112, i 570, i 220, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
+  IntCmp $0 0 hspInstShowDone
+  StrCpy $HspFinishLogEdit $0
+hspInstShowFocusOnly:
+  StrCpy $9 $HspFinishLogEdit
+  System::Call "user32::SetWindowPos(i r9, i 0, i 0, i 0, i 0, i 0, i 0x0013)"
+  System::Call "user32::SetFocus(i r9)"
+  System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
+  Call HspLoadFinishLog
+  GetFunctionAddress $8 HspRefreshFinishLogTimer
+  nsDialogs::CreateTimer $8 300
+hspInstShowDone:
+FunctionEnd
+
+Function HspInstFilesLeave
+  GetFunctionAddress $8 HspRefreshFinishLogTimer
+  nsDialogs::KillTimer $8
+  StrCpy $HspIsRefreshingLog "0"
+  StrCmp $HspFinishLogEdit "" +3
+  StrCpy $0 $HspFinishLogEdit
+  System::Call "user32::DestroyWindow(i r0)"
+  StrCpy $HspFinishLogEdit ""
 FunctionEnd
 
 Function HspLoadFinishLog
@@ -162,8 +188,9 @@ FunctionEnd
 !macroend
 
 !macro customPageAfterChangeDir
-  ShowInstDetails show
+  ShowInstDetails nevershow
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspInstFilesShow
+  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspInstFilesLeave
 !macroend
 
 !macro customInstallMode
@@ -217,13 +244,7 @@ hspCustomInstallAfterLaunch:
 !macroend
 
 !macro customFinishPage
-  !ifndef BUILD_UNINSTALLER
-  ; Keep installer window open on completion for log inspection/copying.
-  !define MUI_FINISHPAGE_NOAUTOCLOSE
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
-  !insertmacro MUI_PAGE_FINISH
-  !endif
+  ; Keep default flow on installation page; no extra finish page.
 !macroend
 
 !macro customUnInstall

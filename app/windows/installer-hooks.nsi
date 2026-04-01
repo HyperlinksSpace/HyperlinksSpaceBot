@@ -56,21 +56,26 @@ hspInstSuccessAfterLaunch:
 FunctionEnd
 
 Function HspLaunchInstalledApp
+  ; Match stock behavior as closely as possible: prefer launchLink set by installSection.nsh.
+  IfFileExists "$launchLink" hspLaunchViaLink hspLaunchViaExe
+hspLaunchViaLink:
+  ExecShell "open" "$launchLink"
+  !insertmacro HspAppendInstallerLog "APP_LAUNCH_TRIGGERED(link)"
+  Return
+hspLaunchViaExe:
   IfFileExists "$INSTDIR\current\${PRODUCT_FILENAME}.exe" hspLaunchCurrent hspLaunchLegacy
 hspLaunchCurrent:
-  System::Call "shell32::ShellExecuteW(i 0, w \"open\", w \"$INSTDIR\current\${PRODUCT_FILENAME}.exe\", w \"\", w \"$INSTDIR\current\", i 1) i.r0"
-  IntCmp $0 32 hspLaunchFallback hspLaunchFallback hspLaunchDone
+  ExecShell "open" "$INSTDIR\current\${PRODUCT_FILENAME}.exe"
+  !insertmacro HspAppendInstallerLog "APP_LAUNCH_TRIGGERED(current)"
+  Return
 hspLaunchLegacy:
-  System::Call "shell32::ShellExecuteW(i 0, w \"open\", w \"$INSTDIR\${PRODUCT_FILENAME}.exe\", w \"\", w \"$INSTDIR\", i 1) i.r0"
-  IntCmp $0 32 hspLaunchFailed hspLaunchFailed hspLaunchDone
-hspLaunchFallback:
-  System::Call "shell32::ShellExecuteW(i 0, w \"open\", w \"$INSTDIR\${PRODUCT_FILENAME}.exe\", w \"\", w \"$INSTDIR\", i 1) i.r0"
-  IntCmp $0 32 hspLaunchFailed hspLaunchFailed hspLaunchDone
+  IfFileExists "$INSTDIR\${PRODUCT_FILENAME}.exe" hspLaunchLegacyDo hspLaunchFailed
+hspLaunchLegacyDo:
+  ExecShell "open" "$INSTDIR\${PRODUCT_FILENAME}.exe"
+  !insertmacro HspAppendInstallerLog "APP_LAUNCH_TRIGGERED"
+  Return
 hspLaunchFailed:
   !insertmacro HspAppendInstallerLog "APP_LAUNCH_FAILED"
-  Return
-hspLaunchDone:
-  !insertmacro HspAppendInstallerLog "APP_LAUNCH_TRIGGERED"
 FunctionEnd
 
 Function .onInstFailed

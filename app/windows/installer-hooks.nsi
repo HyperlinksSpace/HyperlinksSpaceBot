@@ -77,11 +77,12 @@ Function HspAppendInstDirToLog
   FileClose $HspLogHandle
 FunctionEnd
 
+; Pass flag in $R9 — do not reference $IsPowerShellAvailable here (NSIS 6000: Var is declared inside IS_POWERSHELL_AVAILABLE).
 Function HspAppendPowShellAvailToLog
   Call HspEnsureInstallerLogPath
   FileOpen $HspLogHandle "$HspLogFile" a
   FileWrite $HspLogHandle "IsPowerShellAvailable="
-  FileWrite $HspLogHandle $IsPowerShellAvailable
+  FileWrite $HspLogHandle $R9
   FileWrite $HspLogHandle "$\r$\n"
   FileClose $HspLogHandle
 FunctionEnd
@@ -240,6 +241,7 @@ Var pid
   Sleep 500
   !insertmacro IS_POWERSHELL_AVAILABLE
   DetailPrint "[installer] IsPowerShellAvailable=$IsPowerShellAvailable (0=path-based find/kill)"
+  StrCpy $R9 $IsPowerShellAvailable
   Call HspAppendPowShellAvailToLog
   !insertmacro _CHECK_APP_RUNNING
   !insertmacro HspInstallDetailPrint "[installer] CHECK_APP_RUNNING: end"

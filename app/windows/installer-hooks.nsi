@@ -18,12 +18,72 @@ Var HspLogHandle
 Var HspFinishLogEdit
 Var HspDidLaunchApp
 
+; Wizard footer (Back / Next / Cancel) scope:
+; - They are Win32 BUTTON controls on the *outer* NSIS dialog (class #32770, resource IDD_INST in Contrib/UIs/modern_*.exe).
+; - Standard control IDs in that template: 1 = Next/Install, 2 = Cancel, 3 = Back (see NSIS InstFiles docs / multiUserUi.nsh GetDlgItem ... 1 for Next).
+; - In MUI page callbacks, $HWNDPARENT is often an *inner* page pane; GetDlgItem($HWNDPARENT,1) can be 0, so nothing was hidden.
+; - electron-builder does not expose a define to remove those controls; options are Win32 hide/disable (here), or forking NSIS templates.
+Function HspHideWizardButtons
+  ; GA_ROOT = 2 — top-level window that often owns control IDs 1–3 in one step.
+  System::Call "user32::GetAncestor(i $HWNDPARENT, i 2) i.r6"
+  GetDlgItem $R0 $R6 1
+  IntCmp $R0 0 hspWalkParents hspApplyHide hspApplyHide
+hspWalkParents:
+  StrCpy $R6 $HWNDPARENT
+  StrCpy $R5 0
+hspFindShell:
+  GetDlgItem $R0 $R6 1
+  IntCmp $R0 0 hspShellNext hspApplyHide hspApplyHide
+hspShellNext:
+  System::Call "user32::GetParent(i r6) i.r7"
+  IntCmp $R7 0 hspHideDone
+  StrCpy $R6 $R7
+  IntOp $R5 $R5 + 1
+  IntCmp $R5 16 hspHideDone 0 hspFindShell
+hspApplyHide:
+  GetDlgItem $R0 $R6 1
+  System::Call "user32::ShowWindow(i r0, i 0)"
+  System::Call "user32::EnableWindow(i r0, i 0)"
+  GetDlgItem $R0 $R6 2
+  System::Call "user32::ShowWindow(i r0, i 0)"
+  System::Call "user32::EnableWindow(i r0, i 0)"
+  GetDlgItem $R0 $R6 3
+  System::Call "user32::ShowWindow(i r0, i 0)"
+  System::Call "user32::EnableWindow(i r0, i 0)"
+hspHideDone:
+FunctionEnd
+
+Function HspInstFilesPageShow
+  Call HspHideWizardButtons
+  ; Brief delay in case the shell repaints after SHOW (second pass helps some MUI builds).
+  Sleep 100
+  Call HspHideWizardButtons
+FunctionEnd
+
 Function HspEnsureInstallerLogPath
   StrCmp $HspLogFile "" hspSetLogPath hspLogPathDone
 hspSetLogPath:
   StrCpy $HspLogFile "$TEMP\HyperlinksSpaceInstall.log"
   Delete "$HspLogFile"
 hspLogPathDone:
+FunctionEnd
+
+Function HspAppendInstDirToLog
+  Call HspEnsureInstallerLogPath
+  FileOpen $HspLogHandle "$HspLogFile" a
+  FileWrite $HspLogHandle "INSTDIR="
+  FileWrite $HspLogHandle $INSTDIR
+  FileWrite $HspLogHandle "$\r$\n"
+  FileClose $HspLogHandle
+FunctionEnd
+
+Function HspAppendPowShellAvailToLog
+  Call HspEnsureInstallerLogPath
+  FileOpen $HspLogHandle "$HspLogFile" a
+  FileWrite $HspLogHandle "IsPowerShellAvailable="
+  FileWrite $HspLogHandle $IsPowerShellAvailable
+  FileWrite $HspLogHandle "$\r$\n"
+  FileClose $HspLogHandle
 FunctionEnd
 
 !macro HspAppendInstallerLog TEXT
@@ -103,6 +163,9 @@ hspMirroredDone:
 FunctionEnd
 
 Function HspFinishPageShow
+  Call HspHideWizardButtons
+  Sleep 100
+  Call HspHideWizardButtons
   Call HspEnsureInstallerLogPath
   StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
   StrCpy $HspDidLaunchApp "1"
@@ -140,6 +203,8 @@ FunctionEnd
 
 !macro customPageAfterChangeDir
   ShowInstDetails show
+  ; Runs in assistedInstaller.nsh immediately before MUI_PAGE_INSTFILES — correct place for instfiles SHOW hook.
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspInstFilesPageShow
 !macroend
 
 !macro customInstallMode
@@ -147,24 +212,39 @@ FunctionEnd
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
+!ifndef BUILD_UNINSTALLER
+; When customCheckAppRunning is defined, app-builder skips its own getProcessInfo.nsh + Var pid — required by _CHECK_APP_RUNNING.
+!include "getProcessInfo.nsh"
+Var pid
+
+; Log + supplemental kill, then delegate to electron-builder's IS_POWERSHELL_AVAILABLE + _CHECK_APP_RUNNING.
+; (Older hook used taskkill /FI IMAGENAME eq ... — breaks when the exe name contains spaces.)
+; CHECK_APP_RUNNING sets $CmdPath / $PowerShellPath before this macro runs.
 !macro customCheckAppRunning
-  !define SYSTEMROOT "$%SYSTEMROOT%"
-  !insertmacro HspInstallDetailPrint "[installer] attempting to stop running app processes (current user)"
-  ; Different packaging paths may use different exe names, so terminate both candidates.
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" >nul 2>&1'
-  Pop $R1
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" >nul 2>&1'
-  Pop $R2
-  Sleep 1200
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${PRODUCT_FILENAME}.exe"'
+  !insertmacro HspInstallDetailPrint "[installer] CHECK_APP_RUNNING: start"
+  DetailPrint "[installer] INSTDIR=$INSTDIR"
+  Call HspAppendInstDirToLog
+  !insertmacro HspInstallDetailPrint "[installer] APP_EXECUTABLE_FILENAME=${APP_EXECUTABLE_FILENAME} APP_PACKAGE_NAME=${APP_PACKAGE_NAME}.exe"
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill /F /IM (quoted exe names)"
+  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /F /IM "${APP_EXECUTABLE_FILENAME}"`
   Pop $R0
-  StrCmp $R0 "0" hspCheckPackageName
-  Goto hspCheckDone
-hspCheckPackageName:
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${APP_PACKAGE_NAME}.exe"'
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill primary exitcode=$R0 (128=no such process)"
+  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /F /IM "${APP_PACKAGE_NAME}.exe"`
   Pop $R0
-hspCheckDone:
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill package-name exitcode=$R0"
+  Sleep 500
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: PowerShell Stop-Process for any exe under INSTDIR"
+  nsExec::Exec `"$PowerShellPath" -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')} | % { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"`
+  Pop $R0
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: PowerShell exitcode=$R0"
+  Sleep 500
+  !insertmacro IS_POWERSHELL_AVAILABLE
+  DetailPrint "[installer] IsPowerShellAvailable=$IsPowerShellAvailable (0=path-based find/kill)"
+  Call HspAppendPowShellAvailToLog
+  !insertmacro _CHECK_APP_RUNNING
+  !insertmacro HspInstallDetailPrint "[installer] CHECK_APP_RUNNING: end"
 !macroend
+!endif
 
 !macro customInit
   !insertmacro HspInstallDetailPrint "[installer] customInit start"

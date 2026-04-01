@@ -94,6 +94,11 @@ Function HspAppendInstDirToLog
   FileClose $HspLogHandle
 FunctionEnd
 
+; Win32_Process uses ExecutablePath (not Path). Set HSP_INSTDIR so the PowerShell -Command string stays free of NSIS $INSTDIR escaping issues.
+Function HspSetInstDirEnvForPs
+  System::Call 'kernel32::SetEnvironmentVariableW(w "HSP_INSTDIR", w "$INSTDIR")'
+FunctionEnd
+
 ; Pass flag in $R9 — do not reference $IsPowerShellAvailable here (NSIS 6000: Var is declared before customCheckAppRunning runs).
 Function HspAppendPowShellAvailToLog
   Call HspEnsureInstallerLogPath
@@ -198,15 +203,16 @@ Var /GLOBAL IsPowerShellAvailable
   DetailPrint "[installer] INSTDIR=$INSTDIR"
   Call HspAppendInstDirToLog
   !insertmacro HspInstallDetailPrint "[installer] APP_EXECUTABLE_FILENAME=${APP_EXECUTABLE_FILENAME} APP_PACKAGE_NAME=${APP_PACKAGE_NAME}.exe"
-  !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill /F /IM (quoted exe names)"
-  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /F /IM "${APP_EXECUTABLE_FILENAME}"`
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill /F /T /IM (tree + quoted exe names)"
+  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /F /T /IM "${APP_EXECUTABLE_FILENAME}"`
   Pop $R0
   !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill primary exitcode=$R0 (128=no such process)"
-  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /F /IM "${APP_PACKAGE_NAME}.exe"`
+  nsExec::Exec `"$SYSDIR\cmd.exe" /c taskkill /F /T /IM "${APP_PACKAGE_NAME}.exe"`
   Pop $R0
   !insertmacro HspInstallDetailPrint "[installer] supplemental: taskkill package-name exitcode=$R0"
-  !insertmacro HspInstallDetailPrint "[installer] supplemental: PowerShell Stop-Process for any exe under INSTDIR"
-  nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')} | % { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"`
+  Call HspSetInstDirEnvForPs
+  !insertmacro HspInstallDetailPrint "[installer] supplemental: PowerShell Stop-Process (ExecutablePath + Get-Process.Path under %HSP_INSTDIR%)"
+  nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$$d=$$env:HSP_INSTDIR; if(-not $$d){exit 0}; Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | ForEach-Object { $$e=$$_.ExecutablePath; if($$e -and $$d -and $$e.StartsWith($$d,[System.StringComparison]::OrdinalIgnoreCase)){ Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }; Get-Process -ErrorAction SilentlyContinue | ForEach-Object { try { $$p=$$_.Path; if($$p -and $$d -and $$p.StartsWith($$d,[System.StringComparison]::OrdinalIgnoreCase)){ Stop-Process -Id $$_.Id -Force -ErrorAction SilentlyContinue } } catch {} }"`
   Pop $R0
   !insertmacro HspInstallDetailPrint "[installer] supplemental: PowerShell exitcode=$R0"
   !insertmacro HspInstallDetailPrint "[installer] detecting PowerShell (CIM + execution policy)"

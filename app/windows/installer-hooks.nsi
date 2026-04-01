@@ -1,7 +1,7 @@
 ; Installer hooks for debug-friendly installs:
 ; - force current-user install mode
-; - mirrored log file in %TEMP% + copyable multiline Edit on install + finish pages
-; - built-in NSIS details list is not used for copying (row-only selection)
+; - mirrored log file in %TEMP%
+; - copyable multiline Edit on finish page only (custom child windows on instfiles break some NSIS/electron-builder builds)
 
 !include "FileFunc.nsh"
 
@@ -38,8 +38,7 @@ FunctionEnd
 !macroend
 
 !macro HspInstallDetailPrint MSG
-  ; Keep built-in details list hidden so the custom Edit log surface stays usable.
-  SetDetailsView hide
+  SetDetailsView show
   SetDetailsPrint both
   DetailPrint "${MSG}"
   !insertmacro HspAppendInstallerLog "${MSG}"
@@ -103,31 +102,6 @@ hspMirroredReadonly:
 hspMirroredDone:
 FunctionEnd
 
-; Main install page: ordinary multiline read-only Edit fed from mirrored log file (not SysListView details).
-; Do not use nsDialogs::CreateTimer here: it is not reliable on standard MUI pages and can crash the installer.
-Function HspInstFilesShow
-  Call HspEnsureInstallerLogPath
-  SetDetailsView hide
-  SetDetailsPrint both
-  ; WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER|WS_VSCROLL|WS_HSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_AUTOHSCROLL
-  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50B101C4, i 16, i 112, i 560, i 200, i $HWNDPARENT, i 0, i 0, i 0) i.r0"
-  IntCmp $0 0 hspInstShowDone
-  StrCpy $HspFinishLogEdit $0
-  StrCpy $9 $0
-  System::Call "user32::SetWindowPos(i r9, i 0, i 0, i 0, i 0, i 0, i 0x0013)"
-  System::Call "user32::SetFocus(i r9)"
-  System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
-  Call HspLoadMirroredLogIntoEdit
-hspInstShowDone:
-FunctionEnd
-
-Function HspInstFilesLeave
-  StrCmp $HspFinishLogEdit "" +3
-  StrCpy $0 $HspFinishLogEdit
-  System::Call "user32::DestroyWindow(i r0)"
-  StrCpy $HspFinishLogEdit ""
-FunctionEnd
-
 Function HspFinishPageShow
   Call HspEnsureInstallerLogPath
   StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
@@ -163,8 +137,6 @@ FunctionEnd
 
 !macro customPageAfterChangeDir
   ShowInstDetails show
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspInstFilesShow
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspInstFilesLeave
 !macroend
 
 !macro customInstallMode

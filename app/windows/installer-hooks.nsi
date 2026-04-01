@@ -1,7 +1,7 @@
 ; Installer hooks for debug-friendly installs:
 ; - force current-user install mode
 ; - mirrored log file in %TEMP%
-; - copyable multiline Edit on finish page only (custom child windows on instfiles break some NSIS/electron-builder builds)
+; - instfiles: primary button labeled "Finish" after install, LEAVE Quit (no separate MUI finish page)
 
 !include "FileFunc.nsh"
 
@@ -15,50 +15,66 @@
 !ifndef BUILD_UNINSTALLER
 Var HspLogFile
 Var HspLogHandle
-Var HspFinishLogEdit
 Var HspDidLaunchApp
+Var HspWizardShell
 
-; Wizard footer (Back / Next / Cancel) scope:
-; - They are Win32 BUTTON controls on the *outer* NSIS dialog (class #32770, resource IDD_INST in Contrib/UIs/modern_*.exe).
-; - Standard control IDs in that template: 1 = Next/Install, 2 = Cancel, 3 = Back (see NSIS InstFiles docs / multiUserUi.nsh GetDlgItem ... 1 for Next).
-; - In MUI page callbacks, $HWNDPARENT is often an *inner* page pane; GetDlgItem($HWNDPARENT,1) can be 0, so nothing was hidden.
-; - electron-builder does not expose a define to remove those controls; options are Win32 hide/disable (here), or forking NSIS templates.
-Function HspHideWizardButtons
-  ; GA_ROOT = 2 — top-level window that often owns control IDs 1–3 in one step.
+; Resolve outer MUI wizard HWND (same strategy as before). Used to retarget Back/Cancel, label primary "Finish", and Quit from instfiles.
+Function HspResolveWizardShell
+  StrCpy $HspWizardShell ""
   System::Call "user32::GetAncestor(i $HWNDPARENT, i 2) i.r6"
   GetDlgItem $R0 $R6 1
-  IntCmp $R0 0 hspWalkParents hspApplyHide hspApplyHide
-hspWalkParents:
+  IntCmp $R0 0 hspRSWalk hspRSDone hspRSDone
+hspRSWalk:
   StrCpy $R6 $HWNDPARENT
   StrCpy $R5 0
-hspFindShell:
+hspRSLoop:
   GetDlgItem $R0 $R6 1
-  IntCmp $R0 0 hspShellNext hspApplyHide hspApplyHide
-hspShellNext:
+  IntCmp $R0 0 hspRSNext hspRSDone hspRSDone
+hspRSNext:
   System::Call "user32::GetParent(i r6) i.r7"
-  IntCmp $R7 0 hspHideDone
+  IntCmp $R7 0 hspRSDone
   StrCpy $R6 $R7
   IntOp $R5 $R5 + 1
-  IntCmp $R5 16 hspHideDone 0 hspFindShell
-hspApplyHide:
-  GetDlgItem $R0 $R6 1
+  IntCmp $R5 16 hspRSDone 0 hspRSLoop
+hspRSDone:
+  StrCpy $HspWizardShell $R6
+FunctionEnd
+
+; Hide only Back (3) and Cancel (2); keep primary (1) so user can click through to Quit after install.
+Function HspHideWizardBackCancel
+  Call HspResolveWizardShell
+  StrCmp $HspWizardShell "" hspHBCdone
+  StrCpy $R8 $HspWizardShell
+  GetDlgItem $R0 $R8 2
   System::Call "user32::ShowWindow(i r0, i 0)"
   System::Call "user32::EnableWindow(i r0, i 0)"
-  GetDlgItem $R0 $R6 2
+  GetDlgItem $R0 $R8 3
   System::Call "user32::ShowWindow(i r0, i 0)"
   System::Call "user32::EnableWindow(i r0, i 0)"
-  GetDlgItem $R0 $R6 3
-  System::Call "user32::ShowWindow(i r0, i 0)"
-  System::Call "user32::EnableWindow(i r0, i 0)"
-  ; Synchronous repaint of the wizard shell (replaces a second hide pass + Sleep).
-  System::Call "user32::InvalidateRect(i r6, i 0, i 1)"
-  System::Call "user32::UpdateWindow(i r6)"
-  Goto hspHideDone
-hspHideDone:
+  System::Call "user32::InvalidateRect(i r8, i 0, i 1)"
+  System::Call "user32::UpdateWindow(i r8)"
+hspHBCdone:
+FunctionEnd
+
+; After install succeeds, primary still says "Next" until finish page — we skip finish page, so rename to "Finish" here.
+Function HspSetPrimaryButtonFinish
+  StrCmp $HspWizardShell "" hspFinDone
+  StrCpy $R8 $HspWizardShell
+  GetDlgItem $R0 $R8 1
+  IntCmp $R0 0 hspFinDone
+  System::Call 'user32::SetWindowTextW(i r0, w "Finish")'
+  System::Call "user32::InvalidateRect(i r8, i 0, i 1)"
+  System::Call "user32::UpdateWindow(i r8)"
+hspFinDone:
 FunctionEnd
 
 Function HspInstFilesPageShow
-  Call HspHideWizardButtons
+  Call HspHideWizardBackCancel
+FunctionEnd
+
+; Skip separate MUI finish page: one click on "Finish" exits the installer (.onInstSuccess already ran).
+Function HspInstFilesPageLeave
+  Quit
 FunctionEnd
 
 Function HspEnsureInstallerLogPath
@@ -107,13 +123,20 @@ FunctionEnd
 !macroend
 
 Function .onInstSuccess
+  Call HspSetPrimaryButtonFinish
   ; Primary launch trigger for all installer modes (including one-click/silent paths).
-  ; Use one-shot guard so Finish-page fallback does not launch twice.
+  ; Use one-shot guard so we do not launch twice (instfiles LEAVE Quit skips finish page).
   StrCmp $HspDidLaunchApp "1" hspInstSuccessAfterLaunch
   StrCpy $HspDidLaunchApp "1"
   Call HspLaunchInstalledApp
 hspInstSuccessAfterLaunch:
   !insertmacro HspAppendInstallerLog "INSTALL_SUCCESS"
+  ; Silent installs: no instfiles button click — exit here (GUI uses HspInstFilesPageLeave Quit).
+  IfSilent hspSilentExit hspGuiInstaller
+hspGuiInstaller:
+  Return
+hspSilentExit:
+  Quit
 FunctionEnd
 
 Function HspLaunchInstalledApp
@@ -137,57 +160,6 @@ Function .onInstFailed
   !insertmacro HspAppendInstallerLog "INSTALL_FAILED"
 FunctionEnd
 
-; Load mirrored log file into the multiline Edit control (HWND in $HspFinishLogEdit).
-Function HspLoadMirroredLogIntoEdit
-  StrCmp $HspFinishLogEdit "" hspMirroredDone
-  StrCpy $9 $HspFinishLogEdit
-  System::Call "user32::SendMessageW(i r9, i 0x00CF, i 0, i 0)"
-  System::Call "user32::SetWindowTextW(i r9, w \"\")"
-  IfFileExists "$HspLogFile" hspMirroredFill
-  System::Call "user32::SetWindowTextW(i r9, w \"No installation log file was found.\")"
-  Goto hspMirroredReadonly
-hspMirroredFill:
-  FileOpen $R0 "$HspLogFile" r
-hspMirroredLoop:
-  FileRead $R0 $1
-  IfErrors hspMirroredFileDone
-  System::Call "user32::SendMessageW(i r9, i 0x000E, i 0, i 0) i.r4"
-  System::Call "user32::SendMessageW(i r9, i 0xB1, i r4, i r4)"
-  StrCpy $2 "$1$\r$\n"
-  System::Call "user32::SendMessageW(i r9, i 0xC2, i 1, w r2)"
-  Goto hspMirroredLoop
-hspMirroredFileDone:
-  FileClose $R0
-hspMirroredReadonly:
-  System::Call "user32::SendMessageW(i r9, i 0x00CF, i 1, i 0)"
-hspMirroredDone:
-FunctionEnd
-
-Function HspFinishPageShow
-  Call HspHideWizardButtons
-  Call HspEnsureInstallerLogPath
-  StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
-  StrCpy $HspDidLaunchApp "1"
-  Call HspLaunchInstalledApp
-hspSkipAutoLaunch:
-  StrCpy $HspFinishLogEdit ""
-  StrCpy $R8 $HWNDPARENT
-  System::Call "user32::CreateWindowExW(i 0, w \"Edit\", w \"\", i 0x50B101C4, i 128, i 128, i 360, i 220, i r8, i 0, i 0, i 0) i.r0"
-  IntCmp $0 0 hspFinishShowDone
-  StrCpy $HspFinishLogEdit $0
-  StrCpy $9 $0
-  System::Call "user32::SetFocus(i r9)"
-  System::Call "user32::SendMessageW(i r9, i 0xC5, i 16777216, i 0)"
-  Call HspLoadMirroredLogIntoEdit
-hspFinishShowDone:
-FunctionEnd
-
-Function HspFinishPageLeave
-  StrCmp $HspFinishLogEdit "" +3
-  StrCpy $0 $HspFinishLogEdit
-  System::Call "user32::DestroyWindow(i r0)"
-  StrCpy $HspFinishLogEdit ""
-FunctionEnd
 !endif
 
 !macro customHeader
@@ -202,8 +174,9 @@ FunctionEnd
 
 !macro customPageAfterChangeDir
   ShowInstDetails show
-  ; Runs in assistedInstaller.nsh immediately before MUI_PAGE_INSTFILES — correct place for instfiles SHOW hook.
+  ; Instfiles: hide Back/Cancel, then after install rename primary to "Finish"; LEAVE Quit skips extra finish page.
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspInstFilesPageShow
+  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspInstFilesPageLeave
 !macroend
 
 !macro customInstallMode
@@ -276,7 +249,7 @@ hspPsAvailDone:
 
 !macro customInstall
   !insertmacro HspInstallDetailPrint "[installer] customInstall start"
-  !insertmacro HspInstallDetailPrint "[installer] files copied, waiting for Finish page"
+  !insertmacro HspInstallDetailPrint "[installer] files copied; use Finish on instfiles page to exit"
   ; Trigger launch as soon as install work is complete.
   StrCmp $HspDidLaunchApp "1" hspCustomInstallAfterLaunch
   StrCpy $HspDidLaunchApp "1"
@@ -286,13 +259,7 @@ hspCustomInstallAfterLaunch:
 !macroend
 
 !macro customFinishPage
-  !ifndef BUILD_UNINSTALLER
-  ; Keep installer window open on completion for log inspection/copying.
-  !define MUI_FINISHPAGE_NOAUTOCLOSE
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
-  !insertmacro MUI_PAGE_FINISH
-  !endif
+  ; No MUI_PAGE_FINISH: instfiles "Finish" + LEAVE Quit closes the wizard (see HspInstFilesPageLeave).
 !macroend
 
 !macro customUnInstall

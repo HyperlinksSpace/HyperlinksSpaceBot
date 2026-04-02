@@ -2,6 +2,10 @@
 ; - force current-user install mode
 ; - real-time DetailPrint + mirrored log file in %TEMP%
 ; - finish page shows full log in selectable read-only text area
+;
+; Release: leave defined — omit MUI_FINISHPAGE_NOAUTOCLOSE so MUI auto-advances and can close after install.
+; Debug: comment out this line — restores NOAUTOCLOSE + SetAutoClose false (stay on InstFiles with Next, then Finish).
+!define HSP_INSTALLER_AUTO_FINISH
 
 !include "FileFunc.nsh"
 
@@ -82,6 +86,9 @@ Function HspInstFilesShow
 FunctionEnd
 
 Function HspFinishPageShow
+!ifndef HSP_INSTALLER_AUTO_FINISH
+  SetAutoClose false
+!endif
   Call HspEnsureInstallerLogPath
   ; Launch app automatically when install reaches finish page; keep installer open for logs.
   StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
@@ -185,8 +192,9 @@ hspCustomInstallAfterLaunch:
 
 !macro customFinishPage
   !ifndef BUILD_UNINSTALLER
-  ; Keep installer window open on completion for log inspection/copying.
+!ifndef HSP_INSTALLER_AUTO_FINISH
   !define MUI_FINISHPAGE_NOAUTOCLOSE
+!endif
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
   !insertmacro MUI_PAGE_FINISH

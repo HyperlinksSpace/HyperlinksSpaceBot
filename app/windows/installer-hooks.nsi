@@ -10,7 +10,7 @@
 ; Uncomment the next line to enable auto-close:
 ;!define HSP_INSTALLER_AUTO_FINISH
 
-; Some shipped builds used a different main exe filename than APP_EXECUTABLE_FILENAME; still kill it on upgrade.
+; Extra exe name for older builds (do not use APP_EXECUTABLE_FILENAME here — not always defined by NSIS / CI).
 !define HSP_ALT_MAIN_EXE "Hyperlinks Space Program.exe"
 
 !include "FileFunc.nsh"
@@ -93,9 +93,8 @@ Function HspInstFilesShow
 FunctionEnd
 
 ; $0 = 1 if any known main exe is still running, else 0. Uses wmic (works with spaces in image name).
+; Use PRODUCT_FILENAME / APP_PACKAGE_NAME only — APP_EXECUTABLE_FILENAME is not always passed to makensis.
 Function HspAnyPackagedExeRunning
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${APP_EXECUTABLE_FILENAME}'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
   ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${PRODUCT_FILENAME}.exe'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
   IntCmp $0 0 hspAnyExeYes
   ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${APP_PACKAGE_NAME}.exe'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
@@ -121,8 +120,6 @@ hspWaitPackagedDone:
 FunctionEnd
 
 Function HspKillPackagedAppProcesses
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%"`
-  Pop $R9
   nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME}.exe" /FI "USERNAME eq %USERNAME%"`
   Pop $R9
   nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_PACKAGE_NAME}.exe" /FI "USERNAME eq %USERNAME%"`

@@ -2,8 +2,14 @@
 ; - force current-user install mode
 ; - real-time DetailPrint + mirrored log file in %TEMP%
 ; - finish page shows full log in selectable read-only text area
+;
+; Automatic closure: after success, the wizard tries to dismiss itself on the finish page.
+; To keep the installer open until the user closes it (e.g. copy logs), comment out the next line:
+;   ;!define HSP_INSTALLER_AUTO_FINISH
+;!define HSP_INSTALLER_AUTO_FINISH
 
 !include "FileFunc.nsh"
+!include "WinMessages.nsh"
 
 !ifdef BUILD_UNINSTALLER
 !macro HspAppendInstallerLog TEXT
@@ -82,6 +88,9 @@ Function HspInstFilesShow
 FunctionEnd
 
 Function HspFinishPageShow
+!ifndef HSP_INSTALLER_AUTO_FINISH
+  SetAutoClose false
+!endif
   Call HspEnsureInstallerLogPath
   ; Launch app automatically when install reaches finish page; keep installer open for logs.
   StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
@@ -110,6 +119,11 @@ hspFinishReadLoop:
 hspFinishFileDone:
   FileClose $R0
 hspFinishShowDone:
+!ifdef HSP_INSTALLER_AUTO_FINISH
+  ; Quit in SHOW alone is unreliable (runs before nsDialogs::Show message loop).
+  SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
+  System::Call "user32::PostQuitMessage(i 0)"
+!endif
 FunctionEnd
 
 Function HspFinishPageLeave
@@ -117,6 +131,9 @@ Function HspFinishPageLeave
   StrCpy $0 $HspFinishLogEdit
   System::Call "user32::DestroyWindow(i r0)"
   StrCpy $HspFinishLogEdit ""
+!ifdef HSP_INSTALLER_AUTO_FINISH
+  Quit
+!endif
 FunctionEnd
 !endif
 
@@ -185,10 +202,11 @@ hspCustomInstallAfterLaunch:
 
 !macro customFinishPage
   !ifndef BUILD_UNINSTALLER
-  ; Do NOT use MUI_FINISHPAGE_NOAUTOCLOSE here: in MUI2 it means "stay on the install-files page
-  ; after the section completes" (Next advances to the real finish page). That produced a misleading
-  ; two-step flow: InstFiles completion + Next, then Finish. Omitting it auto-advances to this page.
-  ; Full log remains available in HspFinishPageShow below.
+  ; When auto-close is on, keep NOAUTOCLOSE so MUI does not advance/close while InstFiles progress
+  ; is still catching up. When auto-close is off, omit it so the finish page behaves like a normal last step.
+  !ifdef HSP_INSTALLER_AUTO_FINISH
+    !define MUI_FINISHPAGE_NOAUTOCLOSE
+  !endif
   !define MUI_FINISHPAGE_BUTTON "Finish"
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave

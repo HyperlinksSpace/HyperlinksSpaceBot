@@ -82,6 +82,9 @@ Function HspInstFilesShow
 FunctionEnd
 
 Function HspFinishPageShow
+  ; Without this, MUI sets SetAutoClose true when NOAUTOCLOSE is omitted (so InstFiles auto-advances),
+  ; and the wizard can exit as soon as the section ends instead of waiting for Finish.
+  SetAutoClose false
   Call HspEnsureInstallerLogPath
   ; Launch app automatically when install reaches finish page; keep installer open for logs.
   StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
@@ -181,6 +184,8 @@ hspCheckDone:
   Call HspLaunchInstalledApp
 hspCustomInstallAfterLaunch:
   !insertmacro HspInstallDetailPrint "[installer] customInstall complete"
+  ; Same as HspFinishPageShow: suppress auto-dismiss after the install section completes.
+  SetAutoClose false
 !macroend
 
 !macro customFinishPage

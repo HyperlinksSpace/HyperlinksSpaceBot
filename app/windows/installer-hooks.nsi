@@ -9,7 +9,7 @@
 ; Comment out `!define HSP_INSTALLER_AUTO_FINISH` for debug: stay on the install-files page with
 ;   Next, then the finish page; installer stays open until Finish — copy logs from the detail list
 ;   or the finish-page edit control.
-!define HSP_INSTALLER_AUTO_FINISH
+;!define HSP_INSTALLER_AUTO_FINISH
 
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"

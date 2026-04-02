@@ -92,7 +92,8 @@
       "runAfterFinish": true,
       "perMachine": false,
       "allowElevation": true,
-      "allowToChangeInstallationDirectory": false
+      "allowToChangeInstallationDirectory": false,
+      "warningsAsErrors": false
     },
     "directories": {
       "output": "releases/artifacts",

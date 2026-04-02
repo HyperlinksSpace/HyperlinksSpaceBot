@@ -150,20 +150,9 @@ FunctionEnd
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
-!macro customCheckAppRunning
-  !define SYSTEMROOT "$%SYSTEMROOT%"
-  !insertmacro HspInstallDetailPrint "[installer] attempting to stop running app processes (current user)"
-  ; Use /IM "....exe" like app-builder's _CHECK_APP_RUNNING. /FI IMAGENAME eq ${PRODUCT_FILENAME}.exe is
-  ; wrong when the product name contains spaces (filter value is truncated → process never killed → copy locks).
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%" >nul 2>&1'
-  Pop $R1
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /IM "${APP_PACKAGE_NAME}.exe" /FI "USERNAME eq %USERNAME%" >nul 2>&1'
-  Pop $R2
-  Sleep 800
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%" >nul 2>&1'
-  Pop $R1
-  Sleep 2000
-!macroend
+; Intentionally no customCheckAppRunning: defining it replaces electron-builder's _CHECK_APP_RUNNING, which
+; uses GetProcessInfo, optional user prompt, and a retry loop with taskkill /im — required to release locks
+; before File commands. A custom shortcut left "Can't modify … files" / Copy failed on upgrades.
 
 !macro customInit
   !insertmacro HspInstallDetailPrint "[installer] customInit start"

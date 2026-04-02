@@ -1,4 +1,3 @@
-Installation directory
 Installation: logs, launch on install, progress logs
 Updater: instant reload
 Fluent installer progress bar

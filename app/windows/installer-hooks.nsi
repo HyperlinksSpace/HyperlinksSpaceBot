@@ -3,13 +3,15 @@
 ; - real-time DetailPrint + mirrored log file in %TEMP%
 ; - finish page shows full log in selectable read-only text area
 ;
-; Release: leave defined — after the real finish page is shown, Quit (see HspFinishPageShow). Do not omit
+; Release: leave defined — dismiss wizard after finish page (see HspFinishPageShow / HspFinishPageLeave).
+; Quit in the SHOW callback alone is unreliable (runs before nsDialogs::Show message loop). Do not omit
 ; MUI_FINISHPAGE_NOAUTOCLOSE for that: without it MUI can advance/close while the InstFiles progress bar is
 ; still catching up (wrong ESTIMATED_SIZE vs actual bytes), which looks like exit at ~60%.
 ; Debug: comment out — SetAutoClose false on the finish page; no Quit (copy logs, close manually).
 !define HSP_INSTALLER_AUTO_FINISH
 
 !include "FileFunc.nsh"
+!include "WinMessages.nsh"
 
 !ifdef BUILD_UNINSTALLER
 !macro HspAppendInstallerLog TEXT
@@ -123,7 +125,9 @@ hspFinishFileDone:
   FileClose $R0
 hspFinishShowDone:
 !ifdef HSP_INSTALLER_AUTO_FINISH
-  Quit
+  ; Quit here is often ignored (SHOW runs before nsDialogs::Show). Close via WM_CLOSE + PostQuitMessage.
+  SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
+  System::Call "user32::PostQuitMessage(i 0)"
 !endif
 FunctionEnd
 
@@ -132,6 +136,9 @@ Function HspFinishPageLeave
   StrCpy $0 $HspFinishLogEdit
   System::Call "user32::DestroyWindow(i r0)"
   StrCpy $HspFinishLogEdit ""
+!ifdef HSP_INSTALLER_AUTO_FINISH
+  Quit
+!endif
 FunctionEnd
 !endif
 

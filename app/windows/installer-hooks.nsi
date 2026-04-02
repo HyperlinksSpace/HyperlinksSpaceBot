@@ -3,9 +3,11 @@
 ; - real-time DetailPrint + mirrored log file in %TEMP%
 ; - finish page shows full log in selectable read-only text area
 ;
-; Automatic closure: after success, the wizard tries to dismiss itself on the finish page.
-; To keep the installer open until the user closes it (e.g. copy logs), comment out the next line:
-;   ;!define HSP_INSTALLER_AUTO_FINISH
+; HSP_INSTALLER_AUTO_FINISH — two finish-page setups (see commits 4f25a5c vs 160595ef):
+;   • Defined   → auto-dismiss wizard after install (4f25a5c: no MUI_FINISHPAGE_NOAUTOCLOSE, Finish
+;                button, then WM_CLOSE / Quit in HspFinishPage*).
+;   • Commented → installer stays open for logs (160595ef: MUI_FINISHPAGE_NOAUTOCLOSE, no forced close).
+; Uncomment the next line to enable auto-close:
 ;!define HSP_INSTALLER_AUTO_FINISH
 
 !include "FileFunc.nsh"
@@ -202,15 +204,19 @@ hspCustomInstallAfterLaunch:
 
 !macro customFinishPage
   !ifndef BUILD_UNINSTALLER
-  ; When auto-close is on, keep NOAUTOCLOSE so MUI does not advance/close while InstFiles progress
-  ; is still catching up. When auto-close is off, omit it so the finish page behaves like a normal last step.
   !ifdef HSP_INSTALLER_AUTO_FINISH
+    ; 4f25a5c: omit NOAUTOCLOSE (single-step to Finish; then we force-close in HspFinishPageShow/Leave).
+    !define MUI_FINISHPAGE_BUTTON "Finish"
+    !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
+    !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
+    !insertmacro MUI_PAGE_FINISH
+  !else
+    ; 160595ef: NOAUTOCLOSE keeps the wizard open until the user is done (log copy / manual close).
     !define MUI_FINISHPAGE_NOAUTOCLOSE
+    !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
+    !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
+    !insertmacro MUI_PAGE_FINISH
   !endif
-  !define MUI_FINISHPAGE_BUTTON "Finish"
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
-  !insertmacro MUI_PAGE_FINISH
   !endif
 !macroend
 

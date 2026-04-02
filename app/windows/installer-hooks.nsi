@@ -2,16 +2,8 @@
 ; - force current-user install mode
 ; - real-time DetailPrint + mirrored log file in %TEMP%
 ; - finish page shows full log in selectable read-only text area
-;
-; Release: leave defined — dismiss wizard after finish page (see HspFinishPageShow / HspFinishPageLeave).
-; Quit in the SHOW callback alone is unreliable (runs before nsDialogs::Show message loop). Do not omit
-; MUI_FINISHPAGE_NOAUTOCLOSE for that: without it MUI can advance/close while the InstFiles progress bar is
-; still catching up (wrong ESTIMATED_SIZE vs actual bytes), which looks like exit at ~60%.
-; Debug: comment out — SetAutoClose false on the finish page; no Quit (copy logs, close manually).
-!define HSP_INSTALLER_AUTO_FINISH
 
 !include "FileFunc.nsh"
-!include "WinMessages.nsh"
 
 !ifdef BUILD_UNINSTALLER
 !macro HspAppendInstallerLog TEXT
@@ -21,9 +13,6 @@
 !endif
 
 !ifndef BUILD_UNINSTALLER
-; Required when customCheckAppRunning is defined: app-builder skips its own include (allowOnlyOneInstallerInstance.nsh).
-!include "getProcessInfo.nsh"
-Var pid
 Var HspLogFile
 Var HspLogHandle
 Var HspFinishLogEdit
@@ -60,6 +49,7 @@ Function .onInstSuccess
   ; Use one-shot guard so Finish-page fallback does not launch twice.
   StrCmp $HspDidLaunchApp "1" hspInstSuccessAfterLaunch
   StrCpy $HspDidLaunchApp "1"
+  Sleep 500
   Call HspLaunchInstalledApp
 hspInstSuccessAfterLaunch:
   !insertmacro HspAppendInstallerLog "INSTALL_SUCCESS"
@@ -91,37 +81,7 @@ Function HspInstFilesShow
   SetDetailsPrint both
 FunctionEnd
 
-; Poll until ${APP_EXECUTABLE_FILENAME} is not listed by WMI (handles spaced names; no fixed delay on success).
-; $R8 = iteration cap (~300 * 50ms max); uses $0 from ExecWait.
-Function HspWaitUntilExeNotRunning
-  StrCpy $R8 0
-hspWaitExePoll:
-  ; Exit 0 = process still present; exit 1 = no matching process (or findstr found no line).
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${APP_EXECUTABLE_FILENAME}'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspWaitExeStill
-  Return
-hspWaitExeStill:
-  IntOp $R8 $R8 + 1
-  IntCmp $R8 300 0 0 hspWaitExeGiveUp
-  Sleep 50
-  Goto hspWaitExePoll
-hspWaitExeGiveUp:
-FunctionEnd
-
-; Called before each CopyFiles from 7z-out to $INSTDIR (see windows/extractAppPackage.nsh retry loop).
-Function HspKillBeforeCopy
-  SetDetailsView show
-  SetDetailsPrint both
-  DetailPrint "[installer] unlock copy target (attempt $R1): taskkill /T ${APP_EXECUTABLE_FILENAME}"
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%"`
-  Pop $R9
-  Call HspWaitUntilExeNotRunning
-FunctionEnd
-
 Function HspFinishPageShow
-!ifndef HSP_INSTALLER_AUTO_FINISH
-  SetAutoClose false
-!endif
   Call HspEnsureInstallerLogPath
   ; Launch app automatically when install reaches finish page; keep installer open for logs.
   StrCmp $HspDidLaunchApp "1" hspSkipAutoLaunch
@@ -150,11 +110,6 @@ hspFinishReadLoop:
 hspFinishFileDone:
   FileClose $R0
 hspFinishShowDone:
-!ifdef HSP_INSTALLER_AUTO_FINISH
-  ; Quit here is often ignored (SHOW runs before nsDialogs::Show). Close via WM_CLOSE + PostQuitMessage.
-  SendMessage $HWNDPARENT ${WM_CLOSE} 0 0
-  System::Call "user32::PostQuitMessage(i 0)"
-!endif
 FunctionEnd
 
 Function HspFinishPageLeave
@@ -162,9 +117,6 @@ Function HspFinishPageLeave
   StrCpy $0 $HspFinishLogEdit
   System::Call "user32::DestroyWindow(i r0)"
   StrCpy $HspFinishLogEdit ""
-!ifdef HSP_INSTALLER_AUTO_FINISH
-  Quit
-!endif
 FunctionEnd
 !endif
 
@@ -186,23 +138,24 @@ FunctionEnd
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
-; Only for the installer script. Uninstaller build defines BUILD_UNINSTALLER and does not include
-; getProcessInfo.nsh here — if this macro existed, _CHECK_APP_RUNNING would expand ${GetProcessInfo} without the lib.
-!ifndef BUILD_UNINSTALLER
 !macro customCheckAppRunning
-  ; Full _CHECK_APP_RUNNING (taskkill /im, retry loop). FIND_PROCESS uses IMAGENAME eq … which is unreliable
-  ; when the exe name contains spaces, so the inner block can be skipped and nothing gets killed before CopyFiles.
-  !insertmacro HspInstallDetailPrint "[installer] stop running processes (electron-builder + extra taskkill)"
-  !insertmacro _CHECK_APP_RUNNING
-  !insertmacro HspInstallDetailPrint "[installer] extra taskkill pass (spaced product name / stubborn locks)"
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%"`
-  Pop $R9
-  Call HspWaitUntilExeNotRunning
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%"`
-  Pop $R9
-  Call HspWaitUntilExeNotRunning
+  !define SYSTEMROOT "$%SYSTEMROOT%"
+  !insertmacro HspInstallDetailPrint "[installer] attempting to stop running app processes (current user)"
+  ; Different packaging paths may use different exe names, so terminate both candidates.
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" >nul 2>&1'
+  Pop $R1
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" >nul 2>&1'
+  Pop $R2
+  Sleep 1200
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${PRODUCT_FILENAME}.exe"'
+  Pop $R0
+  StrCmp $R0 "0" hspCheckPackageName
+  Goto hspCheckDone
+hspCheckPackageName:
+  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${APP_PACKAGE_NAME}.exe"'
+  Pop $R0
+hspCheckDone:
 !macroend
-!endif
 
 !macro customInit
   !insertmacro HspInstallDetailPrint "[installer] customInit start"
@@ -232,8 +185,11 @@ hspCustomInstallAfterLaunch:
 
 !macro customFinishPage
   !ifndef BUILD_UNINSTALLER
-  ; Always set: avoids MUI auto-jumping/closing while InstFiles progress is mid-bar (see header comment).
-  !define MUI_FINISHPAGE_NOAUTOCLOSE
+  ; Do NOT use MUI_FINISHPAGE_NOAUTOCLOSE here: in MUI2 it means "stay on the install-files page
+  ; after the section completes" (Next advances to the real finish page). That produced a misleading
+  ; two-step flow: InstFiles completion + Next, then Finish. Omitting it auto-advances to this page.
+  ; Full log remains available in HspFinishPageShow below.
+  !define MUI_FINISHPAGE_BUTTON "Finish"
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspFinishPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspFinishPageLeave
   !insertmacro MUI_PAGE_FINISH

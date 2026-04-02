@@ -79,8 +79,11 @@ Function .onInstFailed
 FunctionEnd
 
 Function HspSetWizardNextToFinish
-  ; InstFiles step keeps the same HWND as MUI's Next control; only the caption changes on the real page.
-  SendMessage $mui.Button.Next ${WM_SETTEXT} 0 "STR:Finish"
+  ; Cannot use $mui.Button.Next here: this include is parsed before MUI declares that Var (makensis
+  ; warning 6000 → CI treats warnings as errors). Same pattern as multiUserUi.nsh: dlg item 1 = Next.
+  GetDlgItem $R0 $HWNDPARENT 1
+  StrCmp $R0 0 +2
+  SendMessage $R0 ${WM_SETTEXT} 0 "STR:Finish"
 FunctionEnd
 
 Function HspInstFilesShow

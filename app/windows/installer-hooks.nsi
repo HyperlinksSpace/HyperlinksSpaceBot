@@ -10,6 +10,9 @@
 ; Uncomment the next line to enable auto-close:
 ;!define HSP_INSTALLER_AUTO_FINISH
 
+; Some shipped builds used a different main exe filename than APP_EXECUTABLE_FILENAME; still kill it on upgrade.
+!define HSP_ALT_MAIN_EXE "Hyperlinks Space Program.exe"
+
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"
 
@@ -89,6 +92,54 @@ Function HspInstFilesShow
   SetDetailsPrint both
 FunctionEnd
 
+; $0 = 1 if any known main exe is still running, else 0. Uses wmic (works with spaces in image name).
+Function HspAnyPackagedExeRunning
+  ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${APP_EXECUTABLE_FILENAME}'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
+  IntCmp $0 0 hspAnyExeYes
+  ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${PRODUCT_FILENAME}.exe'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
+  IntCmp $0 0 hspAnyExeYes
+  ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${APP_PACKAGE_NAME}.exe'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
+  IntCmp $0 0 hspAnyExeYes
+  ExecWait `"$WINDIR\System32\cmd.exe" /C "wmic process where \"name='${HSP_ALT_MAIN_EXE}'\" get ProcessId /value 2>nul | findstr /B ProcessId= >nul && exit /b 0 || exit /b 1"`
+  IntCmp $0 0 hspAnyExeYes
+  StrCpy $0 0
+  Return
+hspAnyExeYes:
+  StrCpy $0 1
+  Return
+
+Function HspWaitUntilPackagedProcessesGone
+  StrCpy $R8 0
+hspWaitPackagedPoll:
+  Call HspAnyPackagedExeRunning
+  IntCmp $0 0 hspWaitPackagedDone
+  IntOp $R8 $R8 + 1
+  IntCmp $R8 400 0 0 hspWaitPackagedDone
+  Sleep 50
+  Goto hspWaitPackagedPoll
+hspWaitPackagedDone:
+FunctionEnd
+
+Function HspKillPackagedAppProcesses
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_EXECUTABLE_FILENAME}" /FI "USERNAME eq %USERNAME%"`
+  Pop $R9
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME}.exe" /FI "USERNAME eq %USERNAME%"`
+  Pop $R9
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_PACKAGE_NAME}.exe" /FI "USERNAME eq %USERNAME%"`
+  Pop $R9
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${HSP_ALT_MAIN_EXE}" /FI "USERNAME eq %USERNAME%"`
+  Pop $R9
+FunctionEnd
+
+; Called from windows/extractAppPackage.nsh before each CopyFiles (and each retry).
+Function HspKillBeforeCopy
+  SetDetailsView show
+  SetDetailsPrint both
+  DetailPrint "[installer] unlock install dir before copy (attempt $R1)"
+  Call HspKillPackagedAppProcesses
+  Call HspWaitUntilPackagedProcessesGone
+FunctionEnd
+
 Function HspFinishPageShow
 !ifndef HSP_INSTALLER_AUTO_FINISH
   SetAutoClose false
@@ -158,22 +209,9 @@ FunctionEnd
 !macroend
 
 !macro customCheckAppRunning
-  !define SYSTEMROOT "$%SYSTEMROOT%"
-  !insertmacro HspInstallDetailPrint "[installer] attempting to stop running app processes (current user)"
-  ; Different packaging paths may use different exe names, so terminate both candidates.
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" >nul 2>&1'
-  Pop $R1
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c taskkill /F /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" >nul 2>&1'
-  Pop $R2
-  Sleep 1200
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${PRODUCT_FILENAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${PRODUCT_FILENAME}.exe"'
-  Pop $R0
-  StrCmp $R0 "0" hspCheckPackageName
-  Goto hspCheckDone
-hspCheckPackageName:
-  nsExec::Exec '"${SYSTEMROOT}\System32\cmd.exe" /c tasklist /FI "USERNAME eq %USERNAME%" /FI "IMAGENAME eq ${APP_PACKAGE_NAME}.exe" /FO csv | "${SYSTEMROOT}\System32\find.exe" "${APP_PACKAGE_NAME}.exe"'
-  Pop $R0
-hspCheckDone:
+  !insertmacro HspInstallDetailPrint "[installer] stop running app processes (tree kill + wait, all exe names)"
+  Call HspKillPackagedAppProcesses
+  Call HspWaitUntilPackagedProcessesGone
 !macroend
 
 !macro customInit

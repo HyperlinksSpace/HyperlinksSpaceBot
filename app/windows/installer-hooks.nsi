@@ -208,11 +208,14 @@ FunctionEnd
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
+; Installer only. Uninstaller defines BUILD_UNINSTALLER — Call must use un.* there; use stock _CHECK_APP_RUNNING.
+!ifndef BUILD_UNINSTALLER
 !macro customCheckAppRunning
   !insertmacro HspInstallDetailPrint "[installer] stop running app processes (tree kill + wait, all exe names)"
   Call HspKillPackagedAppProcesses
   Call HspWaitUntilPackagedProcessesGone
 !macroend
+!endif
 
 !macro customInit
   !insertmacro HspInstallDetailPrint "[installer] customInit start"

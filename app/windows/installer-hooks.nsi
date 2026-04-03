@@ -13,8 +13,11 @@
 ; Extra exe name for older builds (do not use APP_EXECUTABLE_FILENAME here — not always defined by NSIS / CI).
 !define HSP_ALT_MAIN_EXE "Hyperlinks Space Program.exe"
 
-; Stock InstFiles bar jumps across phases (uninstall, 7z, copy, registry); hide it until we drive progress elsewhere.
-!define MUI_INSTFILESPAGE_PROGRESSBAR "disable"
+; Installer only: hiding the InstFiles bar breaks NSIS when compiling the separate uninstaller stub (BUILD_UNINSTALLER + MUI_UNPAGE_INSTFILES / InstProgressFlags).
+!ifndef BUILD_UNINSTALLER
+  ; Stock InstFiles bar jumps across phases (uninstall, 7z, copy, registry); hide it until we drive progress elsewhere.
+  !define MUI_INSTFILESPAGE_PROGRESSBAR "disable"
+!endif
 
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"

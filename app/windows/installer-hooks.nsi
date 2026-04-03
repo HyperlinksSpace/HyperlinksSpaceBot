@@ -18,6 +18,10 @@
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"
 
+; user32::GetWindowLong indices (not all NSIS WinMessages bundles define these)
+!define HSP_GWL_STYLE -16
+!define HSP_GWL_EXSTYLE -20
+
 !ifdef BUILD_UNINSTALLER
 !macro HspAppendInstallerLog TEXT
 !macroend
@@ -30,6 +34,9 @@ Var HspLogFile
 Var HspLogHandle
 Var HspFinishLogEdit
 Var HspDidLaunchApp
+Var HspInstFilesLogHwnd
+Var HspInstFilesLogStyle
+Var HspInstFilesLogExStyle
 
 Function HspEnsureInstallerLogPath
   StrCmp $HspLogFile "" hspSetLogPath hspLogPathDone
@@ -100,6 +107,7 @@ FunctionEnd
 Function HspInstFilesShow
   SetDetailsView show
   SetDetailsPrint both
+  StrCpy $HspInstFilesLogHwnd ""
   FindWindow $0 "#32770" "" $HWNDPARENT
   FindWindow $1 "msctls_progress32" "" $0
   IntCmp $1 0 hspInstFilesBarDone
@@ -108,15 +116,50 @@ hspInstFilesBarDone:
   ; Outer wizard (IDD_INST in Contrib/UIs/modern*.rc): etched line *below* the header is control 1036.
   ; (1035 is the separate footer rule above branding; do not use it here.)
   GetDlgItem $1 $HWNDPARENT 1036
-  IntCmp $1 0 hspInstFilesLineDone
+  IntCmp $1 0 hspInstFilesOuterLineDone
   ShowWindow $1 ${SW_HIDE}
-hspInstFilesLineDone:
+hspInstFilesOuterLineDone:
+  ; Inner InstFiles page (IDD_INSTFILES): one-line status (1006) duplicates DetailPrint; hide it.
+  IntCmp $0 0 hspInstFilesInnerDone
+  GetDlgItem $1 $0 1006
+  IntCmp $1 0 hspInstFilesHideIntroDone
+  ShowWindow $1 ${SW_HIDE}
+hspInstFilesHideIntroDone:
+  ; SysListView32 (1016): top edge reads as a gray rule above the log; clear border + clientedge.
+  GetDlgItem $1 $0 1016
+  IntCmp $1 0 hspInstFilesInnerDone
+  StrCpy $HspInstFilesLogHwnd $1
+  System::Call "user32::GetWindowLong(i r1, i ${HSP_GWL_STYLE}) i .r2"
+  StrCpy $HspInstFilesLogStyle $2
+  System::Call "user32::GetWindowLong(i r1, i ${HSP_GWL_EXSTYLE}) i .r2"
+  StrCpy $HspInstFilesLogExStyle $2
+  IntOp $2 $HspInstFilesLogStyle & 0xFF7FFFFF
+  IntOp $3 $HspInstFilesLogExStyle & 0xFFFFFDFF
+  System::Call "user32::SetWindowLong(i r1, i ${HSP_GWL_STYLE}, i r2) i .r4"
+  System::Call "user32::SetWindowLong(i r1, i ${HSP_GWL_EXSTYLE}, i r3) i .r4"
+  System::Call "user32::SetWindowPos(i r1, i 0, i 0, i 0, i 0, i 0, i 0x0027) i .r4"
+hspInstFilesInnerDone:
 FunctionEnd
 
 Function HspInstFilesLeave
   GetDlgItem $0 $HWNDPARENT 1036
   IntCmp $0 0 +2
   ShowWindow $0 ${SW_SHOW}
+  FindWindow $0 "#32770" "" $HWNDPARENT
+  IntCmp $0 0 hspInstFilesLeaveLogDone
+  GetDlgItem $1 $0 1006
+  IntCmp $1 0 hspInstFilesLeaveIntroDone
+  ShowWindow $1 ${SW_SHOW}
+hspInstFilesLeaveIntroDone:
+  StrCmp $HspInstFilesLogHwnd "" hspInstFilesLeaveLogDone
+  StrCpy $R8 $HspInstFilesLogHwnd
+  StrCpy $R7 $HspInstFilesLogStyle
+  StrCpy $R6 $HspInstFilesLogExStyle
+  System::Call "user32::SetWindowLong(i r8, i ${HSP_GWL_STYLE}, i r7) i .r9"
+  System::Call "user32::SetWindowLong(i r8, i ${HSP_GWL_EXSTYLE}, i r6) i .r9"
+  System::Call "user32::SetWindowPos(i r8, i 0, i 0, i 0, i 0, i 0, i 0x0027) i .r9"
+  StrCpy $HspInstFilesLogHwnd ""
+hspInstFilesLeaveLogDone:
 FunctionEnd
 
 ; $0 = 1 if any known main or Electron helper exe is still running, else 0.

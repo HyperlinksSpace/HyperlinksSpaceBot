@@ -1,9 +1,15 @@
 ; Shadow of app-builder-lib templates/nsis/include/extractAppPackage.nsh
-; (buildResources is searched before the bundled template — see NSIS !addincludedir order.)
+;
+; Wrapped in HSP_EXTRACT_APP_PACKAGE_NSH so a second !include from templates/nsis/include/installer.nsh
+; is a no-op. installer-hooks.nsi loads this file first (see comment there); that guarantees the
+; copy from buildResources is used, not the bundled app-builder template.
 ;
 ; Changes: Call HspKillBeforeCopy before every CopyFiles (and each retry) so taskkill + wait
 ; runs after uninstall/old files, not only in customCheckAppRunning. More automatic retries
 ; before the "cannot close app" dialog. Sync with upstream when upgrading electron-builder.
+
+!ifndef HSP_EXTRACT_APP_PACKAGE_NSH
+!define HSP_EXTRACT_APP_PACKAGE_NSH
 
 !macro extractEmbeddedAppPackage
   !ifdef COMPRESS
@@ -86,7 +92,7 @@
 
 !macro decompress
   !ifdef ZIP_COMPRESSION
-    !insertmacro HspInstallDetailPrint "[installer] Step 1 of 1: Unzip embedded package to $INSTDIR"
+    Call HspExtractZip_Step1
     nsisunz::Unzip "$PLUGINSDIR\app-$packageArch.zip" "$INSTDIR"
     Pop $R0
     StrCmp $R0 "success" +3
@@ -100,20 +106,20 @@
 !macro extractUsing7za FILE
   Push $OUTDIR
   ; Four stages matching NSIS detail lines: Create folder / Output folder → Extract → Output folder → Copy to.
-  ; Use HspInstallDetailPrint with literal strings — nested HspInstallStepPrint → HspInstallDetailPrint can fail to expand ${STEP}/${TOTAL}/${DESC} in some NSIS builds, so step lines never appeared in the detail log.
-  !insertmacro HspInstallDetailPrint "[installer] Step 1 of 4: Prepare temp folder and output path for 7z extraction"
+  ; Runtime Call + Function (not !insertmacro HspInstallDetailPrint) so DetailPrint always runs in the section.
+  Call HspExtract7z_Step1
   CreateDirectory "$PLUGINSDIR\7z-out"
   ClearErrors
   SetOutPath "$PLUGINSDIR\7z-out"
-  !insertmacro HspInstallDetailPrint "[installer] Step 2 of 4: Extract 7z archive into temp folder (Nsis7z)"
+  Call HspExtract7z_Step2
   Nsis7z::Extract "${FILE}"
   Pop $R0
-  !insertmacro HspInstallDetailPrint "[installer] Step 3 of 4: Switch output path back to installation directory"
+  Call HspExtract7z_Step3
   SetOutPath $R0
 
   # Retry counter
   StrCpy $R1 0
-  !insertmacro HspInstallDetailPrint "[installer] Step 4 of 4: Copy unpacked files into installation directory (retries run unlock + copy again)"
+  Call HspExtract7z_Step4
 
   LoopExtract7za:
     IntOp $R1 $R1 + 1
@@ -150,3 +156,5 @@
 
   DoneExtract7za:
 !macroend
+
+!endif ; HSP_EXTRACT_APP_PACKAGE_NSH

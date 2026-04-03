@@ -156,6 +156,46 @@ Function HspKillBeforeCopy
   Call HspWaitUntilPackagedProcessesGone
 FunctionEnd
 
+; Extract pipeline step lines — use Functions + DetailPrint (not only !insertmacro) so messages show
+; during installSection after SetDetailsPrint none. See windows/extractAppPackage.nsh.
+Function HspExtractZip_Step1
+  SetDetailsView show
+  SetDetailsPrint both
+  DetailPrint "[installer] Step 1 of 1: Unzip embedded package to $INSTDIR"
+  !insertmacro HspAppendInstallerLog "[installer] Step 1 of 1: Unzip embedded package to $INSTDIR"
+FunctionEnd
+
+Function HspExtract7z_Step1
+  SetDetailsView show
+  SetDetailsPrint both
+  DetailPrint "[installer] Step 1 of 4: Prepare temp folder and output path for 7z extraction"
+  !insertmacro HspAppendInstallerLog "[installer] Step 1 of 4: Prepare temp folder and output path for 7z extraction"
+FunctionEnd
+
+Function HspExtract7z_Step2
+  SetDetailsView show
+  SetDetailsPrint both
+  DetailPrint "[installer] Step 2 of 4: Extract 7z archive into temp folder (Nsis7z)"
+  !insertmacro HspAppendInstallerLog "[installer] Step 2 of 4: Extract 7z archive into temp folder (Nsis7z)"
+FunctionEnd
+
+Function HspExtract7z_Step3
+  SetDetailsView show
+  SetDetailsPrint both
+  DetailPrint "[installer] Step 3 of 4: Switch output path back to installation directory"
+  !insertmacro HspAppendInstallerLog "[installer] Step 3 of 4: Switch output path back to installation directory"
+FunctionEnd
+
+Function HspExtract7z_Step4
+  SetDetailsView show
+  SetDetailsPrint both
+  DetailPrint "[installer] Step 4 of 4: Copy unpacked files into installation directory (retries run unlock + copy again)"
+  !insertmacro HspAppendInstallerLog "[installer] Step 4 of 4: Copy unpacked files into installation directory (retries run unlock + copy again)"
+FunctionEnd
+
+; Include before templates/nsis/include/installer.nsh — same filename is guarded in extractAppPackage.nsh so the second !include is skipped and this buildResources copy always wins over app-builder.
+!include "extractAppPackage.nsh"
+
 Function HspFinishPageShow
 !ifndef HSP_INSTALLER_AUTO_FINISH
   SetAutoClose false

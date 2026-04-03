@@ -105,6 +105,17 @@ Function HspInstFilesShow
   IntCmp $1 0 hspInstFilesBarDone
   ShowWindow $1 ${SW_HIDE}
 hspInstFilesBarDone:
+  ; MUI outer dialog: control 1035 is mui.Line.Standard (rule under header, above inner page / detail log).
+  GetDlgItem $1 $HWNDPARENT 1035
+  IntCmp $1 0 hspInstFilesLineDone
+  ShowWindow $1 ${SW_HIDE}
+hspInstFilesLineDone:
+FunctionEnd
+
+Function HspInstFilesLeave
+  GetDlgItem $0 $HWNDPARENT 1035
+  IntCmp $0 0 +2
+  ShowWindow $0 ${SW_SHOW}
 FunctionEnd
 
 ; $0 = 1 if any known main or Electron helper exe is still running, else 0.
@@ -233,6 +244,7 @@ FunctionEnd
 !macro customPageAfterChangeDir
   ShowInstDetails show
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW HspInstFilesShow
+  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE HspInstFilesLeave
 !macroend
 
 !macro customInstallMode

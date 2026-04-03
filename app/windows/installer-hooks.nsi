@@ -13,11 +13,7 @@
 ; Extra exe name for older builds (do not use APP_EXECUTABLE_FILENAME here — not always defined by NSIS / CI).
 !define HSP_ALT_MAIN_EXE "Hyperlinks Space Program.exe"
 
-; Installer only: hiding the InstFiles bar breaks NSIS when compiling the separate uninstaller stub (BUILD_UNINSTALLER + MUI_UNPAGE_INSTFILES / InstProgressFlags).
-!ifndef BUILD_UNINSTALLER
-  ; Stock InstFiles bar jumps across phases (uninstall, 7z, copy, registry); hide it until we drive progress elsewhere.
-  !define MUI_INSTFILESPAGE_PROGRESSBAR "disable"
-!endif
+; Hiding the bar: MUI2 only allows MUI_INSTFILESPAGE_PROGRESSBAR = "" | colored | smooth — "disable" is invalid and breaks InstProgressFlags (NSIS 3 CI). Hide msctls_progress32 at runtime in HspInstFilesShow instead.
 
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"
@@ -96,6 +92,11 @@ FunctionEnd
 Function HspInstFilesShow
   SetDetailsView show
   SetDetailsPrint both
+  FindWindow $0 "#32770" "" $HWNDPARENT
+  FindWindow $1 "msctls_progress32" "" $0
+  IntCmp $1 0 hspInstFilesBarDone
+  ShowWindow $1 ${SW_HIDE}
+hspInstFilesBarDone:
 FunctionEnd
 
 ; $0 = 1 if any known main or Electron helper exe is still running, else 0.

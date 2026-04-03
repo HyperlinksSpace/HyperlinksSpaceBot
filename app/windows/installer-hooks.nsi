@@ -93,22 +93,11 @@ Function HspInstFilesShow
 FunctionEnd
 
 ; $0 = 1 if any known main or Electron helper exe is still running, else 0.
-; Uses tasklist (works with spaces; avoids deprecated wmic on Windows 11+).
+; Uses one PowerShell check to avoid spawning many cmd/tasklist probes.
 ; Use PRODUCT_FILENAME / APP_PACKAGE_NAME only — APP_EXECUTABLE_FILENAME is not always passed to makensis.
 Function HspAnyPackagedExeRunning
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${PRODUCT_FILENAME}.exe\" 2>nul | findstr /I /C:\"${PRODUCT_FILENAME}.exe\" >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${PRODUCT_FILENAME} Helper.exe\" 2>nul | findstr /I /C:\"${PRODUCT_FILENAME} Helper.exe\" >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${PRODUCT_FILENAME} Helper (GPU).exe\" 2>nul | findstr /I /C:\"${PRODUCT_FILENAME} Helper (GPU).exe\" >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${PRODUCT_FILENAME} Helper (Renderer).exe\" 2>nul | findstr /I /C:\"${PRODUCT_FILENAME} Helper (Renderer).exe\" >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${PRODUCT_FILENAME} Helper (Plugin).exe\" 2>nul | findstr /I /C:\"${PRODUCT_FILENAME} Helper (Plugin).exe\" >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${APP_PACKAGE_NAME}.exe\" 2>nul | findstr /I /C:\"${APP_PACKAGE_NAME}.exe\" >nul && exit /b 0 || exit /b 1"`
-  IntCmp $0 0 hspAnyExeYes
-  ExecWait `"$WINDIR\System32\cmd.exe" /C "tasklist /FI \"IMAGENAME eq ${HSP_ALT_MAIN_EXE}\" 2>nul | findstr /I /C:\"${HSP_ALT_MAIN_EXE}\" >nul && exit /b 0 || exit /b 1"`
+  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$names = @('${PRODUCT_FILENAME}.exe','${PRODUCT_FILENAME} Helper.exe','${PRODUCT_FILENAME} Helper (GPU).exe','${PRODUCT_FILENAME} Helper (Renderer).exe','${PRODUCT_FILENAME} Helper (Plugin).exe','${APP_PACKAGE_NAME}.exe','${HSP_ALT_MAIN_EXE}'); $$running = Get-Process -ErrorAction SilentlyContinue | Where-Object { $$names -contains ($$_.ProcessName + '.exe') }; if ($$running) { exit 0 } else { exit 1 } }"`
+  Pop $0
   IntCmp $0 0 hspAnyExeYes
   StrCpy $0 0
   Return

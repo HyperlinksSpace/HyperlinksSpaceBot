@@ -1146,43 +1146,9 @@ function setupAutoUpdater() {
 
       const ps1Path = path.join(app.getPath("temp"), `hsp-apply-versions-${Date.now()}.ps1`);
       /**
-       * After PID exit: short settle (handles + DLL unload). Versioned layout: robocopy to
-       * versions\<ver>, then replace the `current` junction (fast); flat layout: robocopy in place.
-       * Override: HSP_UPDATE_SETTLE_MS (ms, 0–5000). Default 300ms versioned, 250ms flat.
-       *
-       * After files are in place, optional relaunch delay so the old process fully releases the
-       * single-instance mutex / file locks before Start-Process (avoids new instance exiting immediately).
-       * Override: HSP_UPDATE_RELAUNCH_DELAY_MS (ms, 0–10000). Default 400ms (lower = snappier reload).
-       *
-       * Brief pause before copying into Program Files (DLL handle release). Override: HSP_UPDATE_PRE_ROBOCOPY_MS.
+       * Apply script uses no fixed sleeps: wait for parent via Wait-Process, kill stragglers, copy, relaunch.
+       * Robocopy uses /R:0 /W:0 so failures go straight to Copy-Item without built-in retry delays.
        */
-      const defaultSettle = useVersionedLayout ? 300 : 250;
-      const rawSettle = process.env.HSP_UPDATE_SETTLE_MS;
-      let settleMs;
-      if (rawSettle !== undefined && rawSettle !== "") {
-        const p = parseInt(rawSettle, 10);
-        settleMs = Math.min(5000, Math.max(0, Number.isFinite(p) ? p : defaultSettle));
-      } else {
-        settleMs = Math.min(5000, Math.max(0, defaultSettle));
-      }
-      const defaultRelaunchDelay = 400;
-      const rawRelaunch = process.env.HSP_UPDATE_RELAUNCH_DELAY_MS;
-      let relaunchDelayMs;
-      if (rawRelaunch !== undefined && rawRelaunch !== "") {
-        const p = parseInt(rawRelaunch, 10);
-        relaunchDelayMs = Math.min(10000, Math.max(0, Number.isFinite(p) ? p : defaultRelaunchDelay));
-      } else {
-        relaunchDelayMs = defaultRelaunchDelay;
-      }
-      const defaultPreRobocopy = 250;
-      const rawPreRobo = process.env.HSP_UPDATE_PRE_ROBOCOPY_MS;
-      let preRobocopyMs;
-      if (rawPreRobo !== undefined && rawPreRobo !== "") {
-        const p = parseInt(rawPreRobo, 10);
-        preRobocopyMs = Math.min(5000, Math.max(0, Number.isFinite(p) ? p : defaultPreRobocopy));
-      } else {
-        preRobocopyMs = defaultPreRobocopy;
-      }
       const ps1Body = [
         "param([string]$PlanPath, [string]$LogPath)",
         '$ErrorActionPreference = "Stop"',
@@ -1206,28 +1172,21 @@ function setupAutoUpdater() {
         "  throw",
         "}",
         "$LogFile = $plan.logPath",
-        `$settleMs = ${settleMs}`,
-        `$relaunchDelayMs = ${relaunchDelayMs}`,
-        `$preRobocopyMs = ${preRobocopyMs}`,
         "function Write-ApplyLog([string]$m) {",
         "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
         '  Add-Content -LiteralPath $LogFile -Value ("[$ts] " + $m) -Encoding UTF8',
         "}",
         "try {",
-        '  Write-ApplyLog "apply start waitPid=$($plan.waitPid) exe=$($plan.exeName) settleMs=$settleMs relaunchDelayMs=$relaunchDelayMs versioned=$($plan.useVersionedLayout)"',
-        "  $deadline = (Get-Date).AddSeconds(120)",
-        "  while ((Get-Process -Id $plan.waitPid -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {",
-        "    Start-Sleep -Milliseconds 50",
-        "  }",
-        `  Write-ApplyLog "parent process ended (or timeout); settle delay ${settleMs}ms (HSP_UPDATE_SETTLE_MS)"`,
-        "  if ($settleMs -gt 0) { Start-Sleep -Milliseconds $settleMs }",
+        '  Write-ApplyLog "apply start waitPid=$($plan.waitPid) exe=$($plan.exeName) versioned=$($plan.useVersionedLayout)"',
+        "  $pp = Get-Process -Id $plan.waitPid -ErrorAction SilentlyContinue",
+        "  if ($pp) { Wait-Process -InputObject $pp -ErrorAction SilentlyContinue }",
+        '  Write-ApplyLog "parent process ended (Wait-Process)"',
         "  if ($plan.installRootForKill -and $plan.installRootForKill.Length -gt 0) {",
         '    Write-ApplyLog "installRoot process sweep (Stop-Process under install dir)"',
         "    $root = $plan.installRootForKill.ToLower()",
         "    try {",
         "      Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and ($_.ExecutablePath.ToLower().StartsWith($root)) } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-ApplyLog (\"stopped pid=\" + $_.ProcessId + \" \" + $_.ExecutablePath) } catch {} }",
         "    } catch { Write-ApplyLog (\"installRoot process sweep: \" + $_.Exception.Message) }",
-        "    Start-Sleep -Milliseconds 200",
         "  }",
         '  Write-ApplyLog "taskkill: current pack only (HSP: unlock resources; avoids ~15s serial kills for all rebrand names)"',
         "  $cmdExe = Join-Path $env:SystemRoot 'System32\\cmd.exe'",
@@ -1250,15 +1209,13 @@ function setupAutoUpdater() {
         '    Write-ApplyLog "robocopy target (flat): $dst"',
         "  }",
         '  Write-ApplyLog "robocopy/copy from $src to $dst"',
-        `  Write-ApplyLog "pre-robocopy settle ${preRobocopyMs}ms (HSP_UPDATE_PRE_ROBOCOPY_MS)"`,
-        "  if ($preRobocopyMs -gt 0) { Start-Sleep -Milliseconds $preRobocopyMs }",
         "  Get-ChildItem -LiteralPath $src -Force | ForEach-Object {",
         "    $item = $_",
         "    if ($item.Name -ne 'versions') {",
         "      $target = Join-Path $dst $item.Name",
         "      if ($item.PSIsContainer) {",
         "        $robocopyExe = Join-Path $env:SystemRoot 'System32\\robocopy.exe'",
-        "        $p = Start-Process -FilePath $robocopyExe -ArgumentList @($item.FullName, $target, '/MIR', '/MT:16', '/R:2', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') -Wait -PassThru -NoNewWindow",
+        "        $p = Start-Process -FilePath $robocopyExe -ArgumentList @($item.FullName, $target, '/MIR', '/MT:16', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS') -Wait -PassThru -NoNewWindow",
         "        $lastExit = $p.ExitCode",
         "        Write-ApplyLog (\"robocopy dir \" + $item.Name + \" exit=\" + $lastExit)",
         "        if ($lastExit -gt 7) {",
@@ -1295,8 +1252,7 @@ function setupAutoUpdater() {
         "    if (Test-Path -LiteralPath $tryExe) { $exePath = $tryExe; Write-ApplyLog (\"picked exe: \" + $c); break }",
         "  }",
         "  if (-not $exePath) { throw (\"main exe missing after apply under \" + $workDir + \" (tried \" + ($candidates -join \", \") + \")\") }",
-        '  Write-ApplyLog ("relaunch " + $exePath + " (wd=" + $workDir + ") after delayMs=" + $relaunchDelayMs)',
-        "  if ($relaunchDelayMs -gt 0) { Start-Sleep -Milliseconds $relaunchDelayMs; Write-ApplyLog \"relaunch delay complete (mutex/file settle)\" }",
+        '  Write-ApplyLog ("relaunch " + $exePath + " (wd=" + $workDir + ")")',
         "  Start-Process -FilePath $exePath -WorkingDirectory $workDir",
         '  Write-ApplyLog "Start-Process returned (GUI may take a moment)"',
         "  try { Remove-Item -LiteralPath $PlanPath -Force } catch {}",
@@ -1312,15 +1268,12 @@ function setupAutoUpdater() {
       ].join("\r\n");
       // UTF-8 BOM so Windows PowerShell 5.1 parses multi-byte literals reliably in .ps1 files.
       fs.writeFileSync(ps1Path, `\uFEFF${ps1Body}`, "utf8");
-      logUpdater(
-        "apply",
-        `wrote ps1 ${ps1Path} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} preRobocopyMs=${preRobocopyMs}`,
-      );
+      logUpdater("apply", `wrote ps1 ${ps1Path} (no fixed sleeps; Wait-Process parent; robocopy /R:0 /W:0)`);
 
       try {
         fs.appendFileSync(
           applyLogPath,
-          `[${new Date().toISOString()}] [main] spawning apply via spawnSync Start-Process inner -File ps1=${ps1Path} plan=${planPath} log=${applyLogPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} trace=%TEMP%\\hsp-apply-trace.log\n`,
+          `[${new Date().toISOString()}] [main] spawning apply via spawnSync Start-Process inner -File ps1=${ps1Path} plan=${planPath} log=${applyLogPath} trace=%TEMP%\\hsp-apply-trace.log\n`,
           "utf8",
         );
       } catch (_) {}

@@ -1,4 +1,3 @@
-Updater: instant reload<br>
 Updater progress bar bug (100% then steps)<br>
 Updater text area style<br>
 Program files installation folder<br>
@@ -33,6 +32,7 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+Updater: fasten instant reload<br>
 Custom installer design<br>
 Fluent installer progress bar<br>
 Optional cleanup of legacy Forge v5 deps<br>

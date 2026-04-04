@@ -1291,28 +1291,29 @@ function setupAutoUpdater() {
       try {
         fs.appendFileSync(
           applyLogPath,
-          `[${new Date().toISOString()}] [main] spawning apply -File ps1=${ps1Path} plan=${planPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} env=HSP_UPDATE_PLAN,HSP_UPDATE_LOG trace=%TEMP%\\hsp-apply-trace.log\n`,
+          `[${new Date().toISOString()}] [main] spawning apply via cmd start (job breakaway) -File ps1=${ps1Path} plan=${planPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} env=HSP_UPDATE_PLAN,HSP_UPDATE_LOG trace=%TEMP%\\hsp-apply-trace.log\n`,
           "utf8",
         );
       } catch (_) {}
 
       const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || "C:\\Windows";
       const psExe = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+      const cmdExePath = path.join(systemRoot, "System32", "cmd.exe");
+      // Detached PowerShell alone can still be in the same Windows job as Electron and get killed on
+      // app.quit(). `cmd /c start "" /B` launches a separate process tree that survives parent exit.
+      const cmdQuote = (p) => `"${String(p).replace(/"/g, '""')}"`;
+      const startLine = `start "" /B ${cmdQuote(psExe)} -NoProfile -ExecutionPolicy Bypass -File ${cmdQuote(ps1Path)}`;
 
-      const child = spawn(
-        psExe,
-        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1Path],
-        {
-          env: {
-            ...process.env,
-            HSP_UPDATE_PLAN: planPath,
-            HSP_UPDATE_LOG: applyLogPath,
-          },
-          detached: true,
-          stdio: "ignore",
-          windowsHide: true,
+      const child = spawn(cmdExePath, ["/d", "/s", "/c", startLine], {
+        env: {
+          ...process.env,
+          HSP_UPDATE_PLAN: planPath,
+          HSP_UPDATE_LOG: applyLogPath,
         },
-      );
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore"],
+        windowsHide: true,
+      });
       child.on("error", (err) => {
         const msg = err?.message || String(err);
         logUpdater("apply", `powershell spawn error: ${msg}`);
@@ -1326,7 +1327,7 @@ function setupAutoUpdater() {
       });
       logUpdater(
         "apply",
-        `spawn ${psExe} pid=${child.pid} detached=true -File ps1 (HSP_UPDATE_PLAN+HSP_UPDATE_LOG env; trace in %TEMP%\\hsp-apply-trace.log)`,
+        `spawn cmd->start ${psExe} pid=${child.pid} detached=true -File ps1 (HSP_UPDATE_PLAN+HSP_UPDATE_LOG env; trace in %TEMP%\\hsp-apply-trace.log)`,
       );
       child.unref();
       if (!child.pid) {

@@ -7,6 +7,7 @@ const {
   dialog,
   Notification,
   ipcMain,
+  nativeImage,
   nativeTheme,
 } = require("electron");
 const path = require("path");
@@ -563,15 +564,42 @@ const updateDialogState = {
 /** When true, skip app.quit() from window closed handlers so quitAndInstall can run first (avoids race + long hang). */
 let suppressQuitForUpdateInstall = false;
 
+/** Real path to icon.ico (prefer asar-unpacked so Windows can load it for the window/taskbar). */
+function resolveAppIconIcoPath() {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, "app.asar.unpacked", "assets", "icon.ico"),
+    app.getAppPath && path.join(app.getAppPath(), "assets", "icon.ico"),
+    path.join(__dirname, "..", "assets", "icon.ico"),
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function nativeImageFromAppIcon() {
+  const p = resolveAppIconIcoPath();
+  if (!p) return undefined;
+  try {
+    const img = nativeImage.createFromPath(p);
+    return img.isEmpty() ? undefined : img;
+  } catch (_) {
+    return undefined;
+  }
+}
+
 function resolveNotificationIcon() {
   const candidates = [
+    resolveAppIconIcoPath(),
     path.join(process.resourcesPath || "", "assets", "icon.ico"),
     path.join(app.getAppPath(), "assets", "icon.ico"),
     app.getPath("exe"),
   ].filter(Boolean);
   return candidates.find((p) => {
     try {
-      return fs.existsSync(p);
+      return p && fs.existsSync(p);
     } catch (_) {
       return false;
     }
@@ -1752,7 +1780,7 @@ function log(msg) {
 function createWindow() {
   const appPath = app.getAppPath();
   const distPath = path.join(appPath, "dist");
-  const iconPath = path.join(appPath, "assets", "icon.ico");
+  const windowIcon = nativeImageFromAppIcon();
   const indexHtml = path.join(distPath, "index.html");
 
   if (!isDev && !fs.existsSync(indexHtml)) {
@@ -1770,7 +1798,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     title: windowTitle,
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: windowIcon,
     // Match app dark background (theme.ts); reduces flash and helps menu/client seam blend on Windows.
     backgroundColor: "#111111",
     webPreferences: {

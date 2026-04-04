@@ -91,7 +91,7 @@ export default {
     asar: {
       smartUnpack: true,
     },
-    asarUnpack: ["**/*.node", "**/*.dll", "**/*.exe"],
+    asarUnpack: ["**/*.node", "**/*.dll", "**/*.exe", "assets/icon.ico"],
   },
   makers: [
     {

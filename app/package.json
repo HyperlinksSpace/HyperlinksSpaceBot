@@ -55,7 +55,8 @@
     "asarUnpack": [
       "**/*.node",
       "**/*.dll",
-      "**/*.exe"
+      "**/*.exe",
+      "assets/icon.ico"
     ],
     "extraMetadata": {
       "main": "windows/build.cjs"

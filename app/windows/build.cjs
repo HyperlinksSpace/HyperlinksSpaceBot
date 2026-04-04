@@ -278,7 +278,8 @@ async function downloadToFile(netFetch, url, destPath, onProgress) {
   if (!res.ok) {
     throw new Error(`Download failed ${res.status} ${url}`);
   }
-  const total = parseInt(res.headers.get("content-length") || "0", 10) || 0;
+  const total =
+    parseInt(res.headers.get("content-length") || res.headers.get("Content-Length") || "0", 10) || 0;
   const reader = res.body?.getReader?.();
   if (!reader) {
     const buf = Buffer.from(await res.arrayBuffer());
@@ -818,7 +819,7 @@ function setupAutoUpdater() {
     const syncZipReadyUi = (v) => {
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
       updateDialogUi({
-        text: `Update ${v} is ready. Click Update to close and open the new version.`,
+        text: `Update ${v} is ready. Click "Update with reload" to close and open the new version.`,
         percent: 100,
         showProgress: true,
         showActions: true,
@@ -967,12 +968,31 @@ function setupAutoUpdater() {
         const zipPath = path.join(versionDir, meta.fileName);
         const primaryZipUrl = githubLatestAssetUrl(meta.fileName);
         logUpdater("prepare", `download primaryURL asset=${meta.fileName}`);
+        let lastZipPush = 0;
         const onZipProgress = (received, total) => {
-          const dl = total > 0 ? received / total : 0;
-          const dlPct = total > 0 ? Math.round(100 * dl) : 0;
-          const overall = Math.min(PROGRESS_DOWNLOAD_CAP, Math.round(PROGRESS_DOWNLOAD_CAP * dl));
+          const now = Date.now();
+          const hasTotal = typeof total === "number" && total > 0;
+          if (hasTotal && now - lastZipPush < 100 && received < total) return;
+          if (!hasTotal && lastZipPush > 0 && now - lastZipPush < 150) return;
+          lastZipPush = now;
+          const mb = received / (1024 * 1024);
+          let dlPct;
+          let overall;
+          if (hasTotal) {
+            const dl = received / total;
+            dlPct = Math.round(100 * dl);
+            overall = Math.min(PROGRESS_DOWNLOAD_CAP, Math.round(PROGRESS_DOWNLOAD_CAP * dl));
+          } else {
+            dlPct = Math.min(99, Math.round(22 * Math.log1p(mb / 12)));
+            overall = Math.min(
+              PROGRESS_DOWNLOAD_CAP - 1,
+              Math.round(PROGRESS_DOWNLOAD_CAP * (1 - Math.exp(-mb / 55))),
+            );
+          }
           pushUi({
-            text: `Downloading and preparing update… ${dlPct}%`,
+            text: hasTotal
+              ? `Downloading and preparing update… ${dlPct}%`
+              : `Downloading and preparing update… ${dlPct}% (~${mb.toFixed(1)} MB, size unknown)`,
             percent: overall,
           });
         };
@@ -1114,7 +1134,6 @@ function setupAutoUpdater() {
         appRoot,
         targetVersionDir,
         currentLink,
-        installRootForKill: appRoot,
       };
       fs.writeFileSync(planPath, JSON.stringify(plan), "utf8");
       logUpdater("apply", `wrote plan ${planPath} ${safeJson(plan)}`);
@@ -1156,14 +1175,12 @@ function setupAutoUpdater() {
         "  $pp = Get-Process -Id $plan.waitPid -ErrorAction SilentlyContinue",
         "  if ($pp) { Wait-Process -InputObject $pp -ErrorAction SilentlyContinue }",
         '  Write-ApplyLog "parent process ended (Wait-Process)"',
-        "  if ($plan.installRootForKill -and $plan.installRootForKill.Length -gt 0) {",
-        '    Write-ApplyLog "installRoot process sweep (Stop-Process under install dir)"',
-        "    $root = $plan.installRootForKill.ToLower()",
-        "    try {",
-        "      Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and ($_.ExecutablePath.ToLower().StartsWith($root)) } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-ApplyLog (\"stopped pid=\" + $_.ProcessId + \" \" + $_.ExecutablePath) } catch {} }",
-        "    } catch { Write-ApplyLog (\"installRoot process sweep: \" + $_.Exception.Message) }",
+        "  $stem = [System.IO.Path]::GetFileNameWithoutExtension($plan.exeName)",
+        "  $killNames = @($stem, ($stem + \" Helper\"), ($stem + \" Helper (GPU)\"), ($stem + \" Helper (Renderer)\"), ($stem + \" Helper (Plugin)\"))",
+        "  foreach ($kn in $killNames) {",
+        "    try { Get-Process -Name $kn -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}",
         "  }",
-        '  Write-ApplyLog "taskkill skipped (installRoot sweep above stops processes under the app dir; avoids ~5s serial taskkill)"',
+        '  Write-ApplyLog "stopped helpers by process name (fast; avoids Win32_Process scan of every OS process)"',
         "  $src = $plan.stagingContent",
         "  if ($plan.useVersionedLayout) {",
         "    $dst = $plan.targetVersionDir",
@@ -1221,7 +1238,7 @@ function setupAutoUpdater() {
       fs.writeFileSync(ps1Path, `\uFEFF${ps1Body}`, "utf8");
       logUpdater(
         "apply",
-        `wrote ps1 ${ps1Path} (Wait-Process; CIM sweep; single robocopy mirror + Copy-Item fallback)`,
+        `wrote ps1 ${ps1Path} (Wait-Process; Stop-Process by name; robocopy mirror + Copy-Item fallback)`,
       );
 
       try {
@@ -1321,14 +1338,14 @@ function setupAutoUpdater() {
       try {
         fs.appendFileSync(
           applyUserLogPath,
-          `[${new Date().toISOString()}] [main] requestInstallNow (Update button clicked)\n`,
+          `[${new Date().toISOString()}] [main] requestInstallNow (Update with reload clicked)\n`,
           "utf8",
         );
       } catch (_) {}
 
       installRequested = true;
       log("[updater] user accepted update install");
-      logUpdater("ipc", "requestInstallNow (Update button)");
+      logUpdater("ipc", "requestInstallNow (Update with reload)");
 
       suppressQuitForUpdateInstall = true;
 
@@ -1445,7 +1462,7 @@ function setupAutoUpdater() {
       }
       openOrFocusUpdateDialog();
       updateDialogUi({
-        text: "Update is ready. Click Update.",
+        text: 'Update is ready. Click "Update with reload".',
         percent: 100,
         showProgress: true,
         showActions: true,

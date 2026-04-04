@@ -12,7 +12,7 @@ const {
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const { pathToFileURL } = require("url");
 const brand = require("./product-brand.cjs");
 
@@ -1173,24 +1173,25 @@ function setupAutoUpdater() {
         relaunchDelayMs = defaultRelaunchDelay;
       }
       const ps1Body = [
-        "param([string]$PlanPath)",
+        "param([string]$PlanPath, [string]$LogPath)",
         '$ErrorActionPreference = "Stop"',
+        "if (-not $PlanPath) { $PlanPath = $env:HSP_UPDATE_PLAN }",
+        "if (-not $LogPath) { $LogPath = $env:HSP_UPDATE_LOG }",
         "try {",
         "  $trace = Join-Path $env:TEMP 'hsp-apply-trace.log'",
         "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
         "  Add-Content -LiteralPath $trace -Encoding UTF8 -Value (\"[$ts] ps1 -File started pid=$PID\")",
-        "  if ($env:HSP_UPDATE_LOG) {",
-        "    Add-Content -LiteralPath $env:HSP_UPDATE_LOG -Encoding UTF8 -Value (\"[$ts] [ps1] bootstrap (before plan JSON)\")",
+        "  if ($LogPath) {",
+        "    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value (\"[$ts] [ps1] bootstrap (before plan JSON)\")",
         "  }",
         "} catch {}",
-        "if (-not $PlanPath) { $PlanPath = $env:HSP_UPDATE_PLAN }",
         'if (-not $PlanPath) { throw "Plan path missing (pass -PlanPath to this script or set HSP_UPDATE_PLAN)" }',
         "try {",
         "  $plan = Get-Content -LiteralPath $PlanPath -Encoding UTF8 -Raw | ConvertFrom-Json",
         "} catch {",
         "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
         "  $m = \"FATAL: plan JSON read/parse failed: \" + $_.Exception.Message",
-        "  if ($env:HSP_UPDATE_LOG) { try { Add-Content -LiteralPath $env:HSP_UPDATE_LOG -Encoding UTF8 -Value (\"[$ts] \" + $m) } catch {} }",
+        "  if ($LogPath) { try { Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value (\"[$ts] \" + $m) } catch {} }",
         "  throw",
         "}",
         "$LogFile = $plan.logPath",
@@ -1291,47 +1292,86 @@ function setupAutoUpdater() {
       try {
         fs.appendFileSync(
           applyLogPath,
-          `[${new Date().toISOString()}] [main] spawning apply via cmd start (job breakaway) -File ps1=${ps1Path} plan=${planPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} env=HSP_UPDATE_PLAN,HSP_UPDATE_LOG trace=%TEMP%\\hsp-apply-trace.log\n`,
+          `[${new Date().toISOString()}] [main] spawning apply via spawnSync Start-Process inner -File ps1=${ps1Path} plan=${planPath} log=${applyLogPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} trace=%TEMP%\\hsp-apply-trace.log\n`,
           "utf8",
         );
       } catch (_) {}
 
       const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || "C:\\Windows";
       const psExe = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-      const cmdExePath = path.join(systemRoot, "System32", "cmd.exe");
-      // Detached PowerShell alone can still be in the same Windows job as Electron and get killed on
-      // app.quit(). `cmd /c start "" /B` launches a separate process tree that survives parent exit.
-      const cmdQuote = (p) => `"${String(p).replace(/"/g, '""')}"`;
-      const startLine = `start "" /B ${cmdQuote(psExe)} -NoProfile -ExecutionPolicy Bypass -File ${cmdQuote(ps1Path)}`;
+      // Async spawn (cmd or PowerShell) can lose the race: app.quit() runs before the apply script starts.
+      // Run a one-shot outer PowerShell that Start-Process'es the real script synchronously (spawnSync) so
+      // the inner process exists before we return and quit. Pass -PlanPath/-LogPath on argv (no env required).
+      const psSq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+      const argList = [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ps1Path,
+        "-PlanPath",
+        planPath,
+        "-LogPath",
+        applyLogPath,
+      ]
+        .map(psSq)
+        .join(",");
+      const startCmd = `Start-Process -WindowStyle Hidden -FilePath ${psSq(psExe)} -ArgumentList ${argList}`;
 
-      const child = spawn(cmdExePath, ["/d", "/s", "/c", startLine], {
-        env: {
-          ...process.env,
-          HSP_UPDATE_PLAN: planPath,
-          HSP_UPDATE_LOG: applyLogPath,
-        },
-        detached: true,
-        stdio: ["ignore", "ignore", "ignore"],
-        windowsHide: true,
-      });
-      child.on("error", (err) => {
-        const msg = err?.message || String(err);
-        logUpdater("apply", `powershell spawn error: ${msg}`);
+      let syncResult;
+      try {
+        syncResult = spawnSync(
+          psExe,
+          ["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", startCmd],
+          {
+            env: {
+              ...process.env,
+              HSP_UPDATE_PLAN: planPath,
+              HSP_UPDATE_LOG: applyLogPath,
+            },
+            windowsHide: true,
+            timeout: 20000,
+            encoding: "utf8",
+            maxBuffer: 1024 * 1024,
+          },
+        );
+      } catch (e) {
+        const msg = e?.message || String(e);
+        logUpdater("apply", `spawnSync launcher threw: ${msg}`);
+        try {
+          fs.appendFileSync(applyLogPath, `[${new Date().toISOString()}] [main] spawnSync launcher threw: ${msg}\n`, "utf8");
+        } catch (_) {}
+        throw e;
+      }
+
+      if (syncResult.error) {
+        const msg = syncResult.error.message || String(syncResult.error);
+        logUpdater("apply", `spawnSync launcher error: ${msg}`);
+        try {
+          fs.appendFileSync(applyLogPath, `[${new Date().toISOString()}] [main] spawnSync launcher error: ${msg}\n`, "utf8");
+        } catch (_) {}
+      }
+      const combinedOut = `${syncResult.stderr || ""}${syncResult.stdout || ""}`.trim();
+      const exitCode = syncResult.status;
+      if (exitCode !== 0) {
+        logUpdater(
+          "apply",
+          `spawnSync Start-Process launcher exit=${exitCode} output=${combinedOut.slice(0, 2000)}`,
+        );
         try {
           fs.appendFileSync(
             applyLogPath,
-            `[${new Date().toISOString()}] [main] spawn error: ${msg}\n`,
+            `[${new Date().toISOString()}] [main] spawnSync launcher exit=${exitCode} ${combinedOut.slice(0, 1500)}\n`,
             "utf8",
           );
         } catch (_) {}
-      });
-      logUpdater(
-        "apply",
-        `spawn cmd->start ${psExe} pid=${child.pid} detached=true -File ps1 (HSP_UPDATE_PLAN+HSP_UPDATE_LOG env; trace in %TEMP%\\hsp-apply-trace.log)`,
-      );
-      child.unref();
-      if (!child.pid) {
-        throw new Error("failed to spawn update helper");
+      } else {
+        logUpdater("apply", "spawnSync Start-Process launcher ok (inner apply.ps1 should be running)");
+      }
+      if (syncResult.error || exitCode !== 0) {
+        throw new Error(
+          `apply launcher failed (exit=${exitCode}): ${syncResult.error?.message || combinedOut.slice(0, 600) || "unknown"}`,
+        );
       }
     };
 

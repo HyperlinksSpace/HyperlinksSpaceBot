@@ -147,50 +147,13 @@ Function HspKillPackagedAppProcesses
   Pop $R9
 FunctionEnd
 
-; Called from windows/hsp-extractAppPackage.nsh before each CopyFiles (and each retry).
+; Called from windows/extractAppPackage.nsh before each CopyFiles (and each retry).
 Function HspKillBeforeCopy
   SetDetailsView show
   SetDetailsPrint both
   DetailPrint "[installer] unlock install dir before copy (attempt $R1)"
   Call HspKillPackagedAppProcesses
   Call HspWaitUntilPackagedProcessesGone
-FunctionEnd
-
-; Extract pipeline step lines — use Functions + DetailPrint (not only !insertmacro) so messages show
-; during installSection after SetDetailsPrint none. See windows/hsp-extractAppPackage.nsh.
-Function HspExtractZip_Step1
-  SetDetailsView show
-  SetDetailsPrint both
-  DetailPrint "[installer] Step 1 of 1: Unzip embedded package to $INSTDIR"
-  !insertmacro HspAppendInstallerLog "[installer] Step 1 of 1: Unzip embedded package to $INSTDIR"
-FunctionEnd
-
-Function HspExtract7z_Step1
-  SetDetailsView show
-  SetDetailsPrint both
-  DetailPrint "[installer] Step 1 of 4: Prepare temp folder and output path for 7z extraction"
-  !insertmacro HspAppendInstallerLog "[installer] Step 1 of 4: Prepare temp folder and output path for 7z extraction"
-FunctionEnd
-
-Function HspExtract7z_Step2
-  SetDetailsView show
-  SetDetailsPrint both
-  DetailPrint "[installer] Step 2 of 4: Extract 7z archive into temp folder (Nsis7z)"
-  !insertmacro HspAppendInstallerLog "[installer] Step 2 of 4: Extract 7z archive into temp folder (Nsis7z)"
-FunctionEnd
-
-Function HspExtract7z_Step3
-  SetDetailsView show
-  SetDetailsPrint both
-  DetailPrint "[installer] Step 3 of 4: Switch output path back to installation directory"
-  !insertmacro HspAppendInstallerLog "[installer] Step 3 of 4: Switch output path back to installation directory"
-FunctionEnd
-
-Function HspExtract7z_Step4
-  SetDetailsView show
-  SetDetailsPrint both
-  DetailPrint "[installer] Step 4 of 4: Copy unpacked files into installation directory (retries run unlock + copy again)"
-  !insertmacro HspAppendInstallerLog "[installer] Step 4 of 4: Copy unpacked files into installation directory (retries run unlock + copy again)"
 FunctionEnd
 
 Function HspFinishPageShow

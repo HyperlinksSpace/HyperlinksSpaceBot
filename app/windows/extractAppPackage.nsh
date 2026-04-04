@@ -1,13 +1,9 @@
-; Fork of app-builder-lib templates/nsis/include/extractAppPackage.nsh — included only via
-; windows/installer.nsh (!include "hsp-extractAppPackage.nsh") so the name never collides with
-; bundled extractAppPackage.nsh (Forge / multiple node_modules paths broke shadow-by-filename).
-; Sync with upstream when upgrading electron-builder.
+; Shadow of app-builder-lib templates/nsis/include/extractAppPackage.nsh
+; (buildResources is searched before the bundled template — see NSIS !addincludedir order.)
 ;
-; Changes: Call HspKillBeforeCopy before every CopyFiles (and each retry); runtime Call + DetailPrint
-; for Step lines. See installer-hooks.nsi (HspExtract7z_Step*, HspExtractZip_Step1).
-
-!ifndef HSP_EXTRACT_APP_PACKAGE_NSH
-!define HSP_EXTRACT_APP_PACKAGE_NSH
+; Changes: Call HspKillBeforeCopy before every CopyFiles (and each retry) so taskkill + wait
+; runs after uninstall/old files, not only in customCheckAppRunning. More automatic retries
+; before the "cannot close app" dialog. Sync with upstream when upgrading electron-builder.
 
 !macro extractEmbeddedAppPackage
   !ifdef COMPRESS
@@ -90,7 +86,6 @@
 
 !macro decompress
   !ifdef ZIP_COMPRESSION
-    Call HspExtractZip_Step1
     nsisunz::Unzip "$PLUGINSDIR\app-$packageArch.zip" "$INSTDIR"
     Pop $R0
     StrCmp $R0 "success" +3
@@ -103,21 +98,15 @@
 
 !macro extractUsing7za FILE
   Push $OUTDIR
-  ; Four stages matching NSIS detail lines: Create folder / Output folder → Extract → Output folder → Copy to.
-  ; Runtime Call + Function (not !insertmacro HspInstallDetailPrint) so DetailPrint always runs in the section.
-  Call HspExtract7z_Step1
   CreateDirectory "$PLUGINSDIR\7z-out"
   ClearErrors
   SetOutPath "$PLUGINSDIR\7z-out"
-  Call HspExtract7z_Step2
   Nsis7z::Extract "${FILE}"
   Pop $R0
-  Call HspExtract7z_Step3
   SetOutPath $R0
 
   # Retry counter
   StrCpy $R1 0
-  Call HspExtract7z_Step4
 
   LoopExtract7za:
     IntOp $R1 $R1 + 1
@@ -154,5 +143,3 @@
 
   DoneExtract7za:
 !macroend
-
-!endif ; HSP_EXTRACT_APP_PACKAGE_NSH

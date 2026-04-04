@@ -1,11 +1,5 @@
-Program files installation folder<br>
-
-Show update install dialog only when program is not in the tray<br>
-Confirm fasten update<br>
-Think of the place of the install update dialog<br>
-When I close update checking, dialog still opens on the You are already on the latest version.<br>
-Fix slow reload on update<br>
-Installation logs<br>
+Icon in the running program not displayed<br>
+When program runs, installation fails<br>
 Installer repeated run (overwriting, force the installer to close and open the app if running)<br>
 System menu bottom border<br>
 Run as administrator<br>
@@ -29,6 +23,7 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+Place of the install update dialog in the UI<br>
 Updater: fasten instant reload<br>
 Custom installer design<br>
 Fluent installer progress bar<br>

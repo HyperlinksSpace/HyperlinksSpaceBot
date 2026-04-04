@@ -46,7 +46,19 @@ const bot = BOT_TOKEN ? createBot(BOT_TOKEN) : null;
 let botInitPromise: Promise<void> | null = null;
 function ensureBotInit(): Promise<void> {
   if (!bot) return Promise.resolve();
-  if (!botInitPromise) botInitPromise = bot.init();
+  if (!botInitPromise) {
+    try {
+      botInitPromise = bot.init().catch((err) => {
+        console.error('[bot] init failed', err);
+        botInitPromise = null;
+        throw err;
+      });
+    } catch (err) {
+      console.error('[bot] init failed', err);
+      botInitPromise = null;
+      throw err;
+    }
+  }
   return botInitPromise;
 }
 

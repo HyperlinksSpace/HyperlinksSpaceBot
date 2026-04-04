@@ -4,8 +4,10 @@
 ; - finish page shows full log in selectable read-only text area
 ;
 ; InstFiles page: the one-line status above the list is separate from the details list. SetDetailsPrint
-; both duplicates DetailPrint into both; we use textonly once for a fixed status caption, then listonly
-; so HspInstallDetailPrint lines only appear in the list (not repeated on the status line).
+; both duplicates DetailPrint into both; we use textonly for HspInstallStepStatus, then listonly so
+; HspInstallDetailPrint lines only appear in the list (not repeated on the status line).
+; Steps 1–N: see !define HSP_INSTALL_STEP_TOTAL and !insertmacro HspInstallStepStatus in HspInstFilesShow,
+; customCheckAppRunning, extractAppPackage (decompress), customInstall.
 ;
 ; HSP_INSTALLER_AUTO_FINISH — two finish-page setups (see commits 4f25a5c vs 160595ef):
 ;   • Defined   → auto-dismiss wizard after install (4f25a5c: no MUI_FINISHPAGE_NOAUTOCLOSE, Finish
@@ -21,6 +23,17 @@
 
 !include "FileFunc.nsh"
 !include "WinMessages.nsh"
+
+!define HSP_INSTALL_STEP_TOTAL 6
+; Status line only (textonly). Keep in sync with step inserts in customCheckAppRunning, extractAppPackage, customInstall.
+!macro HspInstallStepStatus STEP
+  !ifndef BUILD_UNINSTALLER
+  SetDetailsView show
+  SetDetailsPrint textonly
+  DetailPrint "Installation: Step ${STEP} of ${HSP_INSTALL_STEP_TOTAL}"
+  SetDetailsPrint listonly
+  !endif
+!macroend
 
 !ifdef BUILD_UNINSTALLER
 !macro HspAppendInstallerLog TEXT
@@ -94,11 +107,7 @@ Function .onInstFailed
 FunctionEnd
 
 Function HspInstFilesShow
-  SetDetailsView show
-  ; Fixed one-line status (status-only); further messages use listonly via HspInstallDetailPrint.
-  SetDetailsPrint textonly
-  DetailPrint "Installing ${PRODUCT_NAME}…"
-  SetDetailsPrint listonly
+  !insertmacro HspInstallStepStatus 1
   FindWindow $0 "#32770" "" $HWNDPARENT
   FindWindow $1 "msctls_progress32" "" $0
   IntCmp $1 0 hspInstFilesBarDone
@@ -237,6 +246,7 @@ FunctionEnd
   !insertmacro HspInstallDetailPrint "[installer] stop running app processes (tree kill + wait, all exe names)"
   Call HspKillPackagedAppProcesses
   Call HspWaitUntilPackagedProcessesGone
+  !insertmacro HspInstallStepStatus 2
 !macroend
 !endif
 
@@ -256,6 +266,7 @@ FunctionEnd
 !macroend
 
 !macro customInstall
+  !insertmacro HspInstallStepStatus 5
   !insertmacro HspInstallDetailPrint "[installer] customInstall start"
   !insertmacro HspInstallDetailPrint "[installer] files copied, waiting for Finish page"
   ; Trigger launch as soon as install work is complete.
@@ -264,6 +275,7 @@ FunctionEnd
   Call HspLaunchInstalledApp
 hspCustomInstallAfterLaunch:
   !insertmacro HspInstallDetailPrint "[installer] customInstall complete"
+  !insertmacro HspInstallStepStatus 6
 !macroend
 
 !macro customFinishPage

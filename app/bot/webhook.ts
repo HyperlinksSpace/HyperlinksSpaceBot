@@ -3,15 +3,13 @@
  *
  * Flow:
  * - User sends a message in Telegram → Telegram POSTs that update here.
- * - We return 200 OK immediately so Telegram does not retry or hide the user's message.
- * - We process the update in the background (waitUntil).
+ * - We process the update and return 200 on success (or 500 on failure so Telegram retries).
  *
  * Per-chat serialization: we process one update per chat at a time. When a new update arrives
  * for a chat, we wait for the previous handler for that chat to finish, then run the new one.
  * So Reply A is always sent before we start processing Prompt B — no reorder flash.
  */
 
-import { waitUntil } from '@vercel/functions';
 import { createBot } from './grammy.js';
 
 interface TelegramUpdate {
@@ -126,8 +124,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     return jsonResponse({ ok: false, error: 'BOT_TOKEN not set' }, 500);
   }
 
-  // Read body before returning 200. Once we return, the request may be closed and body
-  // unavailable, so reading it inside waitUntil can fail and the message is lost.
+  // Read body before processing the update.
   let update: TelegramUpdate;
   try {
     const body =
@@ -147,27 +144,28 @@ export async function handleRequest(request: Request): Promise<Response> {
     return jsonResponse({ ok: false, error: 'invalid_update' }, 400);
   }
 
-  // Return 200 OK immediately so Telegram applies the message to the chat. Process update
-  // in waitUntil so we don't block the response on AI/DB.
+  // Process update and return 200 on success (or 500 on failure so Telegram retries).
   // Serialize per chat so Reply A is always sent before we start processing Prompt B.
   const updateId = update.update_id;
   const chatId = getChatIdFromUpdate(update);
   const prev = chatId !== undefined ? chatQueue.get(chatId) : undefined;
-  const work = (prev ?? Promise.resolve())
-    .then(() => ensureBotInit())
-    .then(() => bot!.handleUpdate(update as Parameters<typeof bot.handleUpdate>[0]))
-    .then(() => {
-      console.log('[webhook] handled update', updateId);
-    })
-    .catch((err) => {
-      console.error('[bot]', err);
-    });
+  const work = (prev ?? Promise.resolve()).then(async () => {
+    await ensureBotInit();
+    await bot!.handleUpdate(update as Parameters<typeof bot.handleUpdate>[0]);
+    console.log('[webhook] handled update', updateId);
+  });
   const tail = work.then(() => {}, () => {});
   if (chatId !== undefined) {
     chatQueue.set(chatId, tail);
   }
-  waitUntil(work);
-  return jsonResponse({ ok: true });
+
+  try {
+    await work;
+    return jsonResponse({ ok: true });
+  } catch (err) {
+    console.error('[webhook] handleUpdate failed', { updateId, chatId, err });
+    return jsonResponse({ ok: false, error: 'handler_error' }, 500);
+  }
 }
 
 /** Legacy (req, res) handler; also used when Vercel passes (request, context). */

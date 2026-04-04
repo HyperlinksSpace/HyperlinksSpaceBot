@@ -1781,6 +1781,10 @@ function createWindow() {
   });
 
   mainWindow.once("ready-to-show", () => {
+    // Fill the display work area by default (fresh install, after update, new window).
+    try {
+      mainWindow.maximize();
+    } catch (_) {}
     mainWindow.show();
   });
 

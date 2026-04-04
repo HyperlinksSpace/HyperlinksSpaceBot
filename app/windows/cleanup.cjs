@@ -1,6 +1,6 @@
 /**
  * Final layout under releases/builder/<build_id>/:
- *   HyperlinksSpaceAppInstaller_<stamp>.exe   (root — only distributable at top level)
+ *   <productSlug>Installer_<stamp>.exe   (root — only distributable at top level)
  *   dev/                                      (all other build artifacts)
  * Staging (eb-output or releases/artifacts) is removed after this script runs.
  */
@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { RELEASE_BUILD_DEV_DIRNAME } = require("./build-layout.cjs");
+const { productSlug } = require("./product-brand.cjs");
 
 const appDir = path.join(__dirname, "..");
 const releasesDir = path.join(appDir, "releases");
@@ -47,7 +48,11 @@ const devArtifacts = [
 
 function pickInstallerName() {
   const files = fs.readdirSync(artifactsDir);
-  const candidates = files.filter((f) => /^HyperlinksSpaceAppInstaller(?:_\d{8}_\d{4})?\.exe$/i.test(f));
+  const installerRe = new RegExp(
+    `^${productSlug}Installer(?:_\\d{8}_\\d{4})?\\.exe$`,
+    "i",
+  );
+  const candidates = files.filter((f) => installerRe.test(f));
   if (candidates.length === 0) return null;
   // Prefer timestamped file if both legacy/static and stamped files exist.
   candidates.sort((a, b) => b.length - a.length || a.localeCompare(b));
@@ -56,7 +61,8 @@ function pickInstallerName() {
 
 function pickZipName() {
   const files = fs.readdirSync(artifactsDir);
-  const candidates = files.filter((f) => /^HyperlinksSpaceApp_[\d.]+\.zip$/i.test(f));
+  const zipRe = new RegExp(`^${productSlug}_[\\d.]+\\.zip$`, "i");
+  const candidates = files.filter((f) => zipRe.test(f));
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.localeCompare(a));
   return candidates[0];

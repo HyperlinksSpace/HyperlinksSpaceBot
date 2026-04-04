@@ -28,9 +28,9 @@ This will:
 
 Each Forge build folder:
 
-- `releases/forge/build_MMDDYYYY_HHMM_forge/HyperlinksSpaceAppInstaller_<stamp>.exe` (root only)
+- `releases/forge/build_MMDDYYYY_HHMM_forge/HyperlinksSpaceProgramInstaller_<stamp>.exe` (root only)
 - `releases/forge/build_MMDDYYYY_HHMM_forge/dev/latest.yml`
-- `releases/forge/build_MMDDYYYY_HHMM_forge/dev/HyperlinksSpaceApp_<version>.zip`
+- `releases/forge/build_MMDDYYYY_HHMM_forge/dev/HyperlinksSpaceProgram_<version>.zip`
 - `releases/forge/build_MMDDYYYY_HHMM_forge/dev/zip-latest.yml`
 - `releases/forge/build_MMDDYYYY_HHMM_forge/dev/` — unpacked app, blockmaps, etc.
 

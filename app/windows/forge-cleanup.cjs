@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { RELEASE_BUILD_DEV_DIRNAME } = require("./build-layout.cjs");
+const { productSlug } = require("./product-brand.cjs");
 
 const appDir = path.join(__dirname, "..");
 const releasesDir = path.join(appDir, "releases");
@@ -181,8 +182,8 @@ function main() {
 
   const pkg = JSON.parse(fs.readFileSync(path.join(appDir, "package.json"), "utf8"));
   const version = String(pkg.version ?? "0.0.0");
-  const targetExeName = `HyperlinksSpaceAppInstaller_${stamp}.exe`;
-  const targetZipName = `HyperlinksSpaceApp_${version}.zip`;
+  const targetExeName = `${productSlug}Installer_${stamp}.exe`;
+  const targetZipName = `${productSlug}_${version}.zip`;
 
   const exeSrc = pickInstallerExe();
   if (!exeSrc) {

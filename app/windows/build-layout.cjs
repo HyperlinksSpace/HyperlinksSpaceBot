@@ -1,7 +1,7 @@
 /**
  * Windows electron-builder layout:
  * - Staging: releases/builder/build_MMDDYYYY_HHMM/eb-output/ (deleted after cleanup)
- * - Final:   releases/builder/build_MMDDYYYY_HHMM/HyperlinksSpaceAppInstaller_<stamp>.exe
+ * - Final:   releases/builder/build_MMDDYYYY_HHMM/<productSlug from package.json>Installer_<stamp>.exe
  *            releases/builder/build_MMDDYYYY_HHMM/<RELEASE_BUILD_DEV_DIRNAME>/  (zip, yml, unpacked, etc.)
  * - BUILD_STAMP matches the folder id (required by package.json nsis.artifactName).
  */

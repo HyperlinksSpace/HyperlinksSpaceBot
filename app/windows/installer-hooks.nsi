@@ -17,7 +17,8 @@
 ;!define HSP_INSTALLER_AUTO_FINISH
 
 ; Extra exe name for older builds (do not use APP_EXECUTABLE_FILENAME here — not always defined by NSIS / CI).
-!define HSP_ALT_MAIN_EXE "Hyperlinks Space Program.exe"
+; Legacy main exe from older "Hyperlinks Space App" installs (taskkill / relaunch).
+!define HSP_ALT_MAIN_EXE "Hyperlinks Space App.exe"
 
 ; Hiding the bar: MUI2 only allows MUI_INSTFILESPAGE_PROGRESSBAR = "" | colored | smooth — "disable" is invalid and breaks InstProgressFlags (NSIS 3 CI). Hide msctls_progress32 at runtime in HspInstFilesShow instead.
 

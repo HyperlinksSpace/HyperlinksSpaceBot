@@ -61,13 +61,13 @@ jobs:
           stage_dir="releases/electron/$rid"
           mkdir -p "$stage_dir"
 
-          exe="$(ls -1 "$src_dir"/HyperlinksSpaceAppInstaller_*.exe 2>/dev/null | head -n 1 || true)"
+          exe="$(ls -1 "$src_dir"/HyperlinksSpaceProgramInstaller_*.exe 2>/dev/null | head -n 1 || true)"
           if [[ -z "$exe" || ! -f "$exe" ]]; then
             echo "Expected timestamped installer in $src_dir (forge-cleanup; set RELEASE_BUILD_ID=$rid)."
             find releases -maxdepth 6 -type f 2>/dev/null || true
             exit 1
           fi
-          zip="$(ls -1 "$dev_dir"/HyperlinksSpaceApp_*.zip 2>/dev/null | head -n 1 || true)"
+          zip="$(ls -1 "$dev_dir"/HyperlinksSpaceProgram_*.zip 2>/dev/null | head -n 1 || true)"
           if [[ -z "$zip" || ! -f "$zip" ]]; then
             echo "Portable zip required in $dev_dir (Forge zip maker + forge-cleanup)."
             find "$dev_dir" -maxdepth 1 -type f 2>/dev/null || true
@@ -134,17 +134,17 @@ jobs:
           zip_name="$(basename "$zip")"
           yml_name="$(basename "$yml")"
 
-          [[ "$exe_name" == HyperlinksSpaceAppInstaller_*.exe ]] || {
+          [[ "$exe_name" == HyperlinksSpaceProgramInstaller_*.exe ]] || {
             echo "Unexpected installer name: $exe_name"; exit 1;
           }
-          [[ "$zip_name" == HyperlinksSpaceApp_*.zip ]] || {
+          [[ "$zip_name" == HyperlinksSpaceProgram_*.zip ]] || {
             echo "Unexpected zip name: $zip_name"; exit 1;
           }
           [[ "$yml_name" == "latest.yml" ]] || {
             echo "Unexpected yml name: $yml_name"; exit 1;
           }
 
-          app_version="$(echo "$zip_name" | sed -E 's/^HyperlinksSpaceApp_(.+)\.zip$/\1/')"
+          app_version="$(echo "$zip_name" | sed -E 's/^HyperlinksSpaceProgram_(.+)\.zip$/\1/')"
           if [[ -z "$app_version" || "$app_version" == "$zip_name" ]]; then
             app_version="unknown"
           fi

@@ -14,13 +14,14 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
 const { pathToFileURL } = require("url");
+const brand = require("./product-brand.cjs");
 
 const UPDATE_GITHUB_OWNER = "HyperlinksSpace";
 /** Must match `build.publish.repo` and the repo where CI uploads releases. */
 const UPDATE_GITHUB_REPO = "HyperlinksSpaceProgram";
 const ZIP_LATEST_YML = "zip-latest.yml";
 /** Same pattern as package.json build.win.artifactName for the zip target. */
-const WIN_PORTABLE_ZIP_PREFIX = "HyperlinksSpaceApp_";
+const WIN_PORTABLE_ZIP_PREFIX = brand.portableZipPrefix;
 const LATEST_YML = "latest.yml";
 
 function sleep(ms) {
@@ -120,7 +121,9 @@ async function resolveWindowsZipSidecarMeta(netFetch, currentVersion) {
     }
     log("[updater] zip-latest.yml incomplete; falling back to latest.yml + inferred zip name");
   } else {
-    log(`[updater] zip-latest.yml HTTP ${zlRes.status} — using latest.yml and inferred HyperlinksSpaceApp_<version>.zip`);
+    log(
+      `[updater] zip-latest.yml HTTP ${zlRes.status} — using latest.yml and inferred ${WIN_PORTABLE_ZIP_PREFIX}<version>.zip`,
+    );
   }
 
   const lyUrl = githubLatestAssetUrl(LATEST_YML);
@@ -198,7 +201,7 @@ function githubLatestAssetUrl(fileName) {
 
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
-  "User-Agent": "HyperlinksSpaceApp/electron-updater",
+  "User-Agent": `${brand.productSlug}/electron-updater`,
 };
 
 /**
@@ -247,7 +250,7 @@ async function fetchPortableZipBrowserUrlFromGitHubApi(netFetch, version, prefer
   const prefixed = candidates.find(
     (a) =>
       a.name.startsWith(WIN_PORTABLE_ZIP_PREFIX) ||
-      /^HyperlinksSpaceApp[_-]/i.test(a.name) ||
+      brand.portableZipAssetPattern().test(a.name) ||
       /Hyperlinks\s*Space/i.test(a.name),
   );
   if (prefixed?.browser_download_url) {
@@ -436,15 +439,11 @@ function sha512Base64OfFile(filePath) {
 }
 
 /**
- * Portable zip may ship HyperlinksSpaceApp.exe while the installed NSIS exe is "Hyperlinks Space App.exe".
+ * Portable zip main exe name may differ from the running process (spaced vs compact).
  * Must match resolveZipAppContentRoot / apply relaunch candidates.
  */
 function winStagingDirHasMainExe(stagingDir, exeBaseName) {
-  const alt = new Set([
-    exeBaseName,
-    "Hyperlinks Space App.exe",
-    "HyperlinksSpaceApp.exe",
-  ]);
+  const alt = new Set([exeBaseName, ...brand.allKnownExeBaseNames()]);
   for (const name of alt) {
     const p = path.join(stagingDir, name);
     try {
@@ -461,8 +460,7 @@ function resolveZipAppContentRoot(extractDir, exeBaseName) {
   /** Names to treat as the main app exe (portable zip vs running binary name can differ). */
   const altNames = new Set([exeBaseName]);
   if (process.platform === "win32") {
-    altNames.add("Hyperlinks Space App.exe");
-    altNames.add("HyperlinksSpaceApp.exe");
+    for (const n of brand.allKnownExeBaseNames()) altNames.add(n);
   }
 
   const matchesMainExe = (fileName) => {
@@ -1042,7 +1040,7 @@ function setupAutoUpdater() {
         if (!uiActive && process.platform === "win32" && Notification.isSupported()) {
           try {
             new Notification({
-              title: "Hyperlinks Space App",
+              title: brand.productDisplayName,
               body: `Update ${meta.version} is ready. Open Updates → Check for updates.`,
             }).show();
           } catch (_) {}
@@ -1191,7 +1189,7 @@ function setupAutoUpdater() {
         '    Write-ApplyLog "removed staging dir"',
         "  }",
         "  $workDir = if ($plan.useVersionedLayout) { $plan.currentLink } else { $dst }",
-        '  $candidates = @($plan.exeName, "Hyperlinks Space App.exe", "HyperlinksSpaceApp.exe") | Select-Object -Unique',
+        `  $candidates = @($plan.exeName, ${brand.allKnownExeBaseNames().map((n) => `"${n}"`).join(", ")}) | Select-Object -Unique`,
         "  $exePath = $null",
         "  foreach ($c in $candidates) {",
         "    $tryExe = Join-Path $workDir $c",
@@ -1291,7 +1289,7 @@ function setupAutoUpdater() {
           const mw = focusMainWindowForDialog();
           const errOpts = {
             type: "error",
-            title: "Hyperlinks Space App",
+            title: brand.productDisplayName,
             message: `Could not apply update: ${e?.message || String(e)}`,
             buttons: ["OK"],
           };
@@ -1327,9 +1325,9 @@ function setupAutoUpdater() {
         } catch (_) {}
         const boxOpts = {
           type: "info",
-          title: "Hyperlinks Space App",
+          title: brand.productDisplayName,
           message:
-            "The quick update is not ready yet. Keep the app open until download and unpack finish, or ensure the latest GitHub release includes zip-latest.yml and HyperlinksSpaceApp_<version>.zip from your Windows build (cleanup folder).",
+            `The quick update is not ready yet. Keep the app open until download and unpack finish, or ensure the latest GitHub release includes zip-latest.yml and ${WIN_PORTABLE_ZIP_PREFIX}<version>.zip from your Windows build (cleanup folder).`,
           buttons: ["OK"],
         };
         try {
@@ -1347,7 +1345,7 @@ function setupAutoUpdater() {
       try {
         if (process.platform === "win32" && Notification.isSupported()) {
           const n = new Notification({
-            title: "Hyperlinks Space App",
+            title: brand.productDisplayName,
             body: "Installing update… The app will restart when finished.",
           });
           n.show();
@@ -1648,7 +1646,7 @@ function createWindow() {
   // NSIS close-app uses PRODUCT_NAME (package.json → build.productName). The window title must
   // match that string, not a URL — otherwise the installer cannot find/close the running app.
   // Keep in sync with app/package.json "build.productName".
-  const windowTitle = isDev ? "http://www.hyperlinks.space/" : "Hyperlinks Space App";
+  const windowTitle = isDev ? "http://www.hyperlinks.space/" : brand.productDisplayName;
 
   const mainWindow = new BrowserWindow({
     width: 1200,

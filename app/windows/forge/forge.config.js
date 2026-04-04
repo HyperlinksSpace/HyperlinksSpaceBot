@@ -1,9 +1,12 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // This file lives at app/windows/forge/ — app root is two levels up.
 const appDir = path.resolve(__dirname, "..", "..");
+const packageJson = JSON.parse(fs.readFileSync(path.join(appDir, "package.json"), "utf8"));
+const forgeProductName = packageJson.build?.productName ?? "Hyperlinks Space Program";
 
 const ICON_PATH = path.join(appDir, "assets", "icon.ico");
 // `@electron/packager` expects `main` relative to `packagerConfig.dir`.
@@ -78,7 +81,7 @@ export default {
   },
   packagerConfig: {
     dir: appDir,
-    name: "Hyperlinks Space Program",
+    name: forgeProductName,
     appBundleId: "com.sraibaby.app",
     icon: ICON_PATH,
     // electron-packager reads this as the main process entry.

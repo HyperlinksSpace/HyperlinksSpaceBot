@@ -1147,7 +1147,7 @@ function setupAutoUpdater() {
       const ps1Path = path.join(app.getPath("temp"), `hsp-apply-versions-${Date.now()}.ps1`);
       /**
        * Apply script uses no fixed sleeps: wait for parent via Wait-Process, kill stragglers, copy, relaunch.
-       * Robocopy uses /R:0 /W:0 so failures go straight to Copy-Item without built-in retry delays.
+       * Robocopy: /R:0 /W:0 (no retry delay), /MT:64 /J (throughput on SSD/large files), staging tree delete is async after relaunch.
        */
       const ps1Body = [
         "param([string]$PlanPath, [string]$LogPath)",
@@ -1198,7 +1198,7 @@ function setupAutoUpdater() {
         "  }",
         '  Write-ApplyLog "mirror staging -> dest (single robocopy; /XD versions)"',
         "  $robocopyExe = Join-Path $env:SystemRoot 'System32\\robocopy.exe'",
-        "  & $robocopyExe $src $dst /MIR /E /MT:32 /R:0 /W:0 /XD versions /NFL /NDL /NJH /NJS",
+        "  & $robocopyExe $src $dst /MIR /E /MT:64 /J /R:0 /W:0 /XD versions /NFL /NDL /NJH /NJS",
         "  $mirrorExit = $LASTEXITCODE",
         "  Write-ApplyLog (\"robocopy mirror exit=\" + $mirrorExit)",
         "  if ($mirrorExit -gt 7) {",
@@ -1214,10 +1214,6 @@ function setupAutoUpdater() {
         "    $null = New-Item -ItemType Junction -Path $plan.currentLink -Target $plan.targetVersionDir",
         '    Write-ApplyLog ("junction: $($plan.currentLink) -> $($plan.targetVersionDir)")',
         "  }",
-        "  if ($plan.stagingVersionDirToRemove -and (Test-Path -LiteralPath $plan.stagingVersionDirToRemove)) {",
-        "    Remove-Item -LiteralPath $plan.stagingVersionDirToRemove -Recurse -Force",
-        '    Write-ApplyLog "removed staging dir"',
-        "  }",
         "  $workDir = if ($plan.useVersionedLayout) { $plan.currentLink } else { $dst }",
         `  $candidates = @($plan.exeName, ${brand.allKnownExeBaseNames().map((n) => `"${n}"`).join(", ")}) | Select-Object -Unique`,
         "  $exePath = $null",
@@ -1229,6 +1225,12 @@ function setupAutoUpdater() {
         '  Write-ApplyLog ("relaunch " + $exePath + " (wd=" + $workDir + ")")',
         "  Start-Process -FilePath $exePath -WorkingDirectory $workDir",
         '  Write-ApplyLog "Start-Process returned (GUI may take a moment)"',
+        "  if ($plan.stagingVersionDirToRemove -and (Test-Path -LiteralPath $plan.stagingVersionDirToRemove)) {",
+        "    $sdRm = $plan.stagingVersionDirToRemove",
+        "    $rdArg = 'rd /s /q \"' + $sdRm.Replace('\"', '\"\"') + '\"'",
+        "    Start-Process -FilePath $env:ComSpec -ArgumentList '/c', $rdArg -WindowStyle Hidden",
+        '    Write-ApplyLog "scheduled async staging dir cleanup (after relaunch)"',
+        "  }",
         "  try { Remove-Item -LiteralPath $PlanPath -Force } catch {}",
         '  Write-ApplyLog "apply done"',
         "} catch {",

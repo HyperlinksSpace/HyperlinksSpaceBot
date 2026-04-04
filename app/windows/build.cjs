@@ -1175,9 +1175,24 @@ function setupAutoUpdater() {
       const ps1Body = [
         "param([string]$PlanPath)",
         '$ErrorActionPreference = "Stop"',
+        "try {",
+        "  $trace = Join-Path $env:TEMP 'hsp-apply-trace.log'",
+        "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
+        "  Add-Content -LiteralPath $trace -Encoding UTF8 -Value (\"[$ts] ps1 -File started pid=$PID\")",
+        "  if ($env:HSP_UPDATE_LOG) {",
+        "    Add-Content -LiteralPath $env:HSP_UPDATE_LOG -Encoding UTF8 -Value (\"[$ts] [ps1] bootstrap (before plan JSON)\")",
+        "  }",
+        "} catch {}",
         "if (-not $PlanPath) { $PlanPath = $env:HSP_UPDATE_PLAN }",
         'if (-not $PlanPath) { throw "Plan path missing (pass -PlanPath to this script or set HSP_UPDATE_PLAN)" }',
-        "$plan = Get-Content -LiteralPath $PlanPath -Encoding UTF8 -Raw | ConvertFrom-Json",
+        "try {",
+        "  $plan = Get-Content -LiteralPath $PlanPath -Encoding UTF8 -Raw | ConvertFrom-Json",
+        "} catch {",
+        "  $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')",
+        "  $m = \"FATAL: plan JSON read/parse failed: \" + $_.Exception.Message",
+        "  if ($env:HSP_UPDATE_LOG) { try { Add-Content -LiteralPath $env:HSP_UPDATE_LOG -Encoding UTF8 -Value (\"[$ts] \" + $m) } catch {} }",
+        "  throw",
+        "}",
         "$LogFile = $plan.logPath",
         `$settleMs = ${settleMs}`,
         `$relaunchDelayMs = ${relaunchDelayMs}`,
@@ -1275,21 +1290,23 @@ function setupAutoUpdater() {
       try {
         fs.appendFileSync(
           applyLogPath,
-          `[${new Date().toISOString()}] [main] spawning apply encodedLauncher=1 ps1=${ps1Path} plan=${planPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} trace=%TEMP%\\hsp-apply-trace.log\n`,
+          `[${new Date().toISOString()}] [main] spawning apply -File ps1=${ps1Path} plan=${planPath} settleMs=${settleMs} relaunchDelayMs=${relaunchDelayMs} env=HSP_UPDATE_PLAN,HSP_UPDATE_LOG trace=%TEMP%\\hsp-apply-trace.log\n`,
           "utf8",
         );
       } catch (_) {}
 
       const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || "C:\\Windows";
       const psExe = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-      const launcherPs = buildWindowsApplyLauncherCommand(ps1Path, planPath);
-      const encodedLauncher = Buffer.from(launcherPs, "utf16le").toString("base64");
 
       const child = spawn(
         psExe,
-        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedLauncher],
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1Path],
         {
-          env: { ...process.env, HSP_UPDATE_PLAN: planPath },
+          env: {
+            ...process.env,
+            HSP_UPDATE_PLAN: planPath,
+            HSP_UPDATE_LOG: applyLogPath,
+          },
           detached: true,
           stdio: "ignore",
           windowsHide: true,
@@ -1308,7 +1325,7 @@ function setupAutoUpdater() {
       });
       logUpdater(
         "apply",
-        `spawn ${psExe} pid=${child.pid} detached=true -EncodedCommand launcher→-File ps1 (trace %TEMP%\\hsp-apply-trace.log)`,
+        `spawn ${psExe} pid=${child.pid} detached=true -File ps1 (HSP_UPDATE_PLAN+HSP_UPDATE_LOG env; trace in %TEMP%\\hsp-apply-trace.log)`,
       );
       child.unref();
       if (!child.pid) {

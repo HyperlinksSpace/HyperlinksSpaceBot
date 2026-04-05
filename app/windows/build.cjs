@@ -10,6 +10,15 @@ const {
   nativeImage,
   nativeTheme,
 } = require("electron");
+
+/** Must match package.json `build.appId`. Call synchronously before `ready` on Windows (Electron + shell taskbar expectations). */
+const WIN_APP_USER_MODEL_ID = "com.sraibaby.app";
+if (process.platform === "win32") {
+  try {
+    app.setAppUserModelId(WIN_APP_USER_MODEL_ID);
+  } catch (_) {}
+}
+
 // Optional: set HSP_DISABLE_GPU=1 to test whether GPU stack affects shortcuts (e.g. Print Screen) on Windows.
 if (process.platform === "win32" && process.env.HSP_DISABLE_GPU === "1") {
   try {
@@ -1974,6 +1983,26 @@ async function createWindow() {
   } catch (_) {}
 
   mainWindow.once("ready-to-show", () => {
+    // Win32: ties this HWND to AppUserModelID + icon for the taskbar button (see Electron BrowserWindow.setAppDetails).
+    if (process.platform === "win32" && fs.existsSync(process.execPath)) {
+      try {
+        const detailsIcon =
+          typeof iconForWindow === "string" && fs.existsSync(iconForWindow)
+            ? iconForWindow
+            : resolveWindowsIcoFilePathForBrowserWindow() || process.execPath;
+        if (detailsIcon && fs.existsSync(detailsIcon)) {
+          mainWindow.setAppDetails({
+            appId: WIN_APP_USER_MODEL_ID,
+            appIconPath: detailsIcon,
+            appIconIndex: 0,
+          });
+        }
+      } catch (e) {
+        try {
+          log(`setAppDetails: ${e?.message || e}`);
+        } catch (_) {}
+      }
+    }
     applyWindowIcon();
     try {
       mainWindow.maximize();
@@ -2022,7 +2051,6 @@ process.on("uncaughtException", (err) => {
 
 app.whenReady().then(() => {
   if (process.platform === "win32") {
-    app.setAppUserModelId("com.sraibaby.app");
     // Dark native chrome (title bar / menu area) so the OS-drawn separator under the menu reads closer to #111111.
     nativeTheme.themeSource = "dark";
   }

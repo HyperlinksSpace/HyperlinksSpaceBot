@@ -86,6 +86,13 @@ export default {
     icon: ICON_PATH,
     // electron-packager reads this as the main process entry.
     main: MAIN_PROCESS_FILE_REL,
+    // Improves exe identity in Properties / some SmartScreen heuristics (does not replace Authenticode signing).
+    win32metadata: {
+      CompanyName: typeof packageJson.author === "string" ? packageJson.author : "sraibaby",
+      FileDescription: forgeProductName,
+      ProductName: forgeProductName,
+      OriginalFilename: `${forgeProductName}.exe`,
+    },
 
     // Match your electron-builder asar strategy.
     asar: {

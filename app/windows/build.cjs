@@ -9,8 +9,13 @@ const {
   ipcMain,
   nativeImage,
   nativeTheme,
-  screen,
 } = require("electron");
+// Optional: set HSP_DISABLE_GPU=1 to test whether GPU stack affects shortcuts (e.g. Print Screen) on Windows.
+if (process.platform === "win32" && process.env.HSP_DISABLE_GPU === "1") {
+  try {
+    app.disableHardwareAcceleration();
+  } catch (_) {}
+}
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -581,15 +586,58 @@ function resolveAppIconIcoPath() {
   return null;
 }
 
-function nativeImageFromAppIcon() {
-  const p = resolveAppIconIcoPath();
-  if (p) {
+/** All existing .ico paths (packaged app may have the file only inside app.asar — see nativeImage note below). */
+function collectAppIconIcoCandidates() {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, "app.asar.unpacked", "assets", "icon.ico"),
+    process.resourcesPath && path.join(process.resourcesPath, "assets", "icon.ico"),
+    app.getAppPath && path.join(app.getAppPath(), "assets", "icon.ico"),
+    path.join(__dirname, "..", "assets", "icon.ico"),
+  ].filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const p of candidates) {
     try {
+      if (!p || !fs.existsSync(p)) continue;
+      const n = path.normalize(p);
+      if (seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    } catch (_) {}
+  }
+  return out;
+}
+
+/**
+ * Paths under app.asar\... are real for Node (readFileSync) but not for nativeImage.createFromPath /
+ * app.getFileIcon (shell/GDI cannot read inside the asar archive). Always prefer readFileSync + createFromBuffer for .ico.
+ */
+function nativeImageFromIcoFilePath(p) {
+  if (!p) return null;
+  try {
+    if (!fs.existsSync(p)) return null;
+    const buf = fs.readFileSync(p);
+    const img = nativeImage.createFromBuffer(buf);
+    return img.isEmpty() ? null : img;
+  } catch (_) {
+    return null;
+  }
+}
+
+function nativeImageFromAppIcon() {
+  const paths = collectAppIconIcoCandidates();
+  for (const p of paths) {
+    const img = nativeImageFromIcoFilePath(p);
+    if (img) return img;
+  }
+  for (const p of paths) {
+    try {
+      const inAsarArchive = p.includes("app.asar") && !p.includes("app.asar.unpacked");
+      if (inAsarArchive) continue;
       const img = nativeImage.createFromPath(p);
       if (!img.isEmpty()) return img;
     } catch (_) {}
   }
-  // Packaged app: .ico can fail to load from ASAR paths; Windows still reads icons embedded in the exe (packager --icon).
   if (process.platform === "win32" && app.isPackaged) {
     try {
       const img = nativeImage.createFromPath(process.execPath);
@@ -1788,13 +1836,16 @@ function log(msg) {
 
 /** Windows: resolve before the first show() or the taskbar often keeps a blank/generic icon. */
 async function resolveBrowserWindowIcon() {
-  const fallback = nativeImageFromAppIcon();
-  if (process.platform !== "win32" || !app.isPackaged) return fallback;
-  const iconPaths = [resolveAppIconIcoPath(), process.execPath].filter(
-    (p) => p && (p === process.execPath || fs.existsSync(p)),
-  );
-  for (const p of iconPaths) {
-    for (const size of ["large", "normal"]) {
+  const fromFile = nativeImageFromAppIcon();
+  if (fromFile && !fromFile.isEmpty()) return fromFile;
+  if (process.platform !== "win32" || !app.isPackaged) return fromFile;
+  const shellPaths = [process.execPath, ...collectAppIconIcoCandidates()].filter((p) => {
+    if (!p || !fs.existsSync(p)) return false;
+    const inAsarArchive = p.includes("app.asar") && !p.includes("app.asar.unpacked");
+    return !inAsarArchive;
+  });
+  for (const p of shellPaths) {
+    for (const size of ["large", "normal", "small"]) {
       try {
         const img = await app.getFileIcon(p, { size });
         if (!img.isEmpty()) return img;
@@ -1805,7 +1856,7 @@ async function resolveBrowserWindowIcon() {
       }
     }
   }
-  return fallback;
+  return fromFile;
 }
 
 async function createWindow() {
@@ -1822,7 +1873,9 @@ async function createWindow() {
   const windowIcon = await resolveBrowserWindowIcon();
   if (process.platform === "win32" && app.isPackaged && (!windowIcon || windowIcon.isEmpty())) {
     try {
-      log("warn: taskbar icon: resolveBrowserWindowIcon returned empty");
+      log(
+        `warn: taskbar icon empty; candidates=${collectAppIconIcoCandidates().join(" | ")} exe=${process.execPath}`,
+      );
     } catch (_) {}
   }
 
@@ -1841,25 +1894,19 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      spellcheck: false,
     },
     show: false,
   });
 
+  try {
+    mainWindow.webContents.setIgnoreMenuShortcuts(false);
+  } catch (_) {}
+
   mainWindow.once("ready-to-show", () => {
-    // Edge-to-edge without WS_MAXIMIZE: on Windows, maximize() can interact badly with shell icons
-    // and some system shortcuts (e.g. Print Screen); filling the work area matches prior "fullscreen" intent.
     try {
-      if (process.platform === "win32") {
-        const wa = screen.getPrimaryDisplay().workArea;
-        mainWindow.setBounds(wa);
-      } else {
-        mainWindow.maximize();
-      }
-    } catch (_) {
-      try {
-        mainWindow.maximize();
-      } catch (_) {}
-    }
+      mainWindow.maximize();
+    } catch (_) {}
     mainWindow.show();
   });
 

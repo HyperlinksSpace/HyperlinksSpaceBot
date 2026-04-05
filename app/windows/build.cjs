@@ -1993,6 +1993,25 @@ function logWindowsIconProbeAlways(windowIcon) {
   }
 }
 
+/**
+ * Path for setAppDetails (taskbar / Jump List): prefer the .exe when Chromium can decode an embedded
+ * icon — Windows shell uses the exe for the taskbar more reliably than a loose .ico in that case.
+ * Otherwise use resources\\icon.ico (see embed-windows-exe-icon.cjs + afterSign).
+ */
+function resolveWindowsTaskbarDetailsIconPath() {
+  if (process.platform !== "win32" || !app.isPackaged) return null;
+  const exe = process.execPath;
+  const ico = ensureWindowsIcoFileOnDiskSync();
+  try {
+    if (fs.existsSync(exe)) {
+      const niFromExe = nativeImage.createFromPath(exe);
+      if (!niFromExe.isEmpty()) return exe;
+    }
+  } catch (_) {}
+  if (ico && fs.existsSync(ico)) return ico;
+  return fs.existsSync(exe) ? exe : ico;
+}
+
 /** Logs once per main window: summary + probe(always); full dump when HSP_DEBUG_ICON=1. */
 function logWindowsIconEnvironment(windowIcon) {
   if (process.platform !== "win32" || !app.isPackaged) return;
@@ -2117,7 +2136,7 @@ async function createWindow() {
     // Win32: ties this HWND to AppUserModelID + icon for the taskbar button (see Electron BrowserWindow.setAppDetails).
     if (process.platform === "win32" && fs.existsSync(process.execPath)) {
       try {
-        const detailsIcon = ensureWindowsIcoFileOnDiskSync() || process.execPath;
+        const detailsIcon = resolveWindowsTaskbarDetailsIconPath();
         if (detailsIcon && fs.existsSync(detailsIcon)) {
           mainWindow.setAppDetails({
             appId: WIN_APP_USER_MODEL_ID,

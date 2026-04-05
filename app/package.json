@@ -50,6 +50,7 @@
   "build": {
     "appId": "com.sraibaby.app",
     "productName": "Hyperlinks Space Program",
+    "icon": "assets/icon.ico",
     "asar": {
       "smartUnpack": true
     },

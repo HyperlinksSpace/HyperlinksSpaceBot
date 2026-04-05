@@ -1886,6 +1886,31 @@ async function resolveBrowserWindowIcon() {
   return fromFile;
 }
 
+/**
+ * Windows: BrowserWindow `icon` should be a path to a real .ico on disk (Electron docs). Paths inside
+ * app.asar are not normal files for the shell — prefer unpacked, else copy from asar into userData.
+ */
+function resolveWindowsIcoFilePathForBrowserWindow() {
+  if (process.platform !== "win32" || !app.isPackaged) return null;
+  const inAsarOnly = (p) => p.includes("app.asar") && !p.includes("app.asar.unpacked");
+  for (const p of collectAppIconIcoCandidates()) {
+    if (!p || !fs.existsSync(p) || !/\.ico$/i.test(p)) continue;
+    if (!inAsarOnly(p)) return p;
+  }
+  const any = collectAppIconIcoCandidates().find((p) => p && fs.existsSync(p) && /\.ico$/i.test(p));
+  if (!any) return null;
+  try {
+    const dest = path.join(app.getPath("userData"), "window-icon.ico");
+    fs.copyFileSync(any, dest);
+    return dest;
+  } catch (e) {
+    try {
+      log(`window-icon copy to userData: ${e?.message || e}`);
+    } catch (_) {}
+    return null;
+  }
+}
+
 async function createWindow() {
   const appPath = app.getAppPath();
   const distPath = path.join(appPath, "dist");
@@ -1897,8 +1922,18 @@ async function createWindow() {
     return;
   }
 
-  const windowIcon = await resolveBrowserWindowIcon();
-  const iconForWindow = windowIcon && !windowIcon.isEmpty() ? windowIcon : undefined;
+  let iconForWindow;
+  if (process.platform === "win32" && app.isPackaged) {
+    iconForWindow = resolveWindowsIcoFilePathForBrowserWindow();
+    if (!iconForWindow) {
+      const img = await resolveBrowserWindowIcon();
+      iconForWindow = img && !img.isEmpty() ? img : undefined;
+    }
+  } else {
+    const img = await resolveBrowserWindowIcon();
+    iconForWindow = img && !img.isEmpty() ? img : undefined;
+  }
+
   if (process.platform === "win32" && app.isPackaged && !iconForWindow) {
     try {
       log(

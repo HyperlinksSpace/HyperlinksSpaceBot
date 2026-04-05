@@ -9,6 +9,7 @@ const {
   ipcMain,
   nativeImage,
   nativeTheme,
+  screen,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -1785,16 +1786,44 @@ function log(msg) {
   } catch (_) {}
 }
 
-function createWindow() {
+/** Windows: resolve before the first show() or the taskbar often keeps a blank/generic icon. */
+async function resolveBrowserWindowIcon() {
+  const fallback = nativeImageFromAppIcon();
+  if (process.platform !== "win32" || !app.isPackaged) return fallback;
+  const iconPaths = [resolveAppIconIcoPath(), process.execPath].filter(
+    (p) => p && (p === process.execPath || fs.existsSync(p)),
+  );
+  for (const p of iconPaths) {
+    for (const size of ["large", "normal"]) {
+      try {
+        const img = await app.getFileIcon(p, { size });
+        if (!img.isEmpty()) return img;
+      } catch (e) {
+        try {
+          log(`getFileIcon(${p}, ${size}): ${e?.message || e}`);
+        } catch (_) {}
+      }
+    }
+  }
+  return fallback;
+}
+
+async function createWindow() {
   const appPath = app.getAppPath();
   const distPath = path.join(appPath, "dist");
-  const windowIcon = nativeImageFromAppIcon();
   const indexHtml = path.join(distPath, "index.html");
 
   if (!isDev && !fs.existsSync(indexHtml)) {
     log(`ERROR: index.html not found at ${indexHtml}`);
     log(`appPath=${appPath}`);
     return;
+  }
+
+  const windowIcon = await resolveBrowserWindowIcon();
+  if (process.platform === "win32" && app.isPackaged && (!windowIcon || windowIcon.isEmpty())) {
+    try {
+      log("warn: taskbar icon: resolveBrowserWindowIcon returned empty");
+    } catch (_) {}
   }
 
   // NSIS close-app uses PRODUCT_NAME (package.json → build.productName). The window title must
@@ -1816,37 +1845,21 @@ function createWindow() {
     show: false,
   });
 
-  // Windows: nativeImage.createFromPath(.exe) often returns an empty image; shell-extracted icons work for the taskbar.
-  if (process.platform === "win32" && app.isPackaged) {
-    const iconPaths = [resolveAppIconIcoPath(), process.execPath].filter(
-      (p) => p && (p === process.execPath || fs.existsSync(p)),
-    );
-    void (async () => {
-      for (const p of iconPaths) {
-        try {
-          const img = await app.getFileIcon(p, { size: "large" });
-          if (mainWindow.isDestroyed()) return;
-          if (!img.isEmpty()) {
-            mainWindow.setIcon(img);
-            return;
-          }
-        } catch (e) {
-          try {
-            log(`getFileIcon(${p}): ${e?.message || e}`);
-          } catch (_) {}
-        }
-      }
-      try {
-        log("warn: taskbar icon: getFileIcon found no usable image");
-      } catch (_) {}
-    })();
-  }
-
   mainWindow.once("ready-to-show", () => {
-    // Fill the display work area by default (fresh install, after update, new window).
+    // Edge-to-edge without WS_MAXIMIZE: on Windows, maximize() can interact badly with shell icons
+    // and some system shortcuts (e.g. Print Screen); filling the work area matches prior "fullscreen" intent.
     try {
-      mainWindow.maximize();
-    } catch (_) {}
+      if (process.platform === "win32") {
+        const wa = screen.getPrimaryDisplay().workArea;
+        mainWindow.setBounds(wa);
+      } else {
+        mainWindow.maximize();
+      }
+    } catch (_) {
+      try {
+        mainWindow.maximize();
+      } catch (_) {}
+    }
     mainWindow.show();
   });
 
@@ -1907,7 +1920,11 @@ app.whenReady().then(() => {
       return net.fetch(pathToFileURL(resolved).toString());
     });
   }
-  createWindow();
+  createWindow().catch((e) => {
+    try {
+      log(`createWindow: ${e?.message || e}`);
+    } catch (_) {}
+  });
   setupAutoUpdater();
 });
 
@@ -1917,5 +1934,11 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow().catch((e) => {
+      try {
+        log(`createWindow (activate): ${e?.message || e}`);
+      } catch (_) {}
+    });
+  }
 });

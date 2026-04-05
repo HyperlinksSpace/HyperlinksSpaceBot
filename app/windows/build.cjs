@@ -568,6 +568,7 @@ let suppressQuitForUpdateInstall = false;
 function resolveAppIconIcoPath() {
   const candidates = [
     process.resourcesPath && path.join(process.resourcesPath, "app.asar.unpacked", "assets", "icon.ico"),
+    process.resourcesPath && path.join(process.resourcesPath, "assets", "icon.ico"),
     app.getAppPath && path.join(app.getAppPath(), "assets", "icon.ico"),
     path.join(__dirname, "..", "assets", "icon.ico"),
   ].filter(Boolean);
@@ -581,13 +582,20 @@ function resolveAppIconIcoPath() {
 
 function nativeImageFromAppIcon() {
   const p = resolveAppIconIcoPath();
-  if (!p) return undefined;
-  try {
-    const img = nativeImage.createFromPath(p);
-    return img.isEmpty() ? undefined : img;
-  } catch (_) {
-    return undefined;
+  if (p) {
+    try {
+      const img = nativeImage.createFromPath(p);
+      if (!img.isEmpty()) return img;
+    } catch (_) {}
   }
+  // Packaged app: .ico can fail to load from ASAR paths; Windows still reads icons embedded in the exe (packager --icon).
+  if (process.platform === "win32" && app.isPackaged) {
+    try {
+      const img = nativeImage.createFromPath(process.execPath);
+      if (!img.isEmpty()) return img;
+    } catch (_) {}
+  }
+  return undefined;
 }
 
 function resolveNotificationIcon() {

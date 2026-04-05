@@ -131,11 +131,12 @@ Function HspClearEnvInstDir
   System::Call 'kernel32::SetEnvironmentVariable(t, i) ("HSP_INSTDIR", 0)'
 FunctionEnd
 
+; PowerShell: -WindowStyle Hidden avoids flashing console windows (ExecWait still waits for exit).
 Function HspAnyPackagedExeRunning
   Call HspResolvePowerShellExe
   Call HspSetEnvInstDir
   IfFileExists "$PLUGINSDIR\hsp-app-process.ps1" 0 hspAnyExeNoScript
-    ExecWait '"$R5" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\hsp-app-process.ps1" -Action Test' $R4
+    ExecWait '"$R5" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\hsp-app-process.ps1" -Action Test' $R4
     Call HspClearEnvInstDir
     IntCmp $R4 0 hspAnyExeYes
     StrCpy $0 0
@@ -167,7 +168,7 @@ Function HspKillPackagedAppProcesses
   Call HspResolvePowerShellExe
   Call HspSetEnvInstDir
   IfFileExists "$PLUGINSDIR\hsp-app-process.ps1" 0 hspKillNoScript
-    ExecWait '"$R5" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\hsp-app-process.ps1" -Action Kill' $R4
+    ExecWait '"$R5" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\hsp-app-process.ps1" -Action Kill' $R4
   hspKillNoScript:
   Call HspClearEnvInstDir
 FunctionEnd

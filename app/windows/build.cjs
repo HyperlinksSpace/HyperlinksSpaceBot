@@ -1928,6 +1928,81 @@ function ensureWindowsIcoFileOnDiskSync() {
   return null;
 }
 
+function iconDebugEnabled() {
+  const v = process.env.HSP_DEBUG_ICON;
+  return v === "1" || v === "true" || v === "yes";
+}
+
+function logIconDebug(line) {
+  if (!iconDebugEnabled()) return;
+  log(`[icon:debug] ${line}`);
+}
+
+function icoPathStatLine(p) {
+  if (!p) return "(null)";
+  try {
+    if (!fs.existsSync(p)) return `${p} (missing)`;
+    return `${p} (size=${fs.statSync(p).size})`;
+  } catch (e) {
+    return `${p} (stat err: ${e?.message || e})`;
+  }
+}
+
+function describeWindowIconForLog(w) {
+  if (w == null) return "none";
+  if (typeof w === "string") return `path:${w}`;
+  try {
+    return `NativeImage isEmpty=${w.isEmpty ? w.isEmpty() : "?"}`;
+  } catch (_) {
+    return "NativeImage";
+  }
+}
+
+/** Logs once per main window: always a short line on packaged Windows; full dump when HSP_DEBUG_ICON=1. */
+function logWindowsIconEnvironment(windowIcon) {
+  if (process.platform !== "win32" || !app.isPackaged) return;
+  log(`[icon] win32 packaged: ${describeWindowIconForLog(windowIcon)} resourcesPath=${process.resourcesPath}`);
+  if (!iconDebugEnabled()) return;
+  logIconDebug(`__dirname=${__dirname}`);
+  logIconDebug(`app.getAppPath=${app.getAppPath()}`);
+  logIconDebug(`execPath=${process.execPath}`);
+  const raw = [
+    process.resourcesPath && path.join(process.resourcesPath, "icon.ico"),
+    process.resourcesPath && path.join(process.resourcesPath, "app.asar.unpacked", "assets", "icon.ico"),
+    process.resourcesPath && path.join(process.resourcesPath, "assets", "icon.ico"),
+    app.getAppPath && path.join(app.getAppPath(), "assets", "icon.ico"),
+    path.join(__dirname, "..", "assets", "icon.ico"),
+  ].filter(Boolean);
+  for (const p of raw) {
+    logIconDebug(`candidate ${icoPathStatLine(p)}`);
+  }
+  logIconDebug(`existing only: ${collectAppIconIcoCandidates().join(" | ") || "(none)"}`);
+  const disk = ensureWindowsIcoFileOnDiskSync();
+  logIconDebug(`ensureWindowsIcoFileOnDiskSync => ${disk || "null"}`);
+  if (typeof windowIcon === "string") {
+    try {
+      if (fs.existsSync(windowIcon)) {
+        const niPath = nativeImage.createFromPath(windowIcon);
+        const buf = fs.readFileSync(windowIcon);
+        const niBuf = nativeImage.createFromBuffer(buf);
+        logIconDebug(
+          `probe chosen path: createFromPath isEmpty=${niPath.isEmpty()} createFromBuffer isEmpty=${niBuf.isEmpty()} bytes=${buf.length}`,
+        );
+      }
+    } catch (e) {
+      logIconDebug(`probe chosen path: ${e?.message || e}`);
+    }
+  }
+  try {
+    if (fs.existsSync(process.execPath)) {
+      const niExe = nativeImage.createFromPath(process.execPath);
+      logIconDebug(`probe execPath: createFromPath isEmpty=${niExe.isEmpty()}`);
+    }
+  } catch (e) {
+    logIconDebug(`probe execPath: ${e?.message || e}`);
+  }
+}
+
 /** NativeImage for the main window: prefer createFromPath on real disk .ico; buffer decode as fallback. */
 function windowsPackagedWindowNativeIcon() {
   const p = ensureWindowsIcoFileOnDiskSync();
@@ -1984,11 +2059,20 @@ async function createWindow() {
     } catch (_) {}
   }
 
+  try {
+    logWindowsIconEnvironment(windowIcon);
+  } catch (e) {
+    log(`[icon] logWindowsIconEnvironment failed: ${e?.message || e}`);
+  }
+
   const applyWindowIcon = () => {
     if (!windowIcon || mainWindow.isDestroyed()) return;
     try {
       mainWindow.setIcon(windowIcon);
-    } catch (_) {}
+      logIconDebug(`setIcon applied type=${typeof windowIcon}`);
+    } catch (e) {
+      log(`[icon] setIcon failed: ${e?.message || e}`);
+    }
   };
 
   // NSIS close-app uses PRODUCT_NAME (package.json → build.productName). The window title must
@@ -2026,6 +2110,9 @@ async function createWindow() {
             appIconPath: detailsIcon,
             appIconIndex: 0,
           });
+          logIconDebug(`setAppDetails ok appIconPath=${detailsIcon}`);
+        } else {
+          logIconDebug(`setAppDetails skipped (missing path) detailsIcon=${detailsIcon || "null"}`);
         }
       } catch (e) {
         try {

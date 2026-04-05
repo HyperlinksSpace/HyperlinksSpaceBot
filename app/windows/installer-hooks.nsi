@@ -136,27 +136,31 @@ hspWaitPackagedPoll:
   Call HspAnyPackagedExeRunning
   IntCmp $0 0 hspWaitPackagedDone
   IntOp $R8 $R8 + 1
-  IntCmp $R8 400 0 0 hspWaitPackagedDone
+  IntCmp $R8 600 0 0 hspWaitPackagedDone
   Sleep 50
   Goto hspWaitPackagedPoll
 hspWaitPackagedDone:
+  ; Let handles on DLLs under $INSTDIR release (Program Files upgrades).
+  Sleep 400
 FunctionEnd
 
 Function HspKillPackagedAppProcesses
   ; Named exes (Electron main + helpers + legacy names). /F /T = force + child processes.
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME}.exe" /FI "USERNAME eq %USERNAME%"`
+  ; Do NOT use /FI USERNAME=… — when the installer is elevated, that filter often misses user
+  ; sessions and the app stays running, so CopyFiles to Program Files fails with "Can't modify".
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME}.exe"`
   Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper.exe" /FI "USERNAME eq %USERNAME%"`
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper.exe"`
   Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (GPU).exe" /FI "USERNAME eq %USERNAME%"`
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (GPU).exe"`
   Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (Renderer).exe" /FI "USERNAME eq %USERNAME%"`
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (Renderer).exe"`
   Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (Plugin).exe" /FI "USERNAME eq %USERNAME%"`
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (Plugin).exe"`
   Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_PACKAGE_NAME}.exe" /FI "USERNAME eq %USERNAME%"`
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_PACKAGE_NAME}.exe"`
   Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${HSP_ALT_MAIN_EXE}" /FI "USERNAME eq %USERNAME%"`
+  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${HSP_ALT_MAIN_EXE}"`
   Pop $R9
   ; Anything still running from $INSTDIR (crashpad, future helper renames, etc.). Same approach as app-builder _KILL_PROCESS via CIM.
   StrCpy $R7 "$INSTDIR"
@@ -169,6 +173,9 @@ Function HspKillBeforeCopy
   SetDetailsView show
   SetDetailsPrint listonly
   DetailPrint "[installer] unlock install dir before copy (attempt $R1)"
+  Call HspKillPackagedAppProcesses
+  Call HspWaitUntilPackagedProcessesGone
+  ; Second pass: elevation can miss user processes on first taskkill; retry once.
   Call HspKillPackagedAppProcesses
   Call HspWaitUntilPackagedProcessesGone
 FunctionEnd
@@ -237,8 +244,8 @@ FunctionEnd
 !macroend
 
 !macro customInstallMode
-  !insertmacro HspInstallDetailPrint "[installer] forcing current-user install mode"
-  StrCpy $isForceCurrentInstall "1"
+  ; Leave install mode to electron-builder (perMachine in package.json → Program Files).
+  ; Forcing $isForceCurrentInstall breaks INSTALL_MODE_PER_ALL_USERS_REQUIRED / per-machine builds.
 !macroend
 
 ; Installer only. Uninstaller defines BUILD_UNINSTALLER — Call must use un.* there; use stock _CHECK_APP_RUNNING.

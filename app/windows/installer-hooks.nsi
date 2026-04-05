@@ -1,5 +1,4 @@
 ; Installer hooks for debug-friendly installs:
-; - force current-user install mode
 ; - real-time DetailPrint + mirrored log file in %TEMP%
 ; - finish page shows full log in selectable read-only text area
 ;
@@ -19,6 +18,8 @@
 ; Extra exe name for older builds (do not use APP_EXECUTABLE_FILENAME here — not always defined by NSIS / CI).
 ; Legacy main exe from older "Hyperlinks Space App" installs (taskkill / relaunch).
 !define HSP_ALT_MAIN_EXE "Hyperlinks Space App.exe"
+; Portable / alternate exe basename (no .exe) — keep in sync with product-brand.cjs productSlug + ".exe".
+!define HSP_SLUG_BASENAME "HyperlinksSpaceProgram"
 
 ; Hiding the bar: MUI2 only allows MUI_INSTFILESPAGE_PROGRESSBAR = "" | colored | smooth — "disable" is invalid and breaks InstProgressFlags (NSIS 3 CI). Hide msctls_progress32 at runtime in HspInstFilesShow instead.
 
@@ -117,10 +118,12 @@ hspInstFilesBarDone:
 FunctionEnd
 
 ; $0 = 1 if any known main or Electron helper exe is still running, else 0.
-; Uses one PowerShell check to avoid spawning many cmd/tasklist probes.
-; Use PRODUCT_FILENAME / APP_PACKAGE_NAME only — APP_EXECUTABLE_FILENAME is not always passed to makensis.
+; IMPORTANT: Get-Process .ProcessName does NOT include ".exe" — comparing to "foo.exe" never matched,
+; so the wait loop thought the app was gone and CopyFiles ran while files were still locked.
+; Use PRODUCT_FILENAME / APP_PACKAGE_NAME — APP_EXECUTABLE_FILENAME is not always passed to makensis.
 Function HspAnyPackagedExeRunning
-  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$names = @('${PRODUCT_FILENAME}.exe','${PRODUCT_FILENAME} Helper.exe','${PRODUCT_FILENAME} Helper (GPU).exe','${PRODUCT_FILENAME} Helper (Renderer).exe','${PRODUCT_FILENAME} Helper (Plugin).exe','${APP_PACKAGE_NAME}.exe','${HSP_ALT_MAIN_EXE}'); $$running = Get-Process -ErrorAction SilentlyContinue | Where-Object { $$names -contains ($$_.ProcessName + '.exe') }; if ($$running) { exit 0 } else { exit 1 } }"`
+  StrCpy $R7 "$INSTDIR"
+  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$ErrorActionPreference='SilentlyContinue'; $$names=@('${PRODUCT_FILENAME}','${PRODUCT_FILENAME} Helper','${PRODUCT_FILENAME} Helper (GPU)','${PRODUCT_FILENAME} Helper (Renderer)','${PRODUCT_FILENAME} Helper (Plugin)','${APP_PACKAGE_NAME}','${HSP_SLUG_BASENAME}','Hyperlinks Space App'); $$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $$names -contains $$_.ProcessName }; if ($$p) { exit 0 }; $$root='$R7'; if ($$root -and $$root.Length -gt 0) { $$rl=$$root.TrimEnd('\').ToLower(); $$c=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLower().StartsWith($$rl) }; if ($$c) { exit 0 } }; exit 1 }"`
   Pop $0
   IntCmp $0 0 hspAnyExeYes
   StrCpy $0 0
@@ -145,26 +148,9 @@ hspWaitPackagedDone:
 FunctionEnd
 
 Function HspKillPackagedAppProcesses
-  ; Named exes (Electron main + helpers + legacy names). /F /T = force + child processes.
-  ; Do NOT use /FI USERNAME=… — when the installer is elevated, that filter often misses user
-  ; sessions and the app stays running, so CopyFiles to Program Files fails with "Can't modify".
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME}.exe"`
-  Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper.exe"`
-  Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (GPU).exe"`
-  Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (Renderer).exe"`
-  Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${PRODUCT_FILENAME} Helper (Plugin).exe"`
-  Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${APP_PACKAGE_NAME}.exe"`
-  Pop $R9
-  nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /F /T /IM "${HSP_ALT_MAIN_EXE}"`
-  Pop $R9
-  ; Anything still running from $INSTDIR (crashpad, future helper renames, etc.). Same approach as app-builder _KILL_PROCESS via CIM.
+  ; Single PowerShell: Stop-Process by name (ProcessName has no .exe) + CIM by install dir prefix.
   StrCpy $R7 "$INSTDIR"
-  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$inst = '$R7'; $$root = $$inst.ToLower(); Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLower().StartsWith($$root) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
+  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$ErrorActionPreference='SilentlyContinue'; $$names=@('${PRODUCT_FILENAME}','${PRODUCT_FILENAME} Helper','${PRODUCT_FILENAME} Helper (GPU)','${PRODUCT_FILENAME} Helper (Renderer)','${PRODUCT_FILENAME} Helper (Plugin)','${APP_PACKAGE_NAME}','${HSP_SLUG_BASENAME}','Hyperlinks Space App'); foreach ($$n in $$names) { Get-Process -Name $$n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }; $$root='$R7'; if ($$root -and $$root.Length -gt 0) { $$rl=$$root.TrimEnd('\').ToLower(); Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLower().StartsWith($$rl) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } } }"`
   Pop $R9
 FunctionEnd
 

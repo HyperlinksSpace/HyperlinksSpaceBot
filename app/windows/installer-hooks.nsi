@@ -18,9 +18,6 @@
 ; Extra exe name for older builds (do not use APP_EXECUTABLE_FILENAME here — not always defined by NSIS / CI).
 ; Legacy main exe from older "Hyperlinks Space App" installs (taskkill / relaunch).
 !define HSP_ALT_MAIN_EXE "Hyperlinks Space App.exe"
-; Portable / alternate exe basename (no .exe) — keep in sync with product-brand.cjs productSlug + ".exe".
-!define HSP_SLUG_BASENAME "HyperlinksSpaceProgram"
-
 ; Hiding the bar: MUI2 only allows MUI_INSTFILESPAGE_PROGRESSBAR = "" | colored | smooth — "disable" is invalid and breaks InstProgressFlags (NSIS 3 CI). Hide msctls_progress32 at runtime in HspInstFilesShow instead.
 
 !include "FileFunc.nsh"
@@ -117,15 +114,34 @@ Function HspInstFilesShow
 hspInstFilesBarDone:
 FunctionEnd
 
-; $0 = 1 if any known main or Electron helper exe is still running, else 0.
-; IMPORTANT: Get-Process .ProcessName does NOT include ".exe" — comparing to "foo.exe" never matched,
-; so the wait loop thought the app was gone and CopyFiles ran while files were still locked.
-; Use PRODUCT_FILENAME / APP_PACKAGE_NAME — APP_EXECUTABLE_FILENAME is not always passed to makensis.
+; $0 = 1 if any known packaged exe is still running (see hsp-app-process.ps1 -Action Test).
+Function HspResolvePowerShellExe
+  IfFileExists "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" 0 hspPsSys32
+    StrCpy $R5 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+    Return
+  hspPsSys32:
+  StrCpy $R5 "$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
+FunctionEnd
+
+Function HspSetEnvInstDir
+  System::Call 'kernel32::SetEnvironmentVariable(t, t) ("HSP_INSTDIR", "$INSTDIR")'
+FunctionEnd
+
+Function HspClearEnvInstDir
+  System::Call 'kernel32::SetEnvironmentVariable(t, i) ("HSP_INSTDIR", 0)'
+FunctionEnd
+
 Function HspAnyPackagedExeRunning
-  StrCpy $R7 "$INSTDIR"
-  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$ErrorActionPreference='SilentlyContinue'; $$names=@('${PRODUCT_FILENAME}','${PRODUCT_FILENAME} Helper','${PRODUCT_FILENAME} Helper (GPU)','${PRODUCT_FILENAME} Helper (Renderer)','${PRODUCT_FILENAME} Helper (Plugin)','${APP_PACKAGE_NAME}','${HSP_SLUG_BASENAME}','Hyperlinks Space App'); $$p=Get-Process -ErrorAction SilentlyContinue | Where-Object { $$names -contains $$_.ProcessName }; if ($$p) { exit 0 }; $$root='$R7'; if ($$root -and $$root.Length -gt 0) { $$rl=$$root.TrimEnd('\').ToLower(); $$c=Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLower().StartsWith($$rl) }; if ($$c) { exit 0 } }; exit 1 }"`
-  Pop $0
-  IntCmp $0 0 hspAnyExeYes
+  Call HspResolvePowerShellExe
+  Call HspSetEnvInstDir
+  IfFileExists "$PLUGINSDIR\hsp-app-process.ps1" 0 hspAnyExeNoScript
+    ExecWait '"$R5" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\hsp-app-process.ps1" -Action Test' $R4
+    Call HspClearEnvInstDir
+    IntCmp $R4 0 hspAnyExeYes
+    StrCpy $0 0
+    Return
+  hspAnyExeNoScript:
+  Call HspClearEnvInstDir
   StrCpy $0 0
   Return
 hspAnyExeYes:
@@ -143,15 +159,17 @@ hspWaitPackagedPoll:
   Sleep 50
   Goto hspWaitPackagedPoll
 hspWaitPackagedDone:
-  ; Let handles on DLLs under $INSTDIR release (Program Files upgrades).
-  Sleep 400
+  ; Extra settle after Test script reports processes gone (handles on DLLs).
+  Sleep 500
 FunctionEnd
 
 Function HspKillPackagedAppProcesses
-  ; Single PowerShell: Stop-Process by name (ProcessName has no .exe) + CIM by install dir prefix.
-  StrCpy $R7 "$INSTDIR"
-  nsExec::Exec `"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$ErrorActionPreference='SilentlyContinue'; $$names=@('${PRODUCT_FILENAME}','${PRODUCT_FILENAME} Helper','${PRODUCT_FILENAME} Helper (GPU)','${PRODUCT_FILENAME} Helper (Renderer)','${PRODUCT_FILENAME} Helper (Plugin)','${APP_PACKAGE_NAME}','${HSP_SLUG_BASENAME}','Hyperlinks Space App'); foreach ($$n in $$names) { Get-Process -Name $$n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }; $$root='$R7'; if ($$root -and $$root.Length -gt 0) { $$rl=$$root.TrimEnd('\').ToLower(); Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.ToLower().StartsWith($$rl) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } } }"`
-  Pop $R9
+  Call HspResolvePowerShellExe
+  Call HspSetEnvInstDir
+  IfFileExists "$PLUGINSDIR\hsp-app-process.ps1" 0 hspKillNoScript
+    ExecWait '"$R5" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\hsp-app-process.ps1" -Action Kill' $R4
+  hspKillNoScript:
+  Call HspClearEnvInstDir
 FunctionEnd
 
 ; Called from windows/extractAppPackage.nsh before each CopyFiles (and each retry).
@@ -164,6 +182,11 @@ Function HspKillBeforeCopy
   ; Second pass: elevation can miss user processes on first taskkill; retry once.
   Call HspKillPackagedAppProcesses
   Call HspWaitUntilPackagedProcessesGone
+  ; Clear read-only on existing tree (helps overwrite in Program Files).
+  IfFileExists "$INSTDIR" 0 hspKillBeforeCopyNoAttrib
+    nsExec::Exec `%COMSPEC% /c attrib -R "$INSTDIR\*.*" /S /D`
+    Pop $R9
+  hspKillBeforeCopyNoAttrib:
 FunctionEnd
 
 Function HspFinishPageShow
@@ -294,3 +317,12 @@ hspCustomInstallAfterLaunch:
   !insertmacro HspAppendInstallerLog "[uninstaller] start"
   !insertmacro HspAppendInstallerLog "[uninstaller] complete"
 !macroend
+
+; Runs before Section install (electron-builder prepends this include). Drops helper script for ExecWait -File.
+!ifndef BUILD_UNINSTALLER
+Section "-hsp_app_process_ps1"
+  InitPluginsDir
+  SetOutPath $PLUGINSDIR
+  File "hsp-app-process.ps1"
+SectionEnd
+!endif

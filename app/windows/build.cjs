@@ -1928,6 +1928,10 @@ function ensureWindowsIcoFileOnDiskSync() {
   return null;
 }
 
+/**
+ * Set `HSP_DEBUG_ICON=1` before starting the app to append full `[icon:debug]` lines to userData/main.log
+ * (candidate paths, setAppDetails). Deploy builds always log `[icon] probe(always): ...` without this flag.
+ */
 function iconDebugEnabled() {
   const v = process.env.HSP_DEBUG_ICON;
   return v === "1" || v === "true" || v === "yes";
@@ -1958,10 +1962,42 @@ function describeWindowIconForLog(w) {
   }
 }
 
-/** Logs once per main window: always a short line on packaged Windows; full dump when HSP_DEBUG_ICON=1. */
+/** Always logged on packaged Windows: Chromium decode of chosen .ico and of the .exe (deploy diagnostics). */
+function logWindowsIconProbeAlways(windowIcon) {
+  if (process.platform !== "win32" || !app.isPackaged) return;
+  if (typeof windowIcon === "string") {
+    try {
+      if (!fs.existsSync(windowIcon)) {
+        log(`[icon] probe(always): chosen path missing: ${windowIcon}`);
+      } else {
+        const buf = fs.readFileSync(windowIcon);
+        const niPath = nativeImage.createFromPath(windowIcon);
+        const niBuf = nativeImage.createFromBuffer(buf);
+        log(
+          `[icon] probe(always): ico createFromPath isEmpty=${niPath.isEmpty()} createFromBuffer isEmpty=${niBuf.isEmpty()} bytes=${buf.length}`,
+        );
+      }
+    } catch (e) {
+      log(`[icon] probe(always): ico ${e?.message || e}`);
+    }
+  } else {
+    log(`[icon] probe(always): chosen=${describeWindowIconForLog(windowIcon)}`);
+  }
+  try {
+    if (fs.existsSync(process.execPath)) {
+      const niExe = nativeImage.createFromPath(process.execPath);
+      log(`[icon] probe(always): execPath createFromPath isEmpty=${niExe.isEmpty()}`);
+    }
+  } catch (e) {
+    log(`[icon] probe(always): execPath ${e?.message || e}`);
+  }
+}
+
+/** Logs once per main window: summary + probe(always); full dump when HSP_DEBUG_ICON=1. */
 function logWindowsIconEnvironment(windowIcon) {
   if (process.platform !== "win32" || !app.isPackaged) return;
   log(`[icon] win32 packaged: ${describeWindowIconForLog(windowIcon)} resourcesPath=${process.resourcesPath}`);
+  logWindowsIconProbeAlways(windowIcon);
   if (!iconDebugEnabled()) return;
   logIconDebug(`__dirname=${__dirname}`);
   logIconDebug(`app.getAppPath=${app.getAppPath()}`);
@@ -1979,28 +2015,6 @@ function logWindowsIconEnvironment(windowIcon) {
   logIconDebug(`existing only: ${collectAppIconIcoCandidates().join(" | ") || "(none)"}`);
   const disk = ensureWindowsIcoFileOnDiskSync();
   logIconDebug(`ensureWindowsIcoFileOnDiskSync => ${disk || "null"}`);
-  if (typeof windowIcon === "string") {
-    try {
-      if (fs.existsSync(windowIcon)) {
-        const niPath = nativeImage.createFromPath(windowIcon);
-        const buf = fs.readFileSync(windowIcon);
-        const niBuf = nativeImage.createFromBuffer(buf);
-        logIconDebug(
-          `probe chosen path: createFromPath isEmpty=${niPath.isEmpty()} createFromBuffer isEmpty=${niBuf.isEmpty()} bytes=${buf.length}`,
-        );
-      }
-    } catch (e) {
-      logIconDebug(`probe chosen path: ${e?.message || e}`);
-    }
-  }
-  try {
-    if (fs.existsSync(process.execPath)) {
-      const niExe = nativeImage.createFromPath(process.execPath);
-      logIconDebug(`probe execPath: createFromPath isEmpty=${niExe.isEmpty()}`);
-    }
-  } catch (e) {
-    logIconDebug(`probe execPath: ${e?.message || e}`);
-  }
 }
 
 /** NativeImage for the main window: prefer createFromPath on real disk .ico; buffer decode as fallback. */

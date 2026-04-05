@@ -42,6 +42,7 @@
     "build:win:verbose": "node windows/build-with-progress.cjs --verbose",
     "make:win:forge": "npm run build && node windows/forge/make-with-stamp.cjs",
     "make:win:forge:verbose": "npm run build && node windows/forge/make-with-stamp.cjs --verbose",
+    "run:win:installed-icon-debug": "windows/run-installed-with-icon-debug.cmd",
     "version:bump": "npm version patch --no-git-tag-version",
     "version:bump-minor": "npm version minor --no-git-tag-version",
     "version:bump-major": "npm version major --no-git-tag-version"

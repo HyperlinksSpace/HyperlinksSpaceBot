@@ -73,8 +73,10 @@
       "windows/**",
       "assets/icon.ico"
     ],
+    "afterSign": "windows/after-sign-windows-icon.cjs",
     "win": {
       "icon": "assets/icon.ico",
+      "signAndEditExecutable": true,
       "artifactName": "HyperlinksSpaceProgram_${version}.${ext}",
       "target": [
         {
@@ -168,6 +170,7 @@
     "electron-prebuilt-compile": "8.2.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "rcedit": "^1.1.2",
     "tsx": "^4.19.2",
     "typescript": "~5.9.2",
     "vercel": "^38.0.0"

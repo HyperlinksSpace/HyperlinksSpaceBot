@@ -1956,19 +1956,27 @@ async function createWindow() {
     return;
   }
 
-  let iconForWindow;
+  /** `string` = absolute .ico path (preferred on Windows packaged builds; Chromium loads reliably). Else NativeImage. */
+  let windowIcon;
   if (process.platform === "win32" && app.isPackaged) {
-    iconForWindow = windowsPackagedWindowNativeIcon();
-    if (!iconForWindow) {
-      const img = await resolveBrowserWindowIcon();
-      iconForWindow = img && !img.isEmpty() ? img : undefined;
+    const icoPath = ensureWindowsIcoFileOnDiskSync();
+    if (icoPath) {
+      windowIcon = icoPath;
+    } else {
+      const native = windowsPackagedWindowNativeIcon();
+      if (native && !native.isEmpty()) {
+        windowIcon = native;
+      } else {
+        const img = await resolveBrowserWindowIcon();
+        windowIcon = img && !img.isEmpty() ? img : undefined;
+      }
     }
   } else {
     const img = await resolveBrowserWindowIcon();
-    iconForWindow = img && !img.isEmpty() ? img : undefined;
+    windowIcon = img && !img.isEmpty() ? img : undefined;
   }
 
-  if (process.platform === "win32" && app.isPackaged && !iconForWindow) {
+  if (process.platform === "win32" && app.isPackaged && !windowIcon) {
     try {
       log(
         `warn: window icon unresolved; resourcesPath=${process.resourcesPath} ico=${collectAppIconIcoCandidates().join(" | ")} exe=${process.execPath}`,
@@ -1977,9 +1985,9 @@ async function createWindow() {
   }
 
   const applyWindowIcon = () => {
-    if (!iconForWindow || mainWindow.isDestroyed()) return;
+    if (!windowIcon || mainWindow.isDestroyed()) return;
     try {
-      mainWindow.setIcon(iconForWindow);
+      mainWindow.setIcon(windowIcon);
     } catch (_) {}
   };
 
@@ -1992,7 +2000,7 @@ async function createWindow() {
     width: 1200,
     height: 800,
     title: windowTitle,
-    ...(iconForWindow ? { icon: iconForWindow } : {}),
+    ...(windowIcon ? { icon: windowIcon } : {}),
     // Match app dark background (theme.ts); reduces flash and helps menu/client seam blend on Windows.
     backgroundColor: "#111111",
     webPreferences: {

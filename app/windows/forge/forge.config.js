@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+
+const requireCjs = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // This file lives at app/windows/forge/ — app root is two levels up.
@@ -60,6 +63,12 @@ export default {
         "postPackage",
         `platform=${packageResult?.platform} arch=${packageResult?.arch} outputs=${outputs}`,
       );
+      if (packageResult?.platform === "win32" && Array.isArray(packageResult.outputPaths)) {
+        const { embedWindowsExeIcon } = requireCjs("../embed-windows-exe-icon.cjs");
+        for (const out of packageResult.outputPaths) {
+          await embedWindowsExeIcon({ appOutDir: out, projectDir: appDir });
+        }
+      }
     },
     preMake: async () => {
       forgeLog("preMake");

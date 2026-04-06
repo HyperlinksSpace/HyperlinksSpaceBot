@@ -11,6 +11,40 @@ npm run start
 
 This runs both the Expo dev server and the bot. For Expo only (no bot), use `npm run start:expo`.
 
+## Milestone snapshot package (npm)
+
+This repository includes a publishable snapshot package for fast developer bootstrap:
+
+- package source: `app/` (published directly, no duplicate snapshot folder)
+- **npmjs (public):** `@www.hyperlinks.space/program-kit` — manage org and tokens: [www.hyperlinks.space on npm](https://www.npmjs.com/settings/www.hyperlinks.space/packages)
+- **GitHub Packages:** `@hyperlinksspace/program-kit` (same version; GitHub requires the package scope to match this repo’s owner)
+
+**npm ownership:** your token must be allowed to publish under scope `@www.hyperlinks.space` (org members or automation token with access to that org).
+
+### Verify publish payload locally
+
+```bash
+npm pack --dry-run
+```
+
+### Install snapshot as a developer
+
+```bash
+npx @www.hyperlinks.space/program-kit ./my-hsp-app
+```
+
+The CLI materializes the bundled package payload into your target folder, then you run:
+
+```bash
+cd my-hsp-app
+npm install
+```
+
+### Release channels
+
+- `latest`: immutable stable snapshots (tag workflow `snapshot-vX.Y.Z`)
+- `next`: rolling snapshots from manual workflow dispatch
+
 In the output, you'll find options to open the app in:
 
 - [a development build](https://docs.expo.dev/develop/development-builds/introduction/)

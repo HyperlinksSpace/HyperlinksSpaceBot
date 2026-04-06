@@ -1,0 +1,116 @@
+name: publish app package snapshot
+
+on:
+  push:
+    tags:
+      - "snapshot-v*"
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Git ref to snapshot (branch or tag)"
+        required: false
+        default: "main"
+      channel:
+        description: "Publish channel"
+        required: true
+        type: choice
+        options:
+          - next
+          - latest
+        default: next
+      stable_version:
+        description: "Required when channel=latest in manual run (e.g. 53.0.1390)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Resolve publish version/channel
+        id: meta
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            if [[ ! "$tag" =~ ^snapshot-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              echo "Tag must match snapshot-vX.Y.Z"
+              exit 1
+            fi
+            version="${BASH_REMATCH[1]}"
+            channel="latest"
+          else
+            channel="${{ inputs.channel }}"
+            if [[ "$channel" == "latest" ]]; then
+              if [[ -z "${{ inputs.stable_version }}" ]]; then
+                echo "stable_version is required for manual latest publish"
+                exit 1
+              fi
+              version="${{ inputs.stable_version }}"
+            else
+              stamp="$(date -u +%Y%m%d%H%M)"
+              version="0.0.0-next.${stamp}"
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Set package metadata for publish
+        run: npm version "${{ steps.meta.outputs.version }}" --no-git-tag-version
+
+      # npmjs scope = your npm org (see https://www.npmjs.com/settings/www.hyperlinks.space/packages).
+      - name: Set package name for npmjs
+        run: npm pkg set "name=@www.hyperlinks.space/program-kit"
+
+      - name: Verify publish payload (direct from app/)
+        run: npm pack --dry-run
+
+      - name: Publish to npmjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "NPM_TOKEN is required"
+            exit 1
+          fi
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
+          npm publish --access public --tag "${{ steps.meta.outputs.channel }}"
+
+      # GitHub Packages requires the scope to match the GitHub org that owns this repo.
+      - name: Set package name for GitHub Packages
+        run: npm pkg set "name=@hyperlinksspace/program-kit"
+
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '@hyperlinksspace:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > ~/.npmrc
+          npm publish --registry https://npm.pkg.github.com --tag "${{ steps.meta.outputs.channel }}"
+
+      - name: Summary
+        run: |
+          echo "npmjs: @www.hyperlinks.space/program-kit@${{ steps.meta.outputs.version }}"
+          echo "GitHub Packages: @hyperlinksspace/program-kit@${{ steps.meta.outputs.version }}"
+          echo "Channel: ${{ steps.meta.outputs.channel }}"
+          echo "Ref: ${GITHUB_REF_NAME}"

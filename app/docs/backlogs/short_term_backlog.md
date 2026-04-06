@@ -1,5 +1,4 @@
-Unistaller disappears after update<br>
-npm package
+npm package<br>
 Bottom bar refactor<br>
 Wallet: Telegram, Connected, Unhosted<br>
 Username loaded without intermediate state<br>

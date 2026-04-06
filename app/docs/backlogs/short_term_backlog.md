@@ -1,19 +1,13 @@
-Icon in the running program not displayed<br>
-When program runs, installation fails<br>
-Installer repeated run (overwriting, force the installer to close and open the app if running)<br>
-System menu bottom border<br>
-Run as administrator<br>
-Update flow<br>
-Win App Fullscreen Open<br>
+Unistaller disappears after update<br>
 Bottom bar refactor<br>
+Wallet: Telegram, Connected, Unhosted<br>
 Username loaded without intermediate state<br>
 AI options page<br>
 Bottom bar icon review<br>
 AI chat page<br>
-Wallet: Telegram, Connected, Unhosted<br>
 Demo state<br>
 readme.md<br>
-https://azure.microsoft.com/en-us/products/artifact-signing
+https://azure.microsoft.com/en-us/products/artifact-signing<br>
 
 Issues:<br>
 Several chats async streaming<br>

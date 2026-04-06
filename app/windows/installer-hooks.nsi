@@ -327,6 +327,7 @@ hspCustomInstallAfterLaunch:
 !macroend
 
 !macro customUnInstall
+  !insertmacro HspAppendInstallerLog "[uninstaller] start"
   ; Per-machine installs only remove SHELL_CONTEXT=HKLM keys. Legacy per-user installs also wrote
   ; HKCU Uninstall + Software\{APP_GUID}; that leaves a duplicate "Installed apps" row. Clean HKCU when
   ; uninstalling for all users. (Do not remove HKCU InstallLocation when uninstalling per-user —
@@ -339,7 +340,20 @@ hspCustomInstallAfterLaunch:
   ${if} $installMode == "all"
     DeleteRegKey HKCU "${INSTALL_REGISTRY_KEY}"
   ${endif}
-  !insertmacro HspAppendInstallerLog "[uninstaller] start"
+
+  ; Defensive cleanup for older 32-bit-view uninstall entries (WOW6432Node) that can remain visible
+  ; in Windows "Installed apps" if an old uninstall executable was removed manually.
+  DetailPrint "[uninstaller] legacy WOW6432Node uninstall key cleanup (if any)"
+  DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}"
+  DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\${APP_GUID}"
+
+  ; Remove legacy all-users install folders from Program Files if they remain after uninstall.
+  ; /REBOOTOK handles locked files by completing deletion at reboot.
+  RMDir /r /REBOOTOK "$PROGRAMFILES\Hyperlinks Space Program"
+  RMDir /r /REBOOTOK "$PROGRAMFILES\Hyperlinks Space App"
+  RMDir /r /REBOOTOK "$PROGRAMFILES64\Hyperlinks Space Program"
+  RMDir /r /REBOOTOK "$PROGRAMFILES64\Hyperlinks Space App"
+
   !insertmacro HspAppendInstallerLog "[uninstaller] complete"
 !macroend
 

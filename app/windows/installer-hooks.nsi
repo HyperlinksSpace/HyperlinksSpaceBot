@@ -347,12 +347,17 @@ hspCustomInstallAfterLaunch:
   DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}"
   DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\${APP_GUID}"
 
-  ; Remove legacy all-users install folders from Program Files if they remain after uninstall.
-  ; /REBOOTOK handles locked files by completing deletion at reboot.
-  RMDir /r /REBOOTOK "$PROGRAMFILES\Hyperlinks Space Program"
-  RMDir /r /REBOOTOK "$PROGRAMFILES\Hyperlinks Space App"
-  RMDir /r /REBOOTOK "$PROGRAMFILES64\Hyperlinks Space Program"
-  RMDir /r /REBOOTOK "$PROGRAMFILES64\Hyperlinks Space App"
+  ; Remove legacy all-users install folders only (do not target current PRODUCT folder here).
+  ; Try immediate delete first; schedule reboot cleanup only if path is locked.
+  ClearErrors
+  RMDir /r "$PROGRAMFILES\Hyperlinks Space App"
+  IfErrors 0 +2
+    RMDir /r /REBOOTOK "$PROGRAMFILES\Hyperlinks Space App"
+
+  ClearErrors
+  RMDir /r "$PROGRAMFILES64\Hyperlinks Space App"
+  IfErrors 0 +2
+    RMDir /r /REBOOTOK "$PROGRAMFILES64\Hyperlinks Space App"
 
   !insertmacro HspAppendInstallerLog "[uninstaller] complete"
 !macroend

@@ -8,10 +8,10 @@
   "bin": {
     "program-kit": "scripts/program-kit-init.cjs"
   },
+  "readmeFilename": "npmReadMe.md",
   "files": [
-    "AGENTS.md",
-    "CLAUDE.md",
     "README.md",
+    "npmReadMe.md",
     "app",
     "api",
     "app.json",
@@ -20,6 +20,8 @@
     "bot",
     "database",
     "docs",
+    "!docs/debug.log",
+    "!docs/issue.md",
     "eas.json",
     "eslint.config.js",
     "global.css",

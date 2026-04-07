@@ -33,7 +33,6 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: app
 
     steps:
       - name: Checkout
@@ -87,7 +86,7 @@ jobs:
           cp README.md fullREADME.md
           cp npmReadMe.md README.md
 
-      - name: Verify publish payload (direct from app/)
+      - name: Verify publish payload (direct from repo root)
         run: npm pack --dry-run
 
       - name: Publish to npmjs

@@ -1,1 +1,0 @@
-"""Wallet repository abstraction placeholder."""

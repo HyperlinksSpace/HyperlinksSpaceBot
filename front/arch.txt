@@ -1,8 +1,0 @@
-we need...
-
-users' db
-check if user's new
-wallet creation for new user
-nft & coin mint
-storage smc
-main reworked

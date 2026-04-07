@@ -1,5 +1,5 @@
 # Build Windows installer on CI (no .exe committed to git), publish GitHub Release, notify /api/releases.
-name: .exe build
+name: Electron EXE Release
 
 on:
   workflow_dispatch:

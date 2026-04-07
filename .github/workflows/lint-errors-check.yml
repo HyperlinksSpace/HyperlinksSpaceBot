@@ -1,4 +1,4 @@
-name: Root App Checks
+name: Lint errors check
 
 on:
   workflow_dispatch:

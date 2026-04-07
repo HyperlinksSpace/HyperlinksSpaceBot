@@ -1,5 +1,5 @@
 # Build Windows installer with Electron Forge on CI, publish GitHub Release, notify /api/releases.
-name: forge .exe build
+name: Electron Forge EXE Release
 
 on:
   workflow_dispatch:

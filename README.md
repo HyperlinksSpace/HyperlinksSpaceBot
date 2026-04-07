@@ -22,6 +22,23 @@ Access [Figma](https://www.figma.com/design/53lDKAD6pRv3e0uef1DP18/TECHSYMBAL-In
 
 Copying fully or partially, usage as an inspiration for other developments are unpleasant, participation in our projects is appreciated. All core materials are available publicly for instant access worldwide and our project availability for newcomers.
 
+## Structure
+
+- [`app`](./app) - Expo/React Telegram Mini App client (web/mobile screens, navigation, UI logic).
+- [`ui`](./ui) - shared UI layer (components, theme tokens, and font configuration used by the app).
+- [`bot`](./bot) - TypeScript Telegram bot service and runtime entrypoints.
+- [`database`](./database) - database startup/migration/service scripts.
+- [`ai`](./ai) - AI assistant service logic and model integration points.
+- [`api`](./api) - backend API handlers and server-side endpoints.
+- [`blockchain`](./blockchain) - TON/blockchain interaction logic and related helpers.
+- [`telegram`](./telegram) - Telegram-specific integration utilities and adapters.
+- [`windows`](./windows) - Electron desktop shell, NSIS installer config, and auto-update flow.
+- [`scripts`](./scripts) - developer/ops scripts (local run, migration, release helpers).
+- [`docs`](./docs) - project and operational documentation.
+- [`backlogs`](./backlogs) - short-term planning notes and prioritized work items.
+- [`assets`](./assets) - static assets used by app, installer, and branding.
+- [`dist`](./dist) - generated web build output (export artifacts).
+
 ## How to fork and contribute?
 
 1. Install GitHub CLI and authorize to GitHub from CLI for instant work

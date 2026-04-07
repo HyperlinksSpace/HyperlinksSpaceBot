@@ -1,4 +1,4 @@
-name: Vercel Deloy
+name: Vercel Deploy (Test Envs)
 
 on:
   workflow_dispatch:

@@ -304,9 +304,10 @@ export default function Index() {
         </Text>
       ) : null}
       {effectiveWalletAddress ? (
-        <Text style={{ textAlign: "center" }}>
-          Wallet: {effectiveWalletAddress}.
-        </Text>
+        <View style={{ alignItems: "center" }}>
+          <Text style={{ textAlign: "center" }}>Wallet:</Text>
+          <Text style={{ textAlign: "center", marginTop: 4 }}>{effectiveWalletAddress}</Text>
+        </View>
       ) : null}
     </View>
   );

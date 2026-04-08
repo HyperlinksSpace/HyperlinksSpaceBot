@@ -18,6 +18,7 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+Branding and naming
 Place of the install update dialog in the UI<br>
 Updater: fasten instant reload<br>
 Custom installer design<br>

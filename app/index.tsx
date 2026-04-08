@@ -146,12 +146,6 @@ export default function Index() {
       const masterKey = await deriveMasterKeyFromMnemonic(mnemonic);
       const seedCipher = await createSeedCipher(masterKey, mnemonic.join(" "));
 
-      // Local fallback cache for recoverability in non-TMA/dev mode.
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem("wallet_master_key", masterKey);
-        localStorage.setItem("wallet_seed_cipher", seedCipher);
-      }
-
       // Register with API first: SecureStorage can fail/hang (see secure_storage_failed) and must not block.
       const response = await fetch("/api/wallet/register", {
         method: "POST",

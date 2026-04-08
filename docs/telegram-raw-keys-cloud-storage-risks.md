@@ -19,18 +19,6 @@ Exactly: a PC can be hacked in both cases.
 
 So both models are vulnerable to endpoint compromise, but web/TMA delivery can add centralized distribution/supply-chain risk that increases aggregate exposure.
 
-## Why per-user CloudStorage isolation is not enough
-
-Per-user isolation prevents one user from directly reading another user's CloudStorage data through normal APIs.
-It does **not** prevent malicious app code (served by your app) from doing this flow repeatedly:
-
-1. User opens Mini App.
-2. App code calls `CloudStorage.getItem(...)` for that user's keys.
-3. App code exfiltrates value.
-4. Repeat for the next user session.
-
-No cross-user storage API is required for this attack pattern.
-
 ## Practical differences vs local desktop wallet model
 
 - **Runtime surface:**
@@ -40,11 +28,4 @@ No cross-user storage API is required for this attack pattern.
 - **Secret impact on read:**
   - **Raw mnemonic in cloud:** one successful read is immediate takeover.
   - **Encrypted cloud blob:** attacker still needs decrypt capability (password/device key), which adds a barrier.
-
-## Design guidance
-
-- Never store raw mnemonic in Telegram `CloudStorage`.
-- Store only ciphertext in CloudStorage.
-- Keep decrypt/sign capability on user-controlled device.
-- Treat Telegram bot/backend as identity and orchestration layers, not key-custody layers.
 

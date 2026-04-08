@@ -1,7 +1,7 @@
 # HyperlinksSpace — Wallet Architecture Doc
 
 > High-level system design, UI flow principles, and implementation thoughts.  
-> Target: non-custodial TON wallet built into the HyperlinksSpace app (Flutter/TMA/Web).
+> Target: TON wallet architecture options for HyperlinksSpace app (Flutter/TMA/Web), including non-custodial and custodial modes.
 
 ---
 
@@ -251,6 +251,152 @@ Swap between implementations via a flag (`kUseMockWalletState` for dev, env-driv
 | **Phase 3** | TON Connect (connect existing wallets as secondary option) |
 | **Phase 4** | Send/receive flows, transaction history |
 | **Phase 5** | Cross-device CloudStorage assist, backup/export UX hardening |
+
+---
+
+## 13. Custodial Model Extension
+
+This section adds a custodial architecture option alongside the existing non-custodial design.
+
+### 13.1 What "custodial" means in this doc
+
+- Wallet secrets are stored centrally as encrypted data in backend storage.
+- Backend trust boundary can participate in decrypt/sign authorization.
+- User identity (Google/Telegram/GitHub/email OTP) becomes a stronger operational gate.
+
+This is a product/trust choice, not just an implementation detail.
+
+---
+
+### 13.2 Custodial key architecture (envelope encryption)
+
+Store per-wallet:
+
+- `ciphertext` (wallet secret encrypted by a DEK)
+- `wrapped_dek` (DEK encrypted by KEK)
+- metadata (`key_version`, `algo`, `created_at`, `status`)
+
+Keep KEK in KMS/HSM, not in DB/app code.
+
+Result:
+- DB theft alone is insufficient.
+- Attacker also needs KMS/HSM access path and permissions.
+
+---
+
+### 13.3 Identity and auth in custodial mode
+
+Identity providers:
+- Google OAuth
+- GitHub OAuth
+- Telegram login bridge
+- Email + OTP (protection code)
+
+Account linking maps all providers to one internal `user_id`.
+
+Auth session is used to authorize protected operations:
+- key unwrap requests
+- signing requests
+- provider linking/unlinking
+
+---
+
+### 13.4 Custodial state machine
+
+```
+[ No Wallet Record ]
+     │
+     ├── Create wallet ─► [ Custodial Encrypted ]
+     │                         │
+     │                         ├── Unlock request (auth + policy) ─► [ Session Unlocked ]
+     │                         │                                         │
+     │                         │                                         └── Sign tx ─► [ Ready ]
+     │                         │
+     └── Restore/import ─────► [ Custodial Encrypted ]
+```
+
+`Session Unlocked` should be short-lived and policy-limited (risk checks, cooldowns, limits).
+
+---
+
+### 13.5 Signing variants
+
+## Variant A: Backend signing (fully custodial)
+- Backend unwraps DEK and signs transactions server-side.
+- Client receives signed transaction/hash.
+- Simplest UX, highest custodial responsibility.
+
+## Variant B: Backend-assisted client resolve (hybrid custodial)
+- Backend authorizes access and returns short-lived decrypt context.
+- Client resolves and signs locally.
+- Better client-side control, still centralized key lifecycle.
+
+Choose one variant explicitly in product docs and legal language.
+
+---
+
+### 13.6 API extension for custodial mode
+
+```
+POST /wallet/custodial/create
+  Body: { user_id, wallet_label, encrypted_payload, wrapped_dek, key_version }
+  Response: { ok: true, wallet_id }
+
+POST /wallet/custodial/unlock
+  Body: { wallet_id, auth_context }
+  Response: { unlock_token, expires_at }   // or server-side unlock only
+
+POST /wallet/custodial/sign
+  Body: { wallet_id, unlock_token, tx_payload }
+  Response: { signed_tx | tx_hash }
+
+POST /wallet/custodial/rotate-kek
+  Body: { wallet_id? | batch_selector, new_key_version }
+  Response: { rewrapped_count }
+```
+
+All endpoints must be audited and rate-limited.
+
+---
+
+### 13.7 Security controls required in custodial mode
+
+- KMS/HSM-backed KEK, non-exportable where possible
+- Strict IAM separation (runtime vs admin)
+- Row-level access control by `user_id`
+- Risk checks before unlock/sign (IP/device anomaly, velocity limits)
+- Immutable security event log
+- Emergency freeze and key-rotation runbook
+- Signed release pipeline + dependency controls
+
+---
+
+### 13.8 UX implications vs non-custodial
+
+Benefits:
+- Easier cross-device recovery
+- Less mnemonic friction for mainstream users
+
+Tradeoffs:
+- Backend/service compromise has larger blast radius
+- Stronger legal/compliance burden
+- Must clearly disclose custodial trust model
+
+Recommended product stance:
+- Keep non-custodial as default for advanced users.
+- Offer custodial mode as explicit opt-in with clear warnings and recovery terms.
+
+---
+
+### 13.9 Updated roadmap including custodial track
+
+| Phase | Non-custodial track | Custodial track |
+|---|---|---|
+| **Phase 1** | Create/restore local wallet, deploy flow | Auth foundation (Google/GitHub/Telegram/email OTP), user linking |
+| **Phase 2** | Device/local storage hardening | Envelope storage (`ciphertext` + `wrapped_dek`) + KMS/HSM integration |
+| **Phase 3** | TMA/Desktop fallback tiers | Unlock/sign endpoints + policy/rate limits |
+| **Phase 4** | Send/receive/history | Custodial signing UX + anomaly protections |
+| **Phase 5** | Backup/export UX hardening | Key rotation, incident runbooks, compliance hardening |
 
 ---
 

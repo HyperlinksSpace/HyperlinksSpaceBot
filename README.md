@@ -6,16 +6,6 @@
 
 This program is built upon [React Native](https://reactnative.dev/) by Meta and [Expo](https://expo.dev) multiplatform technologies, Windows build and executable creation achieved with [Electron Builder](https://www.electron.build/) and [Electron Forge](https://www.electronforge.io/), working in Telegram with help of [Telegram Mini Apps React SDK](http://telegram-mini-apps.com/), [Bot API](https://core.telegram.org/bots) and [Grammy](https://grammy.dev/). AI is backed by [OpenAI API](https://openai.com/ru-RU/api/), blockchain data is processed from [Swap.Coffee API](https://docs.swap.coffee/eng/user-guides/welcome).
 
-## Program Kit
-
-To make it easier for developers to create multiplatform programs with us, we decided to launch an npm package that provides a ready starter for creating such a program basis in one command.
-
-```bash
-npx @www.hyperlinks.space/program-kit ./new-program
-```
-
-Link to the package: https://www.npmjs.com/package/@www.hyperlinks.space/program-kit
-
 ## Program design
 
 Access [Figma](https://www.figma.com/design/53lDKAD6pRv3e0uef1DP18/TECHSYMBAL-Inc.?node-id=754-71&t=v3tmAlywNgXkTWMd-1) in real time for contributing. Contact [Seva](t.me/sevaaignatyev) in Telegram to discuss and implement.
@@ -99,6 +89,13 @@ npm run start
 
 This runs Expo dev server, the Telegram bot (polling mode), and local Vercel API (`vercel dev`).
 
+After `npm run start`, you can test the app on real phones with Expo Go:
+
+- Install **Expo Go** from Google Play (Android) or App Store (iOS).
+- Make sure your phone and development machine are on the same network.
+- Open Expo Go and scan the QR code shown in the terminal/Expo UI.
+- The app will launch on the device and hot-reload on code changes.
+
 Isolated/local run options:
 
 - Expo only (no bot, no Vercel): `npm run start:expo`
@@ -130,11 +127,11 @@ The `.env` file is gitignored; do not commit it.
 
 Current Actions workflows include:
 
-- `Vercel Deploy Test` (`.github/workflows/vercel-deploy-test-envs.yml`) - manual web deploy to Vercel.
-- `NPM Package Release` (`.github/workflows/npm-package-release.yml`) - npm/GitHub Packages release workflow.
-- `Electron EXE Release` and `Electron Forge EXE Release` - manual Windows release pipelines.
-- `EXPO Publish` (`.github/workflows/expo-publish.yml`) - manual OTA publish with EAS CLI.
-- `Lint errors check` (`.github/workflows/lint-errors-check.yml`) - manual lint check.
+- [`Vercel Deploy Test`](./.github/workflows/vercel-deploy-test-envs.yml) - manual web deploy to Vercel.
+- [`NPM Package Release`](./.github/workflows/npm-package-release.yml) - npm/GitHub Packages release workflow.
+- [`Electron EXE Release`](./.github/workflows/electron-exe-release.yml) and [`Electron Forge EXE Release`](./.github/workflows/electron-forge-exe-release.yml) - manual Windows release pipelines.
+- [`EXPO Publish`](./.github/workflows/expo-publish.yml) - manual OTA publish with EAS CLI.
+- [`Lint errors check`](./.github/workflows/lint-errors-check.yml) - manual lint check.
 
 ## Expo Workflows
 
@@ -150,14 +147,6 @@ Run `npm run draft` to [publish a preview update](https://docs.expo.dev/eas/work
 ### Development Builds
 
 Run `npm run development-builds` to [create a development build](https://docs.expo.dev/eas/workflows/examples/create-development-builds/). Note - you'll need to follow the [Prerequisites](https://docs.expo.dev/eas/workflows/examples/create-development-builds/#prerequisites) to ensure you have the correct emulator setup on your machine.
-
-### Production Deployments
-
-Run `npm run deploy` to [deploy to production](https://docs.expo.dev/eas/workflows/examples/deploy-to-production/). Note - you'll need to follow the [Prerequisites](https://docs.expo.dev/eas/workflows/examples/deploy-to-production/#prerequisites) to ensure you're set up to submit to the Apple and Google stores.
-
-## Hosting
-
-Expo offers hosting for websites and API functions via EAS Hosting. See the [Getting Started](https://docs.expo.dev/eas/hosting/get-started/) guide to learn more.
 
 ### Deploy web build to Vercel
 
@@ -190,6 +179,16 @@ The bot is extended beyond a basic "Hello" and "Start program" responder and now
 - Run bot only: `npm run bot:local`
 - Run full local stack (Expo + bot + Vercel): `npm run start`
 - Keep production and local bot tokens separate when possible to avoid webhook/polling conflicts.
+
+## Program Kit
+
+To make it easier for developers to create multiplatform programs with us, we decided to launch an npm package that provides a ready starter for creating such a program basis in one command.
+
+```bash
+npx @www.hyperlinks.space/program-kit ./new-program
+```
+
+Link to the package: https://www.npmjs.com/package/@www.hyperlinks.space/program-kit
 
 ## Where to discuss the project?
 

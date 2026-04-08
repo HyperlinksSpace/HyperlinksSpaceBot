@@ -8,7 +8,7 @@ This program is built upon [React Native](https://reactnative.dev/) by Meta and 
 
 ## Program Kit
 
-To give value for other developers we decided to launch an npm package that provides a ready starter for creating a multiplatform program in one command.
+To make it easier for developers to create multiplatform programs with us, we decided to launch an npm package that provides a ready starter for creating such a program basis in one command.
 
 ```bash
 npx @www.hyperlinks.space/program-kit ./new-program
@@ -20,7 +20,7 @@ Link to the package: https://www.npmjs.com/package/@www.hyperlinks.space/program
 
 Access [Figma](https://www.figma.com/design/53lDKAD6pRv3e0uef1DP18/TECHSYMBAL-Inc.?node-id=754-71&t=v3tmAlywNgXkTWMd-1) in real time for contributing. Contact [Seva](t.me/sevaaignatyev) in Telegram to discuss and implement.
 
-Copying fully or partially, usage as an inspiration for other developments are unpleasant, participation in our projects is appreciated. All core materials are available publicly for instant access worldwide and our project availability for newcomers.
+All core materials are available publicly for our current contributor's instant and easy access worldwide and our project's availability for newcomers' research only.
 
 ## Structure
 

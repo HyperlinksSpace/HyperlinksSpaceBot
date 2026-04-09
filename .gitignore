@@ -46,8 +46,7 @@ yarn-error.*
 
 app-example
 
-.vercel
-
-.vercel
+# local scratch / temp
+.tmp/
 
 .vercel

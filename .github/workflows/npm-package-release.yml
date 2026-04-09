@@ -38,10 +38,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          # Tag runs: checkout by SHA; manual runs: use source_ref (branch/tag/SHA).
+          # Tag runs: checkout the tag commit; manual runs: branch/tag from input.
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Configure Git safe directory (npm pack uses git for gitHead)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Setup Node
         uses: actions/setup-node@v5

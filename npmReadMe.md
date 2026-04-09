@@ -33,11 +33,16 @@ registry and token.
 
 ## After Scaffold
 
+Copy `npmrc.example` to `.npmrc` so installs match this repo (`legacy-peer-deps`; npm does not ship a real `.npmrc` in the tarball for security):
+
 ```bash
 cd new-program
+cp npmrc.example .npmrc
 npm install
 npm run start
 ```
+
+If you prefer not to use a `.npmrc`, you can run **`npm install --legacy-peer-deps`** instead of the copy step.
 
 Then open the project **`fullREADME.md`** for details (env vars, bot setup, build
 and release commands).
@@ -49,5 +54,5 @@ and release commands).
 
 ## Notes
 
-- Published directly from the `app/` folder.
-- Package tarball is filtered to include only required project files.
+- Published from the repository root; the pack includes everything except patterns in [`.npmignore`](./.npmignore) (no `files` whitelist in `package.json`).
+- `.npmrc` cannot be published on npm; `npmrc.example` is included so you can copy it locally.

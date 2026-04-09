@@ -8,37 +8,12 @@
   "bin": {
     "program-kit": "scripts/program-kit-init.cjs"
   },
-  "files": [
-    ".env.example",
-    "README.md",
-    "fullREADME.md",
-    "npmReadMe.md",
-    "app",
-    "api",
-    "app.json",
-    "assets",
-    "blockchain",
-    "bot",
-    "database",
-    "docs",
-    "!docs/debug.log",
-    "!docs/issue.md",
-    "eas.json",
-    "eslint.config.js",
-    "global.css",
-    "package-lock.json",
-    "scripts",
-    "telegram",
-    "tsconfig.json",
-    "vercel.json",
-    "windows"
-  ],
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/HyperlinksSpace/HyperlinksSpaceBot.git"
+    "url": "https://github.com/HyperlinksSpace/HyperlinksSpaceProgram.git"
   },
   "main": "index.js",
   "version": "53.0.1390",

@@ -1,4 +1,3 @@
-Polyfils refactoring<br>
 Wallet: Telegram, Connected, Unhosted<br>
 Username loaded without intermediate state<br>
 Bottom bar refactor<br>
@@ -19,6 +18,7 @@ AI responce checkup in bot (message interruption on new prompt)<br>
 Typing in the middle of the text on large inputting<br>
 
 To think about:<br>
+Polyfils refactoring<br>
 Branding and naming
 Place of the install update dialog in the UI<br>
 Updater: fasten instant reload<br>

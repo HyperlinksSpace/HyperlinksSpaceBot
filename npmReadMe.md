@@ -33,7 +33,7 @@ registry and token.
 
 ## After Scaffold
 
-Copy `npmrc.example` to `.npmrc` so installs match this repo (`legacy-peer-deps`; npm does not ship a real `.npmrc` in the tarball for security):
+**Recommended, not required:** copy `npmrc.example` to `.npmrc` so installs match this repo (`legacy-peer-deps`; npm does not ship a real `.npmrc` in the tarball for security). Equivalent: skip the copy and run **`npm install --legacy-peer-deps`** (or plain **`npm install`** if it completes without peer errors).
 
 ```bash
 cd new-program
@@ -42,10 +42,15 @@ npm install
 npm run start
 ```
 
-If you prefer not to use a `.npmrc`, you can run **`npm install --legacy-peer-deps`** instead of the copy step.
+Then open the project **`README.md`** (or **`fullREADME.md`** if your scaffold renames it) for details (env vars, bot setup, build and release commands).
 
-Then open the project **`fullREADME.md`** for details (env vars, bot setup, build
-and release commands).
+### Vercel CLI and `npm run start`
+
+`npm run start` runs **`vercel dev`** alongside Expo and the bot. The Vercel CLI must be **logged in**; otherwise you may see errors such as **“The specified token is not valid”** or prompts that fail in non-interactive runs.
+
+- Run **`vercel login`** once in the project directory (use **`vercel link`** if the CLI asks to connect the folder to a project).
+- If the token is invalid or expired, run **`vercel login`** again.
+- To work **without** local Vercel, use **`npm run start:expo`** (Expo only) or run **`npm run bot:local`** / **`npm run dev:vercel`** separately as documented in **`README.md`**.
 
 ## Release Channels
 
@@ -63,6 +68,7 @@ Use the same setup you would after cloning this repo:
 
 1. **Node** — Prefer the version in [`.nvmrc`](./.nvmrc) (aligned with [`package.json`](./package.json) `engines`).
 2. **npm install** — Copy [`npmrc.example`](./npmrc.example) to `.npmrc`, then run `npm install` (same `legacy-peer-deps` behavior as a local checkout with a root `.npmrc`).
-3. **Env** — Copy [`.env.example`](./.env.example) to `.env` and fill variables (details in **`fullREADME.md`** after the CI readme swap, or in the main repo README).
+3. **Env** — Copy [`.env.example`](./.env.example) to `.env` and fill variables (see **`README.md`** in the repo).
+4. **Vercel CLI** — For the full stack (`npm run start`), run **`vercel login`** (and **`vercel link`** if needed). See the **Vercel CLI and `npm run start`** subsection above and **`README.md`** → *Local deploy* for the “invalid token” case.
 
 The tarball does not ship `package-lock.json` (by [`.npmignore`](./.npmignore)); the first install generates a lockfile for your machine, like cloning without a committed lock.

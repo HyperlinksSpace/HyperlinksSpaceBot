@@ -33,7 +33,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "dev:vercel": "cross-env TS_NODE_PROJECT=api/tsconfig.json npx vercel dev",
+    "dev:vercel": "cross-env TS_NODE_PROJECT=api/tsconfig.json npx vercel dev --yes",
     "lint": "expo lint",
     "draft": "npx eas-cli@latest workflow:run create-draft.yml",
     "development-builds": "npx eas-cli@latest workflow:run create-development-builds.yml",

@@ -98,6 +98,12 @@ Before local deploy / cloud deploy, prepare these env-backed services:
      - `OPENAI_API_KEY`
      - `BOT_TOKEN` (or `TELEGRAM_BOT_TOKEN`)
    - Pull envs locally when needed with `vercel env pull .env.local`.
+5. **Vercel CLI login (required for `npm run start`)**  
+   The default dev command runs **`vercel dev`** (local API). That needs a **valid Vercel CLI session**, not only project env vars in the dashboard.
+   - Install the CLI if needed: `npm i -g vercel` (or use `npx vercel` as the scripts do).
+   - Run **`vercel login`** once and complete authentication in the browser.
+   - From the repo root, run **`vercel link`** if prompted so this directory is tied to your Vercel project (team/project scope).
+   - If you see **`The specified token is not valid`**, your stored token expired or was revoked: run **`vercel login`** again to refresh it. Do not set a broken **`VERCEL_TOKEN`** in `.env` unless it is a current deploy token from the Vercel dashboard.
 
 Copy env template locally:
 
@@ -111,7 +117,7 @@ To start the full local stack, run:
 npm run start
 ```
 
-This runs Expo dev server, the Telegram bot (polling mode), and local Vercel API (`vercel dev`).
+This runs Expo dev server, the Telegram bot (polling mode), and local Vercel API (`vercel dev`). **Without a successful `vercel login`, the Vercel leg will exit** (e.g. invalid token). Use **`npm run start:expo`** if you only need the app and want to skip Vercel for now.
 
 After `npm run start`, you can test the app on real phones with Expo Go:
 

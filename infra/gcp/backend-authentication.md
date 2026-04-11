@@ -151,6 +151,54 @@ If something fails with **403 Permission denied**, the running identity is not `
 
 ---
 
+## Verify from this repo (local)
+
+With `GOOGLE_APPLICATION_CREDENTIALS` pointing at your `wallet-kms-unwrap-sa-key.json`, start the API (`npm run dev:vercel`). **`npm run dev:vercel` sets `SKIP_DB_MIGRATE=1`** so the initial build does not fail when `DATABASE_URL` / Neon is unreachable (production builds still run migrations via `vercel.json` `buildCommand`).
+
+```bash
+# Zero imports — if this fails, the dev server / port is wrong (see HeadersTimeoutError below)
+curl -s "http://localhost:3000/api/kmsprobe"
+
+# Public URLs (rewrites → api/wallet-envelope-*.ts — see vercel.json)
+curl -s "http://localhost:3000/api/kmsping?probe=1"
+curl -s "http://localhost:3000/api/kmsping?diag=1"
+
+# Instant usage JSON (no KMS call)
+curl -s "http://localhost:3000/api/kmsping"
+
+# KMS encrypt/decrypt — api/wallet-envelope-roundtrip.ts; slow first call — use max-time
+curl -s --max-time 120 "http://localhost:3000/api/kms-roundtrip?roundtrip=1"
+curl -s --max-time 120 "http://localhost:3000/api/kms-roundtrip?quick=1"
+
+# Legacy paths
+curl -s "http://localhost:3000/api/kms/ping?probe=1"
+```
+
+**Implementation:** handlers live in **`api/wallet-envelope-ping.ts`**, **`api/wallet-envelope-probe.ts`**, **`api/wallet-envelope-roundtrip.ts`**, with **`api/lib/envelope-env.ts`**, **`envelope-client.ts`**, **`envelope-crypto.ts`** (avoid **`api/lib/kms*.ts`** paths — `vercel dev` can hang with 0-byte responses). Public URLs stay **`/api/kmsping`**, etc., via **`vercel.json` rewrites**.
+
+`GET /api/kmsping?quick=1` or `?roundtrip=1` returns **422** JSON pointing at **`/api/kms-roundtrip`**.
+
+If `vercel dev` prints **“port 3000 is already in use”**, it listens on **3001** (or another port) — use that URL instead.
+
+Expect **`"usage": true`** and **`"handler": "api/wallet-envelope-ping.ts"`** from bare `/api/kmsping`. Full KMS: **`"roundtrip": true`** from **`/api/kms-roundtrip?roundtrip=1`** when IAM is correct. **`KMS_PING_SECRET`** applies to **`/api/kms-roundtrip`**, not to bare `/api/kmsping` / `?probe=1` / `?diag=1`.
+
+**HeadersTimeoutError / `startsWith` crash:** Handlers are **`wallet-envelope-*.ts`** (rewritten to public **`/api/kmsping`**, etc.). Legacy **`/api/kms/ping`** and **`/api/kms-ping`** hit the same ping handler.
+
+**Debugging:** `GET /api/kmsping?diag=1` returns configuration only. Watch **`[wallet-envelope-roundtrip]`** logs for **`/api/kms-roundtrip`**. **REST to KMS** is default; set `GCP_KMS_USE_GRPC=1` only if needed.
+
+**“Still running after 10s”:** Heavy work is only on **`/api/kms-roundtrip`**. Bare **`/api/kmsping`** should be instant. Use **`curl --max-time 120`** for KMS calls.
+
+**`curl` gets 0 bytes while `/api/ping` works:** Wallet KMS handlers mirror **`ping.ts`**: they support **legacy Node `res`** (`res.end`) as well as Web **`Response`**, because **`vercel dev`** may invoke API routes with `res` and never flush a returned `Response`.
+
+If the request **hangs**: (1) set `GOOGLE_APPLICATION_CREDENTIALS` to an **absolute** Windows path, or put `wallet-kms-unwrap-sa-key.json` in the **project root**; (2) use `curl --max-time` so the shell does not wait forever; (3) restart `vercel dev` after changing env so the KMS client picks up credentials.
+
+In production, set **`KMS_PING_SECRET`** in the environment and call (usage vs full KMS test):
+
+```bash
+curl -s -H "x-kms-ping-secret: YOUR_SECRET" "https://your-deployment/api/kmsping"
+curl -s --max-time 120 -H "x-kms-ping-secret: YOUR_SECRET" "https://your-deployment/api/kms-roundtrip?roundtrip=1"
+```
+
 ## Further reading
 
 - [Authenticate to Cloud KMS](https://cloud.google.com/kms/docs/reference/libraries#authenticate_to_cloud_kms) (official)

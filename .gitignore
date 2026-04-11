@@ -57,3 +57,6 @@ infra/gcp/terraform/*.tfstate
 infra/gcp/terraform/*.tfstate.*
 infra/gcp/terraform/terraform.tfvars
 **/wallet-kms-unwrap-sa-key.json
+wallet-kms-unwrap-sa-key.json
+
+.vercel

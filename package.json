@@ -33,7 +33,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "dev:vercel": "cross-env TS_NODE_PROJECT=api/tsconfig.json npx vercel dev --yes",
+    "dev:vercel": "cross-env SKIP_DB_MIGRATE=1 TS_NODE_PROJECT=api/tsconfig.json npx vercel dev --yes",
     "lint": "expo lint",
     "draft": "npx eas-cli@latest workflow:run create-draft.yml",
     "development-builds": "npx eas-cli@latest workflow:run create-development-builds.yml",
@@ -130,6 +130,7 @@
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.2",
+    "@google-cloud/kms": "^5.4.0",
     "@neondatabase/api-client": "^2.7.0",
     "@neondatabase/serverless": "^1.0.2",
     "@react-navigation/bottom-tabs": "^7.3.10",

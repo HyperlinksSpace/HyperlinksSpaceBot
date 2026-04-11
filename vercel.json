@@ -3,5 +3,32 @@
   "buildCommand": "npm run db:migrate && npx expo export -p web && npx tsx scripts/set-webhook.ts",
   "outputDirectory": "dist",
   "framework": null,
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "rewrites": [
+    {
+      "source": "/api/kms/ping",
+      "destination": "/api/wallet-envelope-ping"
+    },
+    {
+      "source": "/api/kms-ping",
+      "destination": "/api/wallet-envelope-ping"
+    },
+    {
+      "source": "/api/kmsping",
+      "destination": "/api/wallet-envelope-ping"
+    },
+    {
+      "source": "/api/kmsprobe",
+      "destination": "/api/wallet-envelope-probe"
+    },
+    {
+      "source": "/api/kms-roundtrip",
+      "destination": "/api/wallet-envelope-roundtrip"
+    }
+  ],
+  "functions": {
+    "api/wallet-envelope-roundtrip.ts": {
+      "maxDuration": 60
+    }
+  }
 }

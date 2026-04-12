@@ -1,6 +1,6 @@
 import { getDefaultWalletByUsername } from '../../database/wallets.js';
 import { upsertUserFromTma } from '../../database/users.js';
-import { authByInitData } from './_auth.js';
+import { authByInitData } from '../wallet/_auth.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 

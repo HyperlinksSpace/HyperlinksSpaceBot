@@ -11,8 +11,8 @@ import {
   getKmsUsesRestTransport,
   hasExplicitKmsJsonCredentials,
   resolveServiceAccountKeyPath,
-} from './lib/envelope-env.js';
-import { kmsDecrypt, kmsEncrypt } from './lib/envelope-crypto.js';
+} from '../_lib/envelope-env.js';
+import { kmsDecrypt, kmsEncrypt } from '../_lib/envelope-crypto.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -215,5 +215,3 @@ async function handler(
 export default handler;
 export const GET = handler;
 
-/** Vercel: allow slow KMS cold start + encrypt + decrypt in prod. */
-export const maxDuration = 60;

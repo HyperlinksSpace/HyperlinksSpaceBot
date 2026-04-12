@@ -1,3 +1,4 @@
+Change picture in Windows installer
 Wallet: Telegram, Connected, Unhosted<br>
 Username loaded without intermediate state<br>
 Bottom bar refactor<br>

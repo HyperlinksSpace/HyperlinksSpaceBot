@@ -19,7 +19,7 @@ async function handler(
   const body = JSON.stringify({
     ok: true,
     route: '/api/kmsprobe',
-    handler: 'api/wallet-envelope-probe.ts',
+    handler: 'api/[...path].ts (wallet-envelope-probe)',
   });
 
   if (res) {

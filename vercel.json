@@ -27,7 +27,7 @@
     }
   ],
   "functions": {
-    "api/wallet-envelope-roundtrip.ts": {
+    "api/[...path].ts": {
       "maxDuration": 60
     }
   }

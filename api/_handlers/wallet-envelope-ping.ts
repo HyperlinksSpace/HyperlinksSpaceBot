@@ -9,11 +9,13 @@
  */
 
 import {
+  getKmsCredentialSource,
   getKmsKeyName,
   getKmsUsesRestTransport,
   hasExplicitKmsJsonCredentials,
+  parseGcpServiceAccountJson,
   resolveServiceAccountKeyPath,
-} from './lib/envelope-env.js';
+} from '../_lib/envelope-env.js';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -82,6 +84,7 @@ async function handler(
 
   if (url.searchParams.get('diag') === '1') {
     const keyPath = resolveServiceAccountKeyPath();
+    const jsonParse = parseGcpServiceAccountJson();
     return sendJson(
       res,
       {
@@ -89,7 +92,12 @@ async function handler(
         diag: true,
         cwd: process.cwd(),
         vercelEnv: process.env.VERCEL_ENV ?? null,
+        credentialSource: getKmsCredentialSource(),
         hasGcpServiceAccountJson: hasExplicitKmsJsonCredentials(),
+        gcpServiceAccountJson:
+          jsonParse.ok ? 'ok' : jsonParse.error === 'missing' ? 'absent' : 'invalid',
+        gcpServiceAccountJsonError:
+          jsonParse.ok || jsonParse.error === 'missing' ? null : jsonParse.message,
         resolvedKeyPath: keyPath ?? null,
         keyFileExists: Boolean(keyPath),
         kmsTransport: getKmsUsesRestTransport() ? 'rest' : 'grpc',
@@ -114,7 +122,7 @@ async function handler(
         ok: false,
         error: 'wrong_route',
         message:
-          'KMS lives in api/wallet-envelope-roundtrip.ts (public /api/kms-roundtrip). Call:',
+          'KMS lives in route wallet-envelope-roundtrip / public /api/kms-roundtrip. Call:',
         url: dest.toString(),
         curl: `curl -s --max-time 120 "${dest.toString()}"`,
       },
@@ -127,9 +135,9 @@ async function handler(
     {
       ok: true,
       usage: true,
-      handler: 'api/wallet-envelope-ping.ts',
+      handler: 'api/[...path].ts (wallet-envelope-ping)',
       message:
-        'KMS crypto is in api/wallet-envelope-roundtrip.ts; lib uses envelope-*.ts paths for vercel dev.',
+        'KMS crypto is in route wallet-envelope-roundtrip (api/[...path].ts); shared code in api/_lib/envelope-*.ts.',
       try: {
         probe: '/api/kmsping?probe=1',
         diag: '/api/kmsping?diag=1',

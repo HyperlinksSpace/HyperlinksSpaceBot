@@ -39,7 +39,7 @@ async function handler(
     return new Response('Method Not Allowed', { status: 405 });
   }
   try {
-    const { handlePost } = await import('../telegram/post.js');
+    const { handlePost } = await import('../../telegram/post.js');
     const response = await handlePost(request);
     if (res) {
       res.status(response.status);

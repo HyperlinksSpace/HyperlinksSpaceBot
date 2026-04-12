@@ -97,6 +97,7 @@ Before local deploy / cloud deploy, prepare these env-backed services:
      - `DATABASE_URL`
      - `OPENAI_API_KEY`
      - `BOT_TOKEN` (or `TELEGRAM_BOT_TOKEN`)
+     - Optional — **Google Cloud KMS** (wallet envelope API): **`GCP_SERVICE_ACCOUNT_JSON`** — see [below](#gcp_service_account_json-google-cloud-kms).
    - Pull envs locally when needed with `vercel env pull .env.local`.
 5. **Vercel CLI login (required for `npm run start`)**  
    The default dev command runs **`vercel dev`** (local API). That needs a **valid Vercel CLI session**, not only project env vars in the dashboard.
@@ -104,6 +105,35 @@ Before local deploy / cloud deploy, prepare these env-backed services:
    - Run **`vercel login`** once and complete authentication in the browser.
    - From the repo root, run **`vercel link`** if prompted so this directory is tied to your Vercel project (team/project scope).
    - If you see **`The specified token is not valid`**, your stored token expired or was revoked: run **`vercel login`** again to refresh it. Do not set a broken **`VERCEL_TOKEN`** in `.env` unless it is a current deploy token from the Vercel dashboard.
+
+### GCP_SERVICE_ACCOUNT_JSON (Google Cloud KMS)
+
+Serverless routes under [`api/`](./api) that call **Cloud KMS** (wallet envelope KEK) read credentials from the env var **`GCP_SERVICE_ACCOUNT_JSON`**. The value must be the **full JSON object** of a Google Cloud **service account key** whose identity is allowed to use the KMS crypto key (see [`infra/gcp/kms.env.example`](./infra/gcp/kms.env.example)). The app passes this JSON in-process to the Google client — **no** key file is required on Vercel.
+
+**How to get the JSON**
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/), select project **`hyperlinksspacebot`**.
+2. Go to **IAM & Admin → Service Accounts** and open **`wallet-kms-unwrap@hyperlinksspacebot.iam.gserviceaccount.com`** (the account permitted for your key; adjust if you use a different project or SA).
+3. **Keys → Add key → Create new key → JSON**. A `.json` file downloads.
+
+   **CLI alternative** (with [`gcloud`](https://cloud.google.com/sdk/gcloud) installed and authorized):
+
+   ```bash
+   gcloud iam service-accounts keys create ./wallet-kms-unwrap-sa-key.json \
+     --iam-account=wallet-kms-unwrap@hyperlinksspacebot.iam.gserviceaccount.com \
+     --project=hyperlinksspacebot
+   ```
+
+**What to put in `GCP_SERVICE_ACCOUNT_JSON`**
+
+- The **entire file contents** of that key — the single JSON object with `"type": "service_account"`, `"client_email"`, `"private_key"`, etc. Paste into Vercel as one variable (minified or multi-line per the dashboard; the value must remain valid JSON).
+
+**Where to configure**
+
+- **Vercel (production):** Project → **Settings → Environment Variables** → add **`GCP_SERVICE_ACCOUNT_JSON`**, assign to **Production** (and **Preview** if needed), **Redeploy** so serverless functions see the new value.
+- **Local dev:** Prefer a file and `GOOGLE_APPLICATION_CREDENTIALS`, or put the same JSON string in `.env.local` — details in [`infra/gcp/backend-authentication.md`](./infra/gcp/backend-authentication.md).
+
+The downloaded key is a **secret** (like a password): do **not** commit it to git; add `wallet-kms-unwrap-sa-key.json` to `.gitignore` if you keep a local copy.
 
 Copy env template locally:
 

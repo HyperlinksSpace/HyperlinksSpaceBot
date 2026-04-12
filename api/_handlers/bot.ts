@@ -1,11 +1,11 @@
 /**
- * Vercel API route: named GET/POST so Telegram webhook POST is handled.
- * Forwards to app/bot/webhook so only this file is a route (avoids 12-function limit).
+ * Telegram webhook: GET/POST forwarded to bot/webhook.
+ * Mounted from api/[...path].ts (single Vercel serverless function).
  */
 import webhookHandler, {
   type NodeReq,
   type NodeRes,
-} from '../bot/webhook.js';
+} from '../../bot/webhook.js';
 
 async function handler(
   request: Request | NodeReq,

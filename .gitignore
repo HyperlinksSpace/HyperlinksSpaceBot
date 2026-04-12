@@ -49,6 +49,9 @@ app-example
 # local scratch / temp
 .tmp/
 
+# Datadog: local process export (scripts/datadog-export-processes.ps1)
+dd-processes-sample.txt
+
 .vercel
 
 # Terraform / GCP (local state and SA keys)

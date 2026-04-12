@@ -8,7 +8,7 @@
  * - Legacy Node style (req, res)
  */
 
-import { transmit, type AiRequest } from "../ai/transmitter.js";
+import { transmit, type AiRequest } from "../../ai/transmitter.js";
 
 type NodeRes = {
   setHeader(name: string, value: string): void;

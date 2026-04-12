@@ -7,7 +7,7 @@
  * - Legacy Node style (req, res)
  */
 
-import { handleBlockchainRequest } from "../blockchain/router.js";
+import { handleBlockchainRequest } from "../../blockchain/router.js";
 
 type NodeRes = {
   setHeader(name: string, value: string): void;

@@ -1,0 +1,73 @@
+/**
+ * `/api/wallet/register` and `/api/wallet/status` — Vercel does not route multi-segment
+ * paths to `api/[...path].ts` at the project root, so this dynamic segment file is required.
+ */
+
+import registerHandler from '../_handlers/wallet-register.js';
+import statusHandler from '../_handlers/wallet-status.js';
+
+type NodeRes = {
+  setHeader(name: string, value: string): void;
+  status(code: number): void;
+  end(body?: string): void;
+};
+
+const HANDLERS: Record<string, typeof registerHandler> = {
+  register: registerHandler,
+  status: statusHandler,
+};
+
+function pathnameFromRequest(request: Request): string {
+  const raw = request.url ?? '';
+  if (raw.startsWith('/')) {
+    return raw.split('?')[0] ?? '';
+  }
+  if (raw.startsWith('http')) {
+    try {
+      return new URL(raw).pathname;
+    } catch {
+      return '';
+    }
+  }
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? 'localhost';
+  const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+  try {
+    return new URL(raw || '/', `${proto}://${host}`).pathname;
+  } catch {
+    return '';
+  }
+}
+
+async function router(
+  request: Request,
+  res?: NodeRes,
+): Promise<Response | void> {
+  const pathname = pathnameFromRequest(request);
+  const match = pathname.match(/^\/api\/wallet\/([^/?]+)/i);
+  const segment = match?.[1]?.trim() ?? '';
+  const handler = HANDLERS[segment];
+  if (!handler) {
+    const body = JSON.stringify({
+      ok: false,
+      error: 'not_found',
+      path: `wallet/${segment || '(empty)'}`,
+      hint: 'Use /api/wallet/register or /api/wallet/status',
+    });
+    if (res) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.status(404);
+      res.end(body);
+      return;
+    }
+    return new Response(body, {
+      status: 404,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
+  }
+  return handler(request, res);
+}
+
+export default router;
+export const GET = router;
+export const POST = router;
+export const OPTIONS = router;

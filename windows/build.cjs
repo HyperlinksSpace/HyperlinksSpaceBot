@@ -9,6 +9,7 @@ const {
   ipcMain,
   nativeImage,
   nativeTheme,
+  shell,
 } = require("electron");
 
 /** Must match package.json `build.appId`. Call synchronously before `ready` on Windows (Electron + shell taskbar expectations). */
@@ -1829,6 +1830,22 @@ function setupAppMenu() {
                 message: "Updater is not available in development mode.",
               });
             }
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Open update data folder…",
+          click: () => {
+            const dir = app.getPath("userData");
+            void shell.openPath(dir).then((err) => {
+              if (err) {
+                void dialog.showMessageBox({
+                  type: "error",
+                  title: "Could not open folder",
+                  message: err,
+                });
+              }
+            });
           },
         },
       ],

@@ -24,7 +24,7 @@ All core materials are available publicly for currently active https://www.hyper
 - [`api`](./api) - backend API handlers and server-side endpoints.
 - [`blockchain`](./blockchain) - TON/blockchain interaction logic and related helpers.
 - [`telegram`](./telegram) - Telegram-specific integration utilities and adapters.
-- [`windows`](./windows) - Electron desktop shell, NSIS installer config, and auto-update flow.
+- [`windows`](./windows) - Electron desktop shell, NSIS installer config, and auto-update flow. Troubleshooting in-app updates: [texts/windows-in-app-updater-debug.md](./texts/windows-in-app-updater-debug.md).
 - [`scripts`](./scripts) - developer/ops scripts (local run, migration, release helpers).
 - [`docs`](./docs) - project and operational documentation (architecture, releases, security reference, tooling).
 - [`research`](./research) - exploratory notes, investigations, and proposals not yet promoted to `docs/`.

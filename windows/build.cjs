@@ -933,6 +933,7 @@ function setupAutoUpdater() {
     );
 
     let installRequested = false;
+    logUpdaterStateSnapshot("init");
 
     const syncZipReadyUi = (v) => {
       if (!updateDialogState.window || updateDialogState.window.isDestroyed()) return;
@@ -967,6 +968,41 @@ function setupAutoUpdater() {
     };
 
     const getVersionsStagingRoot = () => path.join(app.getPath("userData"), "pending-update-versions");
+    const logUpdaterStateSnapshot = (reason, extra = {}) => {
+      let stagedVersions = [];
+      try {
+        const root = getVersionsStagingRoot();
+        if (fs.existsSync(root)) {
+          stagedVersions = fs
+            .readdirSync(root)
+            .filter((name) => {
+              try {
+                return fs.statSync(path.join(root, name)).isDirectory();
+              } catch (_) {
+                return false;
+              }
+            })
+            .sort((a, b) => compareSemverLike(a, b));
+        }
+      } catch (_) {}
+      const state = {
+        reason,
+        currentVersion,
+        manualCheckInProgress,
+        manualDownloadInProgress,
+        updaterCheckRetrying,
+        zipPrepareInFlight,
+        zipReadyVersion,
+        zipStagingContentPath,
+        stagedExeOk: zipStagingContentPath ? stagingHasMainExe(zipStagingContentPath) : false,
+        stagedVersions,
+        installRequested,
+        dialogOpen: Boolean(updateDialogState.window && !updateDialogState.window.isDestroyed()),
+        installEnabled: Boolean(updateDialogState.installEnabled),
+        ...extra,
+      };
+      logUpdater("state", safeJson(state, 1600));
+    };
 
     const restoreVersionsStagingFromDisk = () => {
       const root = getVersionsStagingRoot();
@@ -1002,8 +1038,10 @@ function setupAutoUpdater() {
         zipStagingContentPath = bestContent;
         log(`[updater] restored staging from disk: ${bestVer} -> ${bestContent}`);
         logUpdater("staging", `restore picked version=${bestVer} contentRoot=${bestContent}`);
+        logUpdaterStateSnapshot("restore/picked");
       } else {
         logUpdater("staging", "restore no valid staged build found");
+        logUpdaterStateSnapshot("restore/none");
       }
     };
 
@@ -1015,6 +1053,7 @@ function setupAutoUpdater() {
         "prepare",
         `tryBeginVersionsPrepare enter remote=${remoteV || "?"} feed=${safeJson(info)} opts=${safeJson(opts)}`,
       );
+      logUpdaterStateSnapshot("prepare/enter", { remoteVersion: remoteV || null });
       if (!useWinVersionsSidecar) {
         logUpdater("prepare", "skip (not Windows zip sidecar mode)");
         return;
@@ -1185,6 +1224,7 @@ function setupAutoUpdater() {
         manualDownloadInProgress = false;
         log(`[updater] staged update at ${contentRoot}`);
         logUpdater("prepare", `COMPLETE readyVersion=${meta.version} staging=${contentRoot}`);
+        logUpdaterStateSnapshot("prepare/complete", { preparedVersion: meta.version });
         // syncZipReadyUi needs an open dialog; background checks used uiActive=false and would skip UI.
         if (!uiActive) {
           openOrFocusUpdateDialog();
@@ -1224,6 +1264,7 @@ function setupAutoUpdater() {
             installEnabled: false,
           });
         }
+        logUpdaterStateSnapshot("prepare/failed", { error: String(errMsg) });
       } finally {
         zipPrepareInFlight = false;
         logUpdater(
@@ -1495,6 +1536,11 @@ function setupAutoUpdater() {
       const exeOk =
         Boolean(zipStagingContentPath) &&
         stagingHasMainExe(zipStagingContentPath);
+      logUpdaterStateSnapshot("install/requested", {
+        useVersionsApply,
+        semverNewer: Boolean(semverNewer),
+        exeOk: Boolean(exeOk),
+      });
       logUpdater(
         "ipc",
         `requestInstallNow useVersionsApply=${useVersionsApply} zipReady=${zipReadyVersion} path=${zipStagingContentPath}`,
@@ -1621,6 +1667,7 @@ function setupAutoUpdater() {
     autoUpdater.on("update-available", (info) => {
       log(`[updater] update-available version=${info?.version || "unknown"}`);
       logUpdater("event", `update-available ${safeJson({ version: info?.version, path: info?.path })}`);
+      logUpdaterStateSnapshot("event/update-available", { remoteVersion: info?.version || null });
       const wasManual = manualCheckInProgress;
       if (manualCheckInProgress) {
         manualCheckInProgress = false;
@@ -1684,6 +1731,7 @@ function setupAutoUpdater() {
         return;
       }
       logUpdater("event", `error manualCheck=${manualCheckInProgress} download=${manualDownloadInProgress} ${err?.message || err}`);
+      logUpdaterStateSnapshot("event/error", { error: err?.message || String(err) });
       if (manualCheckInProgress || manualDownloadInProgress) {
         manualCheckInProgress = false;
         manualDownloadInProgress = false;
@@ -1702,6 +1750,7 @@ function setupAutoUpdater() {
       try {
         log("[updater] manual check requested from menu");
         logUpdater("ipc", "checkNow from menu");
+        logUpdaterStateSnapshot("checkNow/start");
         downloadProgressLoggedSample = false;
         if (
           useWinVersionsSidecar &&
@@ -1727,6 +1776,7 @@ function setupAutoUpdater() {
         updaterCheckRetrying = true;
         try {
           await checkForUpdatesWithRetry();
+          logUpdaterStateSnapshot("checkNow/checkForUpdates resolved");
         } finally {
           updaterCheckRetrying = false;
         }

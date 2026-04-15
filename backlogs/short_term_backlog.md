@@ -1,4 +1,5 @@
 Home on Windowd did not display after the update
+Temporary test release: expanded in-app updater state logs (will revert after verification)
 Login screen
 Dealing with pool count
 Updates on launch test

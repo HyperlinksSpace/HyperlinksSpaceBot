@@ -28,6 +28,7 @@ The **Updater** window also shows a rolling activity log (last lines only); for 
 - `[updater:prepare] FAILED` — zip download, verify, or unpack failed.
 - `update-downloaded: ignored on Windows` — expected: NSIS installer finished downloading but Windows uses the zip pipeline instead.
 - `requestInstallNow blocked: no staged build` — UI offered reload before staging completed, or staging was cleared; check `pending-update-versions` and zip assets on GitHub.
+- `[updater:state]` — compact state snapshots captured on check/start, update-available, prepare enter/complete/fail, install request, and updater errors.
 
 ## 2. GitHub release assets (maintainers)
 

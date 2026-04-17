@@ -1,5 +1,3 @@
-Refresh home in TMA issue
-Is Telegram true or false testing
 Login screen
 Updates on launch test
 Change picture in Windows installer

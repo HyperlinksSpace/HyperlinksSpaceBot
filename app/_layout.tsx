@@ -1,13 +1,14 @@
 import "../global.css";
 import { View, StyleSheet, Platform, KeyboardAvoidingView, AppState, Alert } from "react-native";
-import { Stack, usePathname } from "expo-router";
+import { Stack } from "expo-router";
 import * as Updates from "expo-updates";
 import { AuthProvider } from "../auth/AuthContext";
 import { TelegramProvider, useTelegram } from "../ui/components/Telegram";
-import { isMobileWebUserAgent } from "../ui/components/telegramWebApp";
 import { GlobalLogoBarWithFallback } from "../ui/components/GlobalLogoBarWithFallback";
 import { GlobalBottomBar } from "../ui/components/GlobalBottomBar";
 import { useColors } from "../ui/theme";
+import { useResolvedPathname } from "../ui/useResolvedPathname";
+import { showGlobalLogoBarOnWelcomeTma } from "../ui/components/telegramWebApp";
 import { useEffect, useRef } from "react";
 
 /**
@@ -83,20 +84,21 @@ function useOtaUpdateChecks() {
 }
 
 function RootContent() {
-  const pathname = usePathname();
+  const pathname = useResolvedPathname();
   const colors = useColors();
-  const { themeBgReady, useTelegramTheme, isInTelegram } = useTelegram();
+  const { themeBgReady, useTelegramTheme, isInTelegram, isFullscreen, isExpanded } = useTelegram();
   const backgroundColor = themeBgReady ? colors.background : "transparent";
   // Stronger than opacity:0 — avoids one frame of dark RN-web compositing before themeBgReady.
   const hideWebUntilTheme =
     Platform.OS === "web" && useTelegramTheme && !themeBgReady;
 
-  const mobileTmaUsesHomeHeader =
-    Platform.OS === "web" && isInTelegram && isMobileWebUserAgent();
   const showGlobalLogoBar =
     pathname == null || pathname === ""
       ? true
-      : pathname !== "/welcome" || mobileTmaUsesHomeHeader;
+      : pathname !== "/welcome"
+        ? !isInTelegram || isExpanded
+        : Platform.OS === "web" ||
+          showGlobalLogoBarOnWelcomeTma(isInTelegram, isFullscreen);
 
   return (
     <View

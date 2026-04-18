@@ -9,6 +9,12 @@ import {
   getPlatformFromHash,
   getThemeParamsFromLaunch,
   getWebAppVersionFromHash,
+  attachFullscreenChangedListener,
+  getIsExpanded,
+  getIsFullscreen,
+  getIsImmersiveFullscreenMerged,
+  getTmaInitAndWebAppDebugSnapshot,
+  parseViewportChangedFullscreenFlag,
   isActuallyInTelegram,
   isAvailable,
   isTelegramWebAppPlatformReal,
@@ -43,6 +49,25 @@ function isLikelyInTma(): boolean {
   } catch {
     return false;
   }
+}
+
+/** tma.js `viewport.isFullscreen` may be a signal/computed — unwrap for merges with WebApp. */
+function readViewportIsFullscreen(): boolean | undefined {
+  try {
+    const raw = viewport.isFullscreen as unknown;
+    if (typeof raw === "boolean") return raw;
+    if (raw && typeof raw === "object" && "value" in raw) {
+      const v = (raw as { value: unknown }).value;
+      if (typeof v === "boolean") return v;
+    }
+    if (typeof raw === "function") {
+      const v = (raw as () => unknown)();
+      if (typeof v === "boolean") return v;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
 }
 
 /**
@@ -205,7 +230,12 @@ export type TelegramContextValue = {
   triggerHaptic: (style: string) => void;
   safeAreaInsetTop: number;
   contentSafeAreaInsetTop: number;
+  /**
+   * Immersive fullscreen (requestFullscreen / Bot API 8.0+). Not the same as expanded mini-app height.
+   */
   isFullscreen: boolean;
+  /** Mini app expanded to full viewport height (WebApp.isExpanded). */
+  isExpanded: boolean;
   /** Start param from launch (query or hash). Valid per Telegram: A-Za-z0-9_- up to 512 chars. */
   startParam: string | null;
   /** On-screen debug (no console needed in TMA). */
@@ -246,7 +276,8 @@ const defaultContext: TelegramContextValue = {
   triggerHaptic: () => {},
   safeAreaInsetTop: 0,
   contentSafeAreaInsetTop: 0,
-  isFullscreen: true,
+  isFullscreen: false,
+  isExpanded: true,
   startParam: null,
   debug: defaultDebug,
 };
@@ -273,7 +304,15 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
 
   const [safeAreaInsetTop, setSafeAreaInsetTop] = useState(0);
   const [contentSafeAreaInsetTop, setContentSafeAreaInsetTop] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return getIsImmersiveFullscreenMerged(undefined, undefined);
+    } catch {
+      return false;
+    }
+  });
+  const [isExpanded, setIsExpanded] = useState(true);
   const [colorScheme, setColorScheme] = useState<"dark" | "light">(initialColorSchemeFromBootstrap);
 
   // Client starts hidden (themeBgReady false) until plain-web unlock (useLayoutEffect) or TMA runTmaFlow.
@@ -444,10 +483,41 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       viewport.mount?.();
       setSafeAreaInsetTop(viewport.safeAreaInsetTop ?? 0);
       setContentSafeAreaInsetTop(viewport.contentSafeAreaInsetTop ?? 0);
-      setIsFullscreen(viewport.isFullscreen ?? true);
+      setIsFullscreen(getIsImmersiveFullscreenMerged(readViewportIsFullscreen()));
+      setIsExpanded(getIsExpanded());
     } catch {
       // outside Mini App (e.g. local dev) — leave defaults
     }
+  }, []);
+
+  // WebApp may set isFullscreen after SDK viewport; listen for authoritative updates.
+  useEffect(() => {
+    if (typeof window === "undefined" || !isLikelyInTma()) return;
+
+    function applyMergedFullscreen(): void {
+      try {
+        const sdkFs = readViewportIsFullscreen();
+        const merged = getIsImmersiveFullscreenMerged(sdkFs);
+        setIsFullscreen(merged);
+        console.log("[TMA fullscreen] WebApp fullscreenChanged (or initial attach)", {
+          webAppIsFullscreen: getIsFullscreen(),
+          sdkViewportIsFullscreen: sdkFs,
+          mergedImmersiveFullscreen: merged,
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    let detach: (() => void) | undefined;
+    ensureTelegramScript(() => {
+      applyMergedFullscreen();
+      detach = attachFullscreenChangedListener(applyMergedFullscreen);
+    });
+
+    return () => {
+      detach?.();
+    };
   }, []);
 
   // TMA-only: layout height and scroll come from TMA. When keyboard opens,
@@ -470,9 +540,53 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     }
     window.addEventListener("scroll", lockScroll, { passive: false });
 
+    function syncViewportFromSdk(
+      viewportPayload?: {
+        height?: number;
+        width?: number;
+        is_expanded?: boolean;
+        isExpanded?: boolean;
+        is_state_stable?: boolean;
+        isStateStable?: boolean;
+        fullscreen?: boolean;
+        isFullscreen?: boolean;
+        is_fullscreen?: boolean;
+      },
+    ): void {
+      try {
+        setSafeAreaInsetTop(viewport.safeAreaInsetTop ?? 0);
+        setContentSafeAreaInsetTop(viewport.contentSafeAreaInsetTop ?? 0);
+        const sdkFs = readViewportIsFullscreen();
+        const bridgeFs = parseViewportChangedFullscreenFlag(viewportPayload);
+        const merged = getIsImmersiveFullscreenMerged(sdkFs, bridgeFs);
+        setIsFullscreen(merged);
+        const expandedFromEvent =
+          viewportPayload?.is_expanded ?? viewportPayload?.isExpanded;
+        if (typeof expandedFromEvent === "boolean") {
+          setIsExpanded(expandedFromEvent);
+        } else {
+          setIsExpanded(getIsExpanded());
+        }
+        console.log("[TMA viewport] sync", {
+          sdkViewportIsFullscreen: sdkFs,
+          bridgeViewportChangedFullscreen: bridgeFs,
+          webAppIsFullscreen: getIsFullscreen(),
+          mergedImmersiveFullscreen: merged,
+          isExpanded: typeof expandedFromEvent === "boolean" ? expandedFromEvent : getIsExpanded(),
+          payloadKeys:
+            viewportPayload && typeof viewportPayload === "object"
+              ? Object.keys(viewportPayload as object)
+              : [],
+        });
+      } catch {
+        // ignore
+      }
+    }
+
     let tmaCleanup: (() => void) | null = null;
     viewport.mount?.().then(() => {
       try {
+        syncViewportFromSdk();
         const unbindCss = viewport.bindCssVars?.();
         // viewport_changed (height, width?, is_expanded, is_state_stable). Only reset scroll when state is stable.
         const removeViewportListener = on(
@@ -484,7 +598,11 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
             is_state_stable?: boolean;
             isExpanded?: boolean;
             isStateStable?: boolean;
+            fullscreen?: boolean;
+            isFullscreen?: boolean;
+            is_fullscreen?: boolean;
           }) => {
+            syncViewportFromSdk(payload);
             const stable = payload.is_state_stable ?? payload.isStateStable ?? false;
             if (stable) window.scrollTo(0, 0);
           }
@@ -598,18 +716,35 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     function runTmaFlow(): () => void {
       readyAndExpand();
 
-      // Initial theme: WebApp first (matches Telegram UI). Launch hash can disagree → dark flash.
+      // Initial theme + WebApp viewport flags in one snapshot (hash theme JSON has colors only).
       try {
         const launchTp = getThemeParamsFromLaunch();
         const webTp = getInitialThemeParams();
         const bg = getBgColorForScheme(webTp) ?? getBgColorForScheme(launchTp);
-        // eslint-disable-next-line no-console
-        console.log("[TMA theme] initial themeParams", { launch: launchTp, web: webTp }, "bg:", bg);
+
+        const viewportFs = readViewportIsFullscreen();
+        const mergedImmersive = getIsImmersiveFullscreenMerged(viewportFs);
+        setIsFullscreen(mergedImmersive);
+        setIsExpanded(getIsExpanded());
+
+        console.log("[TMA init] launch hash + WebApp snapshot", getTmaInitAndWebAppDebugSnapshot());
+        console.log(
+          "[TMA theme] initial themeParams",
+          {
+            launch: launchTp,
+            web: webTp,
+            webAppIsFullscreen: getIsFullscreen(),
+            viewportSdkIsFullscreen: viewportFs,
+            mergedImmersiveFullscreen: mergedImmersive,
+            isExpanded: getIsExpanded(),
+          },
+          "bg:",
+          bg,
+        );
         if (bg) {
           setColorScheme(classifyThemeFromBgColor(bg));
           setThemeBgReady((prev) => {
             if (prev) return prev;
-            // eslint-disable-next-line no-console
             console.log("[TMA theme] themeBgReady=true");
             return true;
           });
@@ -722,6 +857,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     safeAreaInsetTop,
     contentSafeAreaInsetTop,
     isFullscreen,
+    isExpanded,
     startParam: getStartParam(),
     debug,
   };

@@ -16,7 +16,10 @@ export type TelegramWebApp = {
   setHeaderColor?: (color: string) => void;
   setupSwipeBehavior?: (opts: { allow_vertical_swipe?: boolean }) => void;
   disableVerticalSwipes?: () => void;
+  /** Immersive fullscreen (Bot API 8.0+), not the same as expanded height. */
   isFullscreen?: boolean;
+  /** Mini app uses expanded viewport height (after expand()); distinct from isFullscreen. */
+  isExpanded?: boolean;
   HapticFeedback?: { impactOccurred?: (style: string) => void };
   [k: string]: unknown;
 };
@@ -200,6 +203,10 @@ export function getPlatform(): string | null {
 
 export type ThemeParams = Record<string, string>;
 
+/**
+ * Theme colors from hash `tgWebAppThemeParams` only — does **not** include fullscreen (that is
+ * `tgWebAppFullscreen` in the hash and/or live `WebApp.isFullscreen` / viewport).
+ */
 export function getThemeParamsFromLaunch(): ThemeParams | null {
   const params = getLaunchParamsFromHash();
   const raw = params?.get("tgWebAppThemeParams");
@@ -335,9 +342,127 @@ export function getPrimaryTextColorFromLaunch(): string | null {
   return null;
 }
 
+/** Immersive fullscreen only; false when API omits the flag (expanded mini app is not fullscreen). */
 export function getIsFullscreen(): boolean {
   const app = getWebApp();
   const v = app?.isFullscreen;
+  return typeof v === "boolean" ? v : false;
+}
+
+/**
+ * Raw `tgWebAppFullscreen` from the URL hash (Telegram adds this when opening in fullscreen).
+ * Value may be empty; `null` if the key is missing.
+ */
+export function getTgWebAppFullscreenRawFromHash(): string | null {
+  const params = getLaunchParamsFromHash();
+  if (!params || !params.has("tgWebAppFullscreen")) return null;
+  const v = params.get("tgWebAppFullscreen");
+  if (v == null) return "";
+  return String(v).trim();
+}
+
+/** True when launch hash includes fullscreen (key present; empty value counts as on). */
+export function getLaunchHashFullscreenPositive(): boolean {
+  const params = getLaunchParamsFromHash();
+  if (!params || !params.has("tgWebAppFullscreen")) return false;
+  const raw = params.get("tgWebAppFullscreen");
+  if (raw == null) return true;
+  const s = String(raw).trim();
+  if (s === "") return true;
+  const sl = s.toLowerCase();
+  if (sl === "0" || sl === "false" || sl === "no" || sl === "off") return false;
+  if (sl === "1" || sl === "true" || sl === "yes" || sl === "on") return true;
+  return s.length > 0;
+}
+
+/**
+ * Optional `fullscreen` flag from bridge `viewport_changed` (see Telegram viewport docs).
+ * Launch hash may also carry `tgWebAppFullscreen` — see `getLaunchHashFullscreenPositive`.
+ */
+export function parseViewportChangedFullscreenFlag(payload: unknown): boolean | undefined {
+  if (payload == null || typeof payload !== "object") return undefined;
+  const p = payload as Record<string, unknown>;
+  for (const key of ["fullscreen", "isFullscreen", "is_fullscreen"] as const) {
+    const v = p[key];
+    if (typeof v === "boolean") return v;
+  }
+  return undefined;
+}
+
+/**
+ * Immersive fullscreen if Telegram.WebApp **or** the TMA SDK viewport **or** bridge
+ * `viewport_changed` **or** launch hash `tgWebAppFullscreen` says so.
+ * Important: do not use `viewport.isFullscreen ?? getIsFullscreen()` — when the SDK reports
+ * `false`, we must still honor `WebApp.isFullscreen === true`.
+ */
+export function getIsImmersiveFullscreenMerged(
+  viewportSdkIsFullscreen?: boolean | null,
+  viewportBridgeFullscreen?: boolean | null,
+): boolean {
+  if (getIsFullscreen()) return true;
+  if (viewportSdkIsFullscreen === true) return true;
+  if (viewportBridgeFullscreen === true) return true;
+  if (getLaunchHashFullscreenPositive()) return true;
+  return false;
+}
+
+/**
+ * Safe snapshot for console: hash param names, version/platform from launch, initData size,
+ * live WebApp flags, and `tgWebAppFullscreen` from hash (not in tgWebAppData).
+ */
+export function getTmaInitAndWebAppDebugSnapshot(): Record<string, unknown> {
+  if (typeof window === "undefined") {
+    return { note: "no window" };
+  }
+  const params = getLaunchParamsFromHash();
+  const hashParamNames = params ? Array.from(params.keys()) : [];
+  const app = getWebApp();
+  const initDataStr = getInitDataString();
+  const hashFullscreenRaw = getTgWebAppFullscreenRawFromHash();
+  return {
+    hashParamNames,
+    tgWebAppVersion: getWebAppVersionFromHash(),
+    tgWebAppPlatformFromHash: getPlatformFromHash(),
+    tgWebAppFullscreenFromHash: hashFullscreenRaw,
+    launchHashFullscreenPositive: getLaunchHashFullscreenPositive(),
+    mergedImmersiveFullscreenNow: getIsImmersiveFullscreenMerged(undefined, undefined),
+    startParam: getStartParam(),
+    initDataCharLength: typeof initDataStr === "string" ? initDataStr.length : 0,
+    webAppPlatformLive: app?.platform,
+    webAppIsFullscreenLive: getIsFullscreen(),
+    webAppIsExpandedLive: getIsExpanded(),
+    note:
+      "Merged immersive fullscreen = WebApp.isFullscreen || SDK viewport || viewport_changed.fullscreen || launch hash tgWebAppFullscreen. Init data does not include fullscreen; hash may.",
+  };
+}
+
+/** Subscribe to Bot API 8.0 `fullscreenChanged` (WebApp authoritative after event). */
+export function attachFullscreenChangedListener(onChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const app = getWebApp() as unknown as {
+    onEvent?: (eventType: string, cb: () => void) => void;
+    offEvent?: (eventType: string, cb: () => void) => void;
+  } | null;
+  if (!app?.onEvent) return () => {};
+  const handler = () => onChange();
+  try {
+    app.onEvent("fullscreenChanged", handler);
+    return () => {
+      try {
+        app.offEvent?.("fullscreenChanged", handler);
+      } catch {
+        // ignore
+      }
+    };
+  } catch {
+    return () => {};
+  }
+}
+
+/** Expanded to full mini-app height; default true when omitted (typical after expand()). */
+export function getIsExpanded(): boolean {
+  const app = getWebApp();
+  const v = app?.isExpanded;
   return typeof v === "boolean" ? v : true;
 }
 
@@ -406,5 +531,15 @@ export function isMobileWebUserAgent(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
     navigator.userAgent,
   );
+}
+
+/**
+ * When to show the default global logo bar on `/welcome` inside TMA.
+ * Only **immersive** fullscreen (`WebApp.isFullscreen` / merged viewport) — not expanded “fullsize” alone.
+ * On fullsize-without-immersive, the welcome screen uses the marketing header instead.
+ */
+export function showGlobalLogoBarOnWelcomeTma(isInTelegram: boolean, isFullscreen: boolean): boolean {
+  if (!isInTelegram) return false;
+  return isFullscreen;
 }
 

@@ -1,25 +1,56 @@
 /**
- * Global logo bar: same layout and behaviour as Dart GlobalLogoBar.
- * All Telegram data from useTelegram() (single source: Telegram.ts / Telegram.tsx).
+ * Global logo bar: default header, welcome marketing row (web), or welcome TMA immersive layout.
+ * Variant follows route + Telegram viewport (see `resolveLogoBarVariant`).
  */
-import React, { useMemo } from "react";
-import { View, Pressable, StyleSheet, Platform } from "react-native";
-import { useRouter, usePathname } from "expo-router";
+import React, { useEffect, useMemo } from "react";
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  Platform,
+  Text,
+  Linking,
+} from "react-native";
+import { useRouter } from "expo-router";
 import { useTelegram } from "./Telegram";
 import { HyperlinksSpaceLogo } from "./HyperlinksSpaceLogo";
-import { isMobileWebUserAgent } from "./telegramWebApp";
-import { useColors } from "../theme";
+import { LogoWordmark } from "./LogoWordmark";
+import { getTmaInitAndWebAppDebugSnapshot, showGlobalLogoBarOnWelcomeTma } from "./telegramWebApp";
+import { dark, light, useColors } from "../theme";
+import { useResolvedPathname } from "../useResolvedPathname";
 
 const LOGO_HEIGHT = 32;
 const WELCOME_LOGO_HEIGHT = 40;
+const WELCOME_WORDMARK_WIDTH = (104 / 40) * WELCOME_LOGO_HEIGHT;
 const WELCOME_VERTICAL_INDENT = 15;
 const BOTTOM_PADDING = 10;
 const HORIZONTAL_PADDING = 15;
+const MARKETING_HORIZONTAL_PADDING = 16;
 const BROWSER_FALLBACK_TOP_PADDING = 30;
+const ABOUT_URL = "https://www.hyperlinks.space";
+
+type LogoBarVariant = "default" | "welcomeMarketing" | "welcomeImmersiveTma";
+
+function resolveLogoBarVariant(
+  pathname: string,
+  isInTelegram: boolean,
+  isFullscreen: boolean,
+): LogoBarVariant {
+  if (pathname !== "/welcome") return "default";
+  const immersiveWelcome = showGlobalLogoBarOnWelcomeTma(isInTelegram, isFullscreen);
+  // Immersive TMA welcome (minimalistic centered logo) wins over the web marketing row.
+  if (isInTelegram && immersiveWelcome) {
+    return "welcomeImmersiveTma";
+  }
+  if (Platform.OS === "web" && (!isInTelegram || !immersiveWelcome)) {
+    return "welcomeMarketing";
+  }
+  return "default";
+}
 
 function useLogoTopPadding(
   safeAreaInsetTop: number,
-  contentSafeAreaInsetTop: number
+  contentSafeAreaInsetTop: number,
 ): number {
   return useMemo(() => {
     if (safeAreaInsetTop === 0 && contentSafeAreaInsetTop === 0) {
@@ -30,9 +61,60 @@ function useLogoTopPadding(
   }, [safeAreaInsetTop, contentSafeAreaInsetTop]);
 }
 
+function WelcomeMarketingBarContent({
+  backgroundColor,
+  borderBottomColor,
+}: {
+  backgroundColor: string;
+  borderBottomColor: string;
+}) {
+  const { triggerHaptic } = useTelegram();
+  const colors = useColors();
+  const logoTextColor = colors.primary === light.primary ? dark.background : light.background;
+
+  const onAbout = () => {
+    triggerHaptic("light");
+    void Linking.openURL(ABOUT_URL);
+  };
+
+  return (
+    <View
+      style={[
+        styles.marketingBar,
+        {
+          paddingTop: WELCOME_VERTICAL_INDENT,
+          paddingBottom: WELCOME_VERTICAL_INDENT,
+          paddingHorizontal: MARKETING_HORIZONTAL_PADDING,
+          backgroundColor,
+          borderBottomColor,
+        },
+      ]}
+    >
+      <View style={styles.marketingRow}>
+        <View style={styles.marketingLeft} accessible accessibilityLabel="Hyperlinks Space">
+          <LogoWordmark
+            width={WELCOME_WORDMARK_WIDTH}
+            height={WELCOME_LOGO_HEIGHT}
+            textColor={logoTextColor}
+          />
+        </View>
+        <Pressable
+          onPress={onAbout}
+          style={styles.aboutHit}
+          accessibilityRole="link"
+          accessibilityLabel="About"
+          accessibilityHint="Opens hyperlinks.space in the browser"
+        >
+          <Text style={[styles.aboutText, { color: colors.primary }]}>About</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export function GlobalLogoBar() {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = useResolvedPathname();
   const colors = useColors();
   const {
     isInTelegram,
@@ -40,31 +122,45 @@ export function GlobalLogoBar() {
     safeAreaInsetTop,
     contentSafeAreaInsetTop,
     isFullscreen,
+    isExpanded,
     themeBgReady,
   } = useTelegram();
 
   const backgroundColor = themeBgReady ? colors.background : "transparent";
 
-  const topPadding = useLogoTopPadding(safeAreaInsetTop, contentSafeAreaInsetTop);
+  const variant = resolveLogoBarVariant(pathname, isInTelegram, isFullscreen);
   const isWelcome = pathname === "/welcome";
-  const logoBlockHeight = isWelcome ? WELCOME_LOGO_HEIGHT : LOGO_HEIGHT;
-  const innerPaddingTop = isWelcome ? WELCOME_VERTICAL_INDENT : topPadding;
-  const innerPaddingBottom = isWelcome ? WELCOME_VERTICAL_INDENT : BOTTOM_PADDING;
+
+  useEffect(() => {
+    if (pathname !== "/welcome") return;
+    console.log("[GlobalLogoBar] /welcome header variant", {
+      variant,
+      isInTelegram,
+      isFullscreenContext: isFullscreen,
+      showDefaultLogoOnWelcomeTma: showGlobalLogoBarOnWelcomeTma(isInTelegram, isFullscreen),
+      initAndWebApp: getTmaInitAndWebAppDebugSnapshot(),
+    });
+  }, [pathname, variant, isInTelegram, isFullscreen]);
+
+  const topPadding = useLogoTopPadding(safeAreaInsetTop, contentSafeAreaInsetTop);
+  const useWelcomeCenteredLogoLayout = variant === "welcomeImmersiveTma";
+  const logoBlockHeight = useWelcomeCenteredLogoLayout ? WELCOME_LOGO_HEIGHT : LOGO_HEIGHT;
+  const innerPaddingTop = useWelcomeCenteredLogoLayout ? WELCOME_VERTICAL_INDENT : topPadding;
+  const innerPaddingBottom = useWelcomeCenteredLogoLayout ? WELCOME_VERTICAL_INDENT : BOTTOM_PADDING;
   const blockHeight = innerPaddingTop + logoBlockHeight + innerPaddingBottom;
 
-  const isMobileTmaWeb = useMemo(
-    () => Platform.OS === "web" && isMobileWebUserAgent(),
-    [],
-  );
-
   const shouldShow = useMemo(() => {
+    if (isWelcome && Platform.OS === "web") {
+      return true;
+    }
     if (!isInTelegram) return true;
-    if (isFullscreen) return true;
-    if (isMobileTmaWeb) return true;
-    return false;
-  }, [isInTelegram, isFullscreen, isMobileTmaWeb]);
+    if (pathname === "/welcome") {
+      return showGlobalLogoBarOnWelcomeTma(isInTelegram, isFullscreen);
+    }
+    return isExpanded;
+  }, [isInTelegram, pathname, isFullscreen, isExpanded, isWelcome]);
 
-  const onPress = () => {
+  const onPressLogoHome = () => {
     triggerHaptic("light");
     router.replace("/");
   };
@@ -73,12 +169,29 @@ export function GlobalLogoBar() {
     return <View style={[styles.container, { height: 0, backgroundColor }]} />;
   }
 
-  const welcomeBottomBorder = isWelcome
+  if (variant === "welcomeMarketing") {
+    return (
+      <View style={[styles.container, { backgroundColor }]}>
+        <WelcomeMarketingBarContent
+          backgroundColor={backgroundColor}
+          borderBottomColor={colors.highlight}
+        />
+      </View>
+    );
+  }
+
+  const welcomeBottomBorder = useWelcomeCenteredLogoLayout
     ? { borderBottomWidth: 1 as const, borderBottomColor: colors.highlight }
     : null;
 
   return (
-    <View style={[styles.container, { height: blockHeight, backgroundColor }, welcomeBottomBorder]}>
+    <View
+      style={[
+        styles.container,
+        { height: blockHeight, backgroundColor },
+        welcomeBottomBorder,
+      ]}
+    >
       <View
         style={[
           styles.inner,
@@ -90,7 +203,7 @@ export function GlobalLogoBar() {
         ]}
       >
         <Pressable
-          onPress={onPress}
+          onPress={onPressLogoHome}
           style={styles.logoWrap}
           accessibilityRole="button"
           accessibilityLabel="Go to home"
@@ -108,7 +221,7 @@ const styles = StyleSheet.create({
   container: {
     width: "100%",
     backgroundColor: "transparent",
-    flexShrink: 0, /* keep header fixed height when keyboard opens (flex layout, no shift) */
+    flexShrink: 0,
   },
   inner: {
     width: "100%",
@@ -123,5 +236,29 @@ const styles = StyleSheet.create({
   logoBox: {
     width: LOGO_HEIGHT,
     height: LOGO_HEIGHT,
+  },
+  marketingBar: {
+    width: "100%",
+    alignSelf: "stretch",
+    flexShrink: 0,
+    borderBottomWidth: 1,
+  },
+  marketingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  marketingLeft: {
+    flexShrink: 1,
+    marginRight: 12,
+  },
+  aboutHit: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  aboutText: {
+    fontSize: 16,
+    fontWeight: "400",
   },
 });

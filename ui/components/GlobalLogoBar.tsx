@@ -30,8 +30,6 @@ function useLogoTopPadding(
   }, [safeAreaInsetTop, contentSafeAreaInsetTop]);
 }
 
-const WELCOME_BORDER = { borderBottomWidth: 1 as const, borderBottomColor: "#818181" as const };
-
 export function GlobalLogoBar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -75,7 +73,9 @@ export function GlobalLogoBar() {
     return <View style={[styles.container, { height: 0, backgroundColor }]} />;
   }
 
-  const welcomeBottomBorder = isWelcome ? WELCOME_BORDER : null;
+  const welcomeBottomBorder = isWelcome
+    ? { borderBottomWidth: 1 as const, borderBottomColor: colors.highlight }
+    : null;
 
   return (
     <View style={[styles.container, { height: blockHeight, backgroundColor }, welcomeBottomBorder]}>

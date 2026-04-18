@@ -27,6 +27,7 @@ export type ThemeColors = {
   background: string;
   primary: string;
   secondary: string;
+  highlight: string;
 };
 
 export function getColorsForTheme(name: ThemeName | undefined | null): ThemeColors {
@@ -37,9 +38,8 @@ export function getColorsForTheme(name: ThemeName | undefined | null): ThemeColo
 
 /** Same on SSR and first client paint — never app dark (#111); Telegram bg shows through CSS vars. */
 const TELEGRAM_PRE_READY_FALLBACK: ThemeColors = {
+  ...dark,
   background: "transparent",
-  primary: "rgba(0,0,0,0.35)",
-  secondary: "#818181",
 };
 
 // Convenience hook: derive palette when used in React, using Telegram theme in TMA
@@ -74,7 +74,7 @@ export function useColors(): ThemeColors {
         // eslint-disable-next-line no-console
         console.log("[useColors] telegram pre-ready palette", preReady);
       }
-      return preReady;
+      return { ...preReady, highlight: dark.highlight };
     }
     return TELEGRAM_PRE_READY_FALLBACK;
   }

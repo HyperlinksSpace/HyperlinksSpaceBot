@@ -6,8 +6,8 @@ import React from "react";
 import { View, Text, Pressable, StyleSheet, Linking } from "react-native";
 import { useTelegram } from "./Telegram";
 import { LogoWordmark } from "./LogoWordmark";
+import { dark, light, useColors } from "../theme";
 
-const BG = "#000000";
 const LOGO_HEIGHT = 40;
 const LOGO_WIDTH = (104 / 40) * LOGO_HEIGHT;
 const VERTICAL_INDENT = 15;
@@ -15,6 +15,8 @@ const ABOUT_URL = "https://www.hyperlinks.space";
 
 export function WelcomeMarketingHeader() {
   const { triggerHaptic } = useTelegram();
+  const colors = useColors();
+  const logoTextColor = colors.primary === light.primary ? dark.background : light.background;
 
   const onAbout = () => {
     triggerHaptic("light");
@@ -22,10 +24,20 @@ export function WelcomeMarketingHeader() {
   };
 
   return (
-    <View style={[styles.bar, { paddingTop: VERTICAL_INDENT, paddingBottom: VERTICAL_INDENT }]}>
+    <View
+      style={[
+        styles.bar,
+        {
+          paddingTop: VERTICAL_INDENT,
+          paddingBottom: VERTICAL_INDENT,
+          backgroundColor: colors.background,
+          borderBottomColor: colors.highlight,
+        },
+      ]}
+    >
       <View style={styles.row}>
         <View style={styles.left} accessible accessibilityLabel="Hyperlinks Space">
-          <LogoWordmark width={LOGO_WIDTH} height={LOGO_HEIGHT} />
+          <LogoWordmark width={LOGO_WIDTH} height={LOGO_HEIGHT} textColor={logoTextColor} />
         </View>
         <Pressable
           onPress={onAbout}
@@ -34,7 +46,7 @@ export function WelcomeMarketingHeader() {
           accessibilityLabel="About"
           accessibilityHint="Opens hyperlinks.space in the browser"
         >
-          <Text style={styles.aboutText}>About</Text>
+          <Text style={[styles.aboutText, { color: colors.primary }]}>About</Text>
         </Pressable>
       </View>
     </View>
@@ -45,11 +57,9 @@ const styles = StyleSheet.create({
   bar: {
     width: "100%",
     alignSelf: "stretch",
-    backgroundColor: BG,
     paddingHorizontal: 16,
     flexShrink: 0,
     borderBottomWidth: 1,
-    borderBottomColor: "#818181",
   },
   row: {
     flexDirection: "row",
@@ -66,7 +76,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   aboutText: {
-    color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "400",
   },
